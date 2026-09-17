@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ANNALISA, VERA, VERA_AUTH, asAnon, asOperator, asOwner, connect, pgCode, resetData } from '../helpers/db'
+import {
+  ANNALISA,
+  OUTSIDER_AUTH,
+  VERA,
+  VERA_AUTH,
+  asAnon,
+  asOperator,
+  asOwner,
+  connect,
+  pgCode,
+  resetData,
+} from '../helpers/db'
 import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, DAY_TWO, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
 
 const V1 = '50000000-0000-4000-8000-000000000001'
@@ -7,6 +18,9 @@ const V2 = '50000000-0000-4000-8000-000000000002'
 const A1 = '60000000-0000-4000-8000-000000000001'
 const A2 = '60000000-0000-4000-8000-000000000002'
 const A3 = '60000000-0000-4000-8000-000000000003'
+// Neither id is ever inserted by beforeEach: real UUID shape, guaranteed absent.
+const MISSING_VISIT = '50000000-0000-4000-8000-00000000ffff'
+const MISSING_APPOINTMENT = '60000000-0000-4000-8000-00000000ffff'
 
 beforeEach(async () => {
   await resetData()
@@ -92,6 +106,61 @@ describe('move_visit', () => {
       await c.end()
     }
   })
+
+  // ⚠ discriminating: fix round 1. Without the entry-point
+  // `set constraints appointment_slot_unique deferred`, a second move_visit
+  // call in the SAME explicit transaction inherits IMMEDIATE mode from the
+  // first call's own trailing `set constraints all immediate`. A single-
+  // appointment visit can't expose that (nothing else in the same UPDATE
+  // statement to transiently collide with), so V2 is given a SECOND
+  // appointment here — the same "manicure passes through where the pedicure
+  // currently sits" shape as V1's own two-service shift — before shifting
+  // it as the transaction's second call.
+  it('allows two non-colliding move_visit calls in the same explicit transaction', async () => {
+    const c = await connect()
+    try {
+      await c.query('begin')
+      // Give V2 a second appointment, mirroring V1's own two-service shape,
+      // so its own shift below is a multi-row UPDATE too.
+      await c.query(
+        `insert into appointment (visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
+         values ($1, $2, $3, $4::date, 132, 12)`,
+        [V2, ANNALISA, SERVICE_REFILL, DAY_ONE],
+      )
+      await c.query('select move_visit($1, $2::date, $3)', [V1, DAY_ONE, 6])
+      await c.query('select move_visit($1, $2::date, $3)', [V2, DAY_ONE, 6])
+      const v1 = await c.query<{ s: number }>(
+        'select start_cell as s from appointment where visit_id = $1 order by start_cell',
+        [V1],
+      )
+      const v2 = await c.query<{ s: number }>(
+        'select start_cell as s from appointment where visit_id = $1 order by start_cell',
+        [V2],
+      )
+      expect(v1.rows.map((x) => x.s)).toEqual([126, 138])
+      expect(v2.rows.map((x) => x.s)).toEqual([126, 138])
+    } finally {
+      await c.query('rollback').catch(() => {})
+      await c.end()
+    }
+  })
+
+  // ⚠ discriminating: fix round 1, silent no-ops. Without the FOUND check,
+  // both of these resolve with no error and no change — indistinguishable
+  // from a real success.
+  it('raises P0002 for a visit that does not exist', async () => {
+    await expect(
+      asOwner((c) => c.query('select move_visit($1, $2::date, $3)', [MISSING_VISIT, DAY_ONE, 6])),
+    ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
+  })
+
+  it('raises P0002, not a silent success, when the caller cannot see the visit', async () => {
+    // OUTSIDER_AUTH is an authenticated account linked to no operator row,
+    // so app.is_active_operator() is false and RLS hides V1 entirely.
+    await expect(
+      asOperator(OUTSIDER_AUTH, (c) => c.query('select move_visit($1, $2::date, $3)', [V1, DAY_ONE, 6])),
+    ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
+  })
 })
 
 describe('swap_appointment_operators', () => {
@@ -114,6 +183,64 @@ describe('swap_appointment_operators', () => {
     await expect(
       asOwner((c) => c.query('update appointment set operator_id = $1 where id = $2', [ANNALISA, A1])),
     ).rejects.toSatisfy((e) => pgCode(e) === '23505')
+  })
+
+  // ⚠ discriminating: fix round 1. The autocommit swap test above passes
+  // with or without `set constraints all immediate` (nothing forces the
+  // deferred check before this test's own inspecting query runs), and
+  // "cannot be done as two separate calls" only proves the SCHEMA's deferred
+  // constraint, not that the function itself checks anything — it stays
+  // green even if swap_appointment_operators is deleted outright. This test
+  // fails unless the FUNCTION checks inside its own transaction: it parks a
+  // fresh, UNCOMMITTED third appointment that only collides with where one
+  // swapped appointment lands, on the SAME connection, before commit.
+  it('reports a collision inside the transaction, not at commit', async () => {
+    const c = await connect()
+    try {
+      await c.query('begin')
+      const b1 = (
+        await c.query<{ id: string }>(
+          `insert into appointment (visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
+           values ($1, $2, $3, $4::date, 200, 12) returning id`,
+          [V1, VERA, SERVICE_REFILL, DAY_ONE],
+        )
+      ).rows[0].id
+      const b2 = (
+        await c.query<{ id: string }>(
+          `insert into appointment (visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
+           values ($1, $2, $3, $4::date, 220, 12) returning id`,
+          [V2, ANNALISA, SERVICE_REFILL, DAY_ONE],
+        )
+      ).rows[0].id
+      // Park a third, uncommitted Annalisa appointment on cells 200-211,
+      // where b1 lands once it becomes Annalisa's.
+      await c.query(
+        `insert into appointment (visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
+         values ($1, $2, $3, $4::date, 200, 12)`,
+        [V2, ANNALISA, SERVICE_REFILL, DAY_ONE],
+      )
+      // Swap b1 (Vera, 200-211) and b2 (Annalisa, 220-231): b1 becomes
+      // Annalisa on 200-211. Collision with the parked appointment above.
+      await expect(c.query('select swap_appointment_operators($1, $2)', [b1, b2])).rejects.toSatisfy(
+        (e) => pgCode(e) === '23505',
+      )
+    } finally {
+      await c.query('rollback').catch(() => {})
+      await c.end()
+    }
+  })
+
+  // ⚠ discriminating: fix round 1, silent no-ops.
+  it('raises P0002 when an appointment does not exist', async () => {
+    await expect(
+      asOwner((c) => c.query('select swap_appointment_operators($1, $2)', [A1, MISSING_APPOINTMENT])),
+    ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
+  })
+
+  it('raises P0002, not a silent success, when the caller cannot see an appointment', async () => {
+    await expect(
+      asOperator(OUTSIDER_AUTH, (c) => c.query('select swap_appointment_operators($1, $2)', [A1, A3])),
+    ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
   })
 })
 
@@ -185,12 +312,44 @@ describe('write_exception_day', () => {
 })
 
 describe('write function privileges', () => {
-  it.each([
-    'move_visit(null, null, null)',
-    'swap_appointment_operators(null, null)',
-    'write_exception_day(null, null, null)',
-    'write_exception_days(null, null, null, null)',
-  ])('refuses %s to an unauthenticated caller', async (call) => {
+  // Canonical signatures, as `has_function_privilege` resolves them —
+  // matching the revoke/grant block's own spelling in the migration.
+  const SIGNATURES: [string, string][] = [
+    ['public.move_visit(uuid, date, integer)', 'move_visit(null, null, null)'],
+    ['public.swap_appointment_operators(uuid, uuid)', 'swap_appointment_operators(null, null)'],
+    ['public.write_exception_day(uuid, date, int[])', 'write_exception_day(null, null, null)'],
+    ['public.write_exception_days(uuid, date, date, int[])', 'write_exception_days(null, null, null, null)'],
+  ]
+
+  const hasExecute = (role: 'anon' | 'authenticated', signature: string) =>
+    asOwner(async (c) => {
+      const r = await c.query<{ has: boolean }>(`select has_function_privilege($1, $2, 'EXECUTE') as has`, [
+        role,
+        signature,
+      ])
+      return r.rows[0].has
+    })
+
+  // ⚠ discriminating: fix round 1. "Call as anon, expect 42501" cannot tell
+  // "EXECUTE revoked from the function" apart from "EXECUTE granted, but the
+  // function body then hits a revoked TABLE privilege or an RLS policy" —
+  // both also raise 42501. Measured live: granting EXECUTE to anon on all
+  // four left move_visit and swap_appointment_operators still raising 42501
+  // (from the table grants 00051_privilege_baseline.sql revokes from anon)
+  // and write_exception_day still raising 42501 (from its RLS policy, once
+  // it actually attempts the insert) — three of the four behavioural tests
+  // below stayed green with EXECUTE wrongly granted, unable to fail.
+  // has_function_privilege checks the EXECUTE grant itself, directly, so it
+  // cannot be fooled by what happens deeper inside the function.
+  it.each(SIGNATURES)('anon lacks EXECUTE on %s', async (signature) => {
+    expect(await hasExecute('anon', signature)).toBe(false)
+  })
+
+  it.each(SIGNATURES)('authenticated has EXECUTE on %s', async (signature) => {
+    expect(await hasExecute('authenticated', signature)).toBe(true)
+  })
+
+  it.each(SIGNATURES)('refuses %s to an unauthenticated caller', async (_signature, call) => {
     await expect(asAnon((c) => c.query(`select ${call}`))).rejects.toSatisfy((e) => pgCode(e) === '42501')
   })
 })
