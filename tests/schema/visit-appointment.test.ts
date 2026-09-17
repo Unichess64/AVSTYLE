@@ -22,12 +22,6 @@ const addAppointment = (id: string, startCell: number, cellCount: number, date =
     ),
   )
 
-const updatedAt = (table: 'visit' | 'appointment', id: string) =>
-  asOwner(async (c) => {
-    const r = await c.query<{ u: Date }>(`select updated_at as u from ${table} where id = $1`, [id])
-    return r.rows[0].u.getTime()
-  })
-
 describe('visit and appointment', () => {
   it('stores an appointment at cell 120 for 18 cells (10:00, 90 minutes)', async () => {
     await addAppointment(APPT, 120, 18)
@@ -74,16 +68,50 @@ describe('visit and appointment', () => {
   })
 
   // ⚠ discriminating: §10.2's lost-update design rests on these triggers.
+  // A single before/after read around one UPDATE does NOT discriminate here,
+  // even inside one transaction: "before" is the row's insert-time value,
+  // stamped by a DIFFERENT, earlier transaction (addAppointment's own
+  // asOwner() call), so it is always older than "after" regardless of which
+  // clock the trigger uses — a wall-clock gap between two transactions, not
+  // a property of now() vs clock_timestamp(). To discriminate, BOTH
+  // timestamps being compared must come from the trigger firing inside the
+  // SAME transaction: two UPDATEs, one connection, begin/commit explicit
+  // because asOwner() issues none of its own. now() is fixed for the whole
+  // transaction, so both trigger firings would stamp the SAME value;
+  // clock_timestamp() advances between statements, so they'd differ — BUT
+  // two bare UPDATEs back to back are often under 1ms apart (JS Date has
+  // millisecond resolution), which round-tripped this into a coin flip
+  // in practice (measured: roughly half the runs failed even with the
+  // correct clock_timestamp() migration in place). pg_sleep() between the
+  // two UPDATEs forces a real gap for clock_timestamp() to register while
+  // leaving a frozen now() exactly as frozen, so the comparison becomes
+  // deterministic either way.
   it('bumps updated_at when an appointment changes', async () => {
     await addAppointment(APPT, 120, 18)
-    const before = await updatedAt('appointment', APPT)
-    await asOwner((c) => c.query('update appointment set start_cell = 126 where id = $1', [APPT]))
-    expect(await updatedAt('appointment', APPT)).toBeGreaterThan(before)
+    const bumped = await asOwner(async (c) => {
+      await c.query('begin')
+      await c.query('update appointment set start_cell = 126 where id = $1', [APPT])
+      const first = await c.query<{ u: Date }>('select updated_at as u from appointment where id = $1', [APPT])
+      await c.query('select pg_sleep(0.01)')
+      await c.query('update appointment set start_cell = 130 where id = $1', [APPT])
+      const second = await c.query<{ u: Date }>('select updated_at as u from appointment where id = $1', [APPT])
+      await c.query('commit')
+      return second.rows[0].u.getTime() > first.rows[0].u.getTime()
+    })
+    expect(bumped).toBe(true)
   })
 
   it('bumps updated_at when the visit changes', async () => {
-    const before = await updatedAt('visit', VISIT)
-    await asOwner((c) => c.query('update visit set visit_date = $1::date where id = $2', [DAY_TWO, VISIT]))
-    expect(await updatedAt('visit', VISIT)).toBeGreaterThan(before)
+    const bumped = await asOwner(async (c) => {
+      await c.query('begin')
+      await c.query('update visit set visit_date = $1::date where id = $2', [DAY_TWO, VISIT])
+      const first = await c.query<{ u: Date }>('select updated_at as u from visit where id = $1', [VISIT])
+      await c.query('select pg_sleep(0.01)')
+      await c.query('update visit set visit_date = $1::date where id = $2', [DAY_ONE, VISIT])
+      const second = await c.query<{ u: Date }>('select updated_at as u from visit where id = $1', [VISIT])
+      await c.query('commit')
+      return second.rows[0].u.getTime() > first.rows[0].u.getTime()
+    })
+    expect(bumped).toBe(true)
   })
 })
