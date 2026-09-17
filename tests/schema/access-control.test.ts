@@ -1,0 +1,61 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import {
+  ALESSANDRA, ANNALISA, VERA,
+  ALESSANDRA_AUTH, ANNALISA_AUTH, OUTSIDER_AUTH, VERA_AUTH,
+  asAnon, asOperator, asOwner, resetData,
+} from '../helpers/db'
+
+beforeEach(async () => {
+  await resetData()
+})
+
+describe('auth configuration', () => {
+  // The README asserts this. Without the assertion, the README is a false claim.
+  it('disables self-service signup and anonymous sign-in locally', () => {
+    const config = readFileSync('supabase/config.toml', 'utf8')
+    expect(config).toMatch(/^\s*enable_signup\s*=\s*false/m)
+    expect(config).toMatch(/^\s*enable_anonymous_sign_ins\s*=\s*false/m)
+  })
+})
+
+describe('access control', () => {
+  it('lets an active, linked operator read the operators', async () => {
+    const names = await asOperator(VERA_AUTH, async (c) => {
+      const r = await c.query<{ name: string }>('select name from operator order by sort_order')
+      return r.rows.map((x) => x.name)
+    })
+    expect(names).toEqual(['Vera', 'Annalisa', 'Alessandra'])
+  })
+
+  it('shows nothing to an unauthenticated visitor', async () => {
+    const n = await asAnon(async (c) => (await c.query('select id from operator')).rowCount)
+    expect(n).toBe(0)
+  })
+
+  it('shows nothing to an authenticated account that is not an operator', async () => {
+    const n = await asOperator(OUTSIDER_AUTH, async (c) => (await c.query('select id from operator')).rowCount)
+    expect(n).toBe(0)
+  })
+
+  it('shows nothing to a deactivated operator', async () => {
+    await asOwner((c) => c.query('update operator set is_active = false where id = $1', [ALESSANDRA]))
+    const n = await asOperator(ALESSANDRA_AUTH, async (c) => (await c.query('select id from operator')).rowCount)
+    expect(n).toBe(0)
+  })
+
+  it('does not recurse on the operator policy itself', async () => {
+    const n = await asOperator(ANNALISA_AUTH, async (c) =>
+      (await c.query('select id from operator where id = $1', [ANNALISA])).rowCount,
+    )
+    expect(n).toBe(1)
+  })
+
+  it('seeds exactly three operators with the expected ids', async () => {
+    const ids = await asOperator(VERA_AUTH, async (c) => {
+      const r = await c.query<{ id: string }>('select id from operator order by sort_order')
+      return r.rows.map((x) => x.id)
+    })
+    expect(ids).toEqual([VERA, ANNALISA, ALESSANDRA])
+  })
+})
