@@ -52,14 +52,31 @@ $$;
 -- statement that queued it finishes, so between delete_orphan_visit and
 -- touch_client_activity specifically, the order can never invert. That is
 -- the ONLY guarantee this structure provides. It is NOT a schema-wide
--- guarantee and IS a convention a future caller can violate: the reviewer
--- built an ordinary transaction with no trigger involved — lock a `client`
--- row (e.g. `update client ... where id = ...`), then lock the `visit` row
--- this trigger would also lock — running concurrently against this
--- trigger's visit-then-client order, and reproduced a genuine 40P01
--- deadlock. A future flow that touches `client` before `visit` (a rebook or
--- a client-merge, say) is exactly such a caller. Any code added later that
--- locks both must take `visit` before `client`, matching this trigger.
+-- guarantee and IS a convention a caller can violate — and this is not a
+-- hypothetical future caller: `delete from client` is exactly such a caller
+-- TODAY, reached through §11.3's right of erasure, not through code that
+-- does not exist yet. `client → visit → appointment` is two ON DELETE
+-- CASCADE foreign keys, so `delete from client` locks the client row FIRST,
+-- then cascades into `visit` — client before visit, the reverse of this
+-- trigger's own order. Measured 6/6: a transaction that runs `delete from
+-- appointment` against one appointment of a two-appointment visit (this
+-- trigger locks that visit row, via update, and does not delete it while
+-- the sibling appointment survives) concurrently with a transaction running
+-- `delete from client` on that visit's client (which locks the client row,
+-- then blocks cascading into the same visit row this trigger already
+-- holds) deadlocks: the first transaction's own deferred
+-- zz_touch_client_activity fires at COMMIT and blocks on the client row the
+-- second transaction holds, while the second blocks on the visit row the
+-- first holds — a genuine 40P01 cycle, not a hang. This is covered by two
+-- existing tests: orphan-visit.test.ts's *"keeps the visit while an
+-- appointment remains"* (which takes the visit-row lock this scenario
+-- depends on) and *"survives a client deletion cascading through both"*
+-- (which exercises `delete from client` terminating cleanly on its own).
+-- Any code added later that locks both `client` and `visit` must take
+-- `visit` before `client`, matching this trigger — `delete from client`
+-- itself cannot be reordered, since the cascade direction is fixed by the
+-- foreign keys, so this is a live, accepted deadlock shape, not merely a
+-- documented risk. See spec §10.5 and §12.1.
 --
 -- Separately, and independent of `client` entirely: this trigger's OWN lock
 -- can deadlock against itself. Two SEQUENTIAL single-row
@@ -73,7 +90,7 @@ $$;
 -- describes today issues sequential single-row deletes across visits in
 -- caller-controlled order, so this is not reachable yet — but a future
 -- caller that does must lock visits in a fixed order (id order, matching
--- touch_client_activity's own `order by 1` discipline for `client`), not
+-- touch_client_activity's own `order by id` discipline for `client`), not
 -- caller-supplied order.
 --
 -- Termination through `delete from client`: client → visit → appointment is

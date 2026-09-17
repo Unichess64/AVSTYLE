@@ -14,6 +14,16 @@
 --                                -- appointment_slot, reachable one join
 --                                -- away by truncating its parent instead.
 --
+-- MAINTAIN was measured missing from Part 1's revoke list below (a re-review
+-- after 0005 was corrected to include it): as anon, `lock table client in
+-- access exclusive mode` and `analyze client` both succeeded, so an
+-- unauthenticated caller could block every reader of the salon's only
+-- database. MAINTAIN is not gated by RLS either, and it has no entry in
+-- `information_schema.role_table_grants` at all — that view's privilege
+-- vocabulary predates the privilege — which is why the standing audit in
+-- catalogue-audit.test.ts reads `pg_class.relacl` via `aclexplode` rather
+-- than that view.
+--
 -- This migration is 00051, not 0006: 0006 is already claimed by a later
 -- task for availability. Supabase applies migrations in lexicographic
 -- filename order, so a "0005b_" prefix was the first name tried — but the
@@ -29,19 +39,19 @@
 -- already revokes everything but SELECT from both roles there, which is
 -- stricter than the baseline below and stays correct as-is.
 
--- Part 1: revoke truncate, references, trigger from BOTH anon and
--- authenticated, on every other application table. None of the three is
--- ever used by the application; TRUNCATE in particular bypasses RLS
--- entirely, so leaving it grantable reopens exactly the hole this migration
--- exists to close, on whichever table a caller picks.
-revoke truncate, references, trigger on operator from authenticated, anon;
-revoke truncate, references, trigger on service_category from authenticated, anon;
-revoke truncate, references, trigger on service from authenticated, anon;
-revoke truncate, references, trigger on operator_service from authenticated, anon;
-revoke truncate, references, trigger on salon_settings from authenticated, anon;
-revoke truncate, references, trigger on client from authenticated, anon;
-revoke truncate, references, trigger on visit from authenticated, anon;
-revoke truncate, references, trigger on appointment from authenticated, anon;
+-- Part 1: revoke truncate, references, trigger, maintain from BOTH anon and
+-- authenticated, on every other application table. None of the four is
+-- ever used by the application; TRUNCATE and MAINTAIN in particular bypass
+-- RLS entirely, so leaving either grantable reopens exactly the hole this
+-- migration exists to close, on whichever table a caller picks.
+revoke truncate, references, trigger, maintain on operator from authenticated, anon;
+revoke truncate, references, trigger, maintain on service_category from authenticated, anon;
+revoke truncate, references, trigger, maintain on service from authenticated, anon;
+revoke truncate, references, trigger, maintain on operator_service from authenticated, anon;
+revoke truncate, references, trigger, maintain on salon_settings from authenticated, anon;
+revoke truncate, references, trigger, maintain on client from authenticated, anon;
+revoke truncate, references, trigger, maintain on visit from authenticated, anon;
+revoke truncate, references, trigger, maintain on appointment from authenticated, anon;
 
 -- Part 2: revoke insert, update, delete from anon ONLY, keeping SELECT.
 -- anon can never satisfy app.is_active_operator() (it has no operator

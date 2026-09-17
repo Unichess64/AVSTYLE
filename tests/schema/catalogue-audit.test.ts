@@ -93,14 +93,31 @@ describe('catalogue audit', () => {
   // migration, so a future migration that widens the grant (or a new write
   // privilege Postgres adds) is caught here instead of being demonstrated
   // again by a reviewer.
+  //
+  // Both audits below read `pg_class.relacl` through `aclexplode`, joined to
+  // `pg_roles` for the grantee name, rather than
+  // `information_schema.role_table_grants` as an earlier version did.
+  // Measured reason: MAINTAIN is a real, grantable table privilege (it backs
+  // LOCK/VACUUM/ANALYZE/CLUSTER/REINDEX, none of it gated by row-level
+  // security — RLS only gates SELECT/INSERT/UPDATE/DELETE), but
+  // `information_schema.role_table_grants`'s privilege vocabulary predates
+  // MAINTAIN and simply has no row for it — an audit built on that view is
+  // structurally blind to it, passing green while `anon` held it on every
+  // table. `aclexplode(pg_class.relacl)` decodes the ACL Postgres actually
+  // stores and lists every privilege it contains, MAINTAIN included, so a
+  // future privilege this same way is caught here rather than demonstrated
+  // again by a reviewer.
   it('grants authenticated and anon nothing but SELECT on appointment_slot', async () => {
     const rows = await asOwner(async (c) => {
       const r = await c.query<{ grantee: string; privilege_type: string }>(`
-        select grantee, privilege_type
-        from information_schema.role_table_grants
-        where table_schema = 'public'
-          and table_name = 'appointment_slot'
-          and grantee in ('authenticated', 'anon')
+        select r.rolname as grantee, a.privilege_type
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        cross join lateral aclexplode(c.relacl) a
+        join pg_roles r on r.oid = a.grantee
+        where n.nspname = 'public'
+          and c.relname = 'appointment_slot'
+          and r.rolname in ('authenticated', 'anon')
         order by 1, 2
       `)
       return r.rows
@@ -115,30 +132,38 @@ describe('catalogue audit', () => {
   // beyond that one table: Supabase's default ACL grants anon and
   // authenticated the full rDxtm set (references, delete, insert, select,
   // trigger, truncate, update, maintain) on EVERY table it creates in
-  // public, and RLS does not gate TRUNCATE at all. Measured live before the
-  // 0005b baseline migration existed: `truncate table client;` as anon
-  // succeeded (wiping the only personal data in the system), and so did
+  // public, and RLS does not gate TRUNCATE or MAINTAIN at all. Measured live
+  // before the 0005b baseline migration existed: `truncate table client;` as
+  // anon succeeded (wiping the only personal data in the system), and so did
   // `truncate table appointment;` (the same double-booking vector 0005
   // closed on appointment_slot, reached one join away by truncating its
-  // parent instead). This audit enumerates every table in the catalogue —
-  // not a hardcoded list, same discipline as the audits above — so a future
-  // table that forgets the baseline grant is caught here instead of being
-  // demonstrated again by a reviewer.
+  // parent instead). A later re-review measured MAINTAIN itself missing from
+  // this same list: as anon, `lock table client in access exclusive mode`
+  // and `analyze client` both succeeded, letting an unauthenticated caller
+  // block every reader of the database — and the version of this audit that
+  // read `information_schema.role_table_grants` could not have caught it,
+  // because that view has no MAINTAIN row to find (see the comment above).
+  // This audit enumerates every table and every privilege in the catalogue —
+  // via `aclexplode(pg_class.relacl)`, not a hardcoded list and not a view
+  // with a gap in its vocabulary — so a future table, or a future privilege
+  // Postgres adds, that forgets the baseline grant is caught here instead of
+  // being demonstrated again by a reviewer.
   it('grants no table truncate, references or trigger to anon/authenticated, and no insert/update/delete to anon', async () => {
     const offenders = await asOwner(async (c) => {
       const r = await c.query<{ o: string }>(`
-        select g.table_name || ': ' || g.privilege_type as o
-        from information_schema.role_table_grants g
-        join pg_class c on c.relname = g.table_name
-        join pg_namespace n on n.oid = c.relnamespace and n.nspname = g.table_schema
-        where g.table_schema = 'public'
+        select c.relname || ': ' || a.privilege_type as o
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        cross join lateral aclexplode(c.relacl) a
+        join pg_roles r on r.oid = a.grantee
+        where n.nspname = 'public'
           and c.relkind = 'r'
           and (
-            (g.grantee in ('anon', 'authenticated')
-              and g.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER'))
+            (r.rolname in ('anon', 'authenticated')
+              and a.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'))
             or
-            (g.grantee = 'anon'
-              and g.privilege_type in ('INSERT', 'UPDATE', 'DELETE'))
+            (r.rolname = 'anon'
+              and a.privilege_type in ('INSERT', 'UPDATE', 'DELETE'))
           )
         order by 1
       `)

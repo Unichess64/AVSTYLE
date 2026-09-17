@@ -1,7 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { ALESSANDRA, ANNALISA, VERA, VERA_AUTH, asOperator, asOwner, connect, pgCode, resetData } from '../helpers/db'
 
 beforeEach(resetData)
+
+// This file deactivates operators in several tests (leaveOnly, the mutual-
+// deactivation test) and relies on the NEXT test's own beforeEach to restore
+// the roster. That leaves the roster deactivated after the LAST test in this
+// file runs, until some other file's beforeEach happens to call resetData()
+// again — which today only holds because vitest orders files by size and a
+// resetting file happens to run after this one. Restoring explicitly here
+// removes that ordering dependency.
+afterAll(resetData)
 
 const leaveOnly = (keep: string[]) =>
   asOwner((c) => c.query('update operator set is_active = false where not (id = any($1))', [keep]))
@@ -73,6 +82,13 @@ describe('lockout guard', () => {
     try {
       await a.query('begin')
       await b.query('begin')
+      // A genuine 40P01 is expected and handled below; a lock_timeout guards
+      // only against a REGRESSION losing the FOR UPDATE lock's deadlock
+      // shape entirely and hanging instead, which would otherwise wait out
+      // vitest's own timeout in silence rather than failing with a named
+      // error.
+      await a.query("set local lock_timeout = '5s'")
+      await b.query("set local lock_timeout = '5s'")
       await a.query('set constraints all deferred')
       await b.query('set constraints all deferred')
       await a.query('update operator set is_active = false where id = $1', [ANNALISA])

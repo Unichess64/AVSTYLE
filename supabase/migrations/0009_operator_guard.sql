@@ -1,9 +1,25 @@
--- The salon cannot be locked out of its own database. Spec §6.1.
+-- The salon cannot be locked out of its own database — through any route
+-- this trigger can reach. Spec §6.1.
 --
 -- Guards is_active, auth_user_id, AND that auth_user_id still names a real
 -- account: access needs an operator row satisfying all three, so
 -- deactivating, unlinking, and relinking to a non-existent account all
 -- produce the identical lockout.
+--
+-- A FOURTH route exists, and this trigger cannot reach it: `delete from
+-- auth.users where id = '<the linked account>'`. Measured, with the other
+-- two operators deactivated first: the delete is allowed, and this
+-- function's own `remaining` count then returns zero on the NEXT write to
+-- `operator` — but by then the salon is already locked out, because this
+-- trigger fires only `after update or delete on operator` and a delete on
+-- `auth.users` is neither. `auth.users` is Supabase's own schema, not
+-- application-owned, so no trigger is added there; every write this schema
+-- controls already goes through `app.is_active_operator()`, and once the
+-- last linked account is gone that predicate is false for everyone,
+-- including whoever would need to write `operator` to fix it. There is no
+-- way back from inside the application — see the spec's §12 declared limits
+-- and the README's operator-accounts section for the out-of-band recovery
+-- (relink from the Supabase dashboard).
 --
 -- The FOR UPDATE lock is what makes the guard sound: without it, two
 -- transactions each deactivating a DIFFERENT one of the last two linked

@@ -76,7 +76,18 @@ create trigger zz_sync_appointment_slots
 -- a committed double booking the occupancy guarantee exists to prevent.
 -- REFERENCES and TRIGGER are revoked for the same reason: unrevoked DDL-ish
 -- privileges are exactly the kind of gap RLS cannot close.
-revoke insert, update, delete, truncate, references, trigger on appointment_slot from authenticated, anon;
+--
+-- MAINTAIN was missing from this list and is added here. It is not gated by
+-- RLS either: measured, as anon, `lock table appointment_slot in access
+-- exclusive mode` and `analyze appointment_slot` both succeeded before this
+-- word was added, and the lock alone blocks every reader of this table (the
+-- availability query, the narrowing check, the conflict pre-check and the
+-- day view). MAINTAIN also does not exist in
+-- `information_schema.role_table_grants`'s vocabulary — that view predates
+-- the privilege — so the standing audit in catalogue-audit.test.ts reads
+-- `pg_class.relacl` via `aclexplode` instead of that view; see the comment
+-- there.
+revoke insert, update, delete, truncate, references, trigger, maintain on appointment_slot from authenticated, anon;
 
 alter table appointment_slot enable row level security;
 

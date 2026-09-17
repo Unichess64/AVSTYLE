@@ -117,6 +117,31 @@ describe('occupancy', () => {
     expect([cells[0], cells[17]]).toEqual([126, 143])
   })
 
+  // ⚠ discriminating: spec §13.2 claimed "moved to another date" was covered
+  // by the shorten/lengthen/moved-in-time/reassigned-operator tests above,
+  // but none of them ever changes appointment_date — two of the occupancy
+  // key's three columns (operator_id, cell_index) were asserted and the
+  // third never was. Changing `visit.visit_date` cascades into
+  // `appointment.appointment_date` (the composite FK, ON UPDATE CASCADE),
+  // which fires the sync trigger's UPDATE branch. Proven able to fail: with
+  // the trigger's re-insert temporarily made to write `old.appointment_date`
+  // instead of `new.appointment_date` on that branch, this test goes red
+  // (asserting the OLD date instead) while the cell-index-only tests above
+  // stay green, because they never change the date.
+  it('realigns the cells to the new date when the appointment moves to another date', async () => {
+    await asOwner((c) => c.query('update visit set visit_date = $1::date where id = $2', [DAY_TWO, V1]))
+    const rows = await asOperator(VERA_AUTH, async (c) => {
+      const r = await c.query<{ d: string; i: number }>(
+        'select appointment_date as d, cell_index as i from appointment_slot where appointment_id = $1 order by i',
+        [APPT],
+      )
+      return r.rows
+    })
+    expect(rows.length).toBe(18)
+    expect(rows.map((r) => r.d)).toEqual(Array(18).fill(DAY_TWO))
+    expect([rows[0].i, rows[17].i]).toEqual([120, 137])
+  })
+
   // Measures the composite FK's ON DELETE CASCADE, not the trigger: removing
   // the trigger's DELETE branch leaves this green (verified by hand — flipping
   // the FK to `on delete no action` is what turns it red, with 23503). The
@@ -183,6 +208,12 @@ describe('occupancy', () => {
     try {
       await a.query('begin')
       await b.query('begin')
+      // If a regression reintroduces the hang 0007_client_activity.sql's
+      // comment describes (a plain, non-deferred client-activity trigger),
+      // this test would otherwise wait out vitest's own timeout in silence.
+      // A named lock_timeout turns that into a readable error instead.
+      await a.query("set local lock_timeout = '5s'")
+      await b.query("set local lock_timeout = '5s'")
       const insert = `insert into appointment (visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
                       values ('${V1}', '${VERA}', '${SERVICE_REFILL}', date '${DAY_ONE}', 200, 6)`
       await a.query(insert)

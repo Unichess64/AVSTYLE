@@ -26,7 +26,7 @@ begin
   end if;
 
   -- Lock the affected client rows BEFORE the UPDATE below, in a deterministic
-  -- order (order by 1 — same reasoning as the operator lockout guard: a fixed
+  -- order (order by id — same reasoning as the operator lockout guard: a fixed
   -- lock order prevents a deadlock between two sessions that touch the same
   -- two clients in opposite order). Without this, under READ COMMITTED, an
   -- UPDATE that blocks on this row and then unblocks is re-projected by
@@ -40,7 +40,7 @@ begin
   -- has a booking next year. Taking the lock here first means the UPDATE
   -- that follows opens its OWN fresh statement snapshot once unblocked,
   -- which already includes the other transaction's commit.
-  perform 1 from public.client where id = any(affected) order by 1 for update;
+  perform 1 from public.client where id = any(affected) order by id for update;
 
   update public.client c
   set last_activity_at = (

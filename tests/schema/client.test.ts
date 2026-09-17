@@ -73,12 +73,26 @@ describe('client', () => {
     expect(row).toEqual({ p: VERA, m: true })
   })
 
+  // The insert-then-delete of the temporary operator runs inside one
+  // transaction: without it, an interruption between the two statements
+  // (asOwner opens a fresh, non-transactional connection per call) could
+  // leave TEMP committed as a genuine fourth operator, which would
+  // permanently redden access-control.test.ts's *"seeds exactly three
+  // operators with the expected ids"* for every later run against this
+  // database until manually cleaned up.
   it('clears the preferred operator when that operator row is deleted', async () => {
     const TEMP = '10000000-0000-4000-8000-000000000009'
     await asOwner(async (c) => {
-      await c.query(`insert into operator (id, name, color) values ($1, 'Temp', '#000000')`, [TEMP])
-      await c.query('update client set preferred_operator_id = $1 where id = $2', [TEMP, CLIENT_MARIA])
-      await c.query('delete from operator where id = $1', [TEMP])
+      await c.query('begin')
+      try {
+        await c.query(`insert into operator (id, name, color) values ($1, 'Temp', '#000000')`, [TEMP])
+        await c.query('update client set preferred_operator_id = $1 where id = $2', [TEMP, CLIENT_MARIA])
+        await c.query('delete from operator where id = $1', [TEMP])
+        await c.query('commit')
+      } catch (e) {
+        await c.query('rollback').catch(() => {})
+        throw e
+      }
     })
     const p = await asOperator(VERA_AUTH, async (c) => {
       const r = await c.query<{ p: string | null }>(

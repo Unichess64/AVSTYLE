@@ -5,10 +5,25 @@
 -- every time, because the first update's new cells collide with the second
 -- appointment's untouched ones. These functions ARE the transaction.
 --
--- Each ends with SET CONSTRAINTS ALL IMMEDIATE so a violation surfaces HERE,
--- catchable and nameable (spec §10.1), rather than at COMMIT as an opaque
--- error. It is the last statement, because afterwards the constraint stays
--- immediate for the rest of the transaction.
+-- Each ends with SET CONSTRAINTS appointment_slot_unique IMMEDIATE so a
+-- violation surfaces HERE, catchable and nameable (spec §10.1), rather than
+-- at COMMIT as an opaque error. It is the last statement, because afterwards
+-- the constraint stays immediate for the rest of the transaction.
+--
+-- Named, not ALL: `SET CONSTRAINTS ALL IMMEDIATE` also un-defers every OTHER
+-- deferred constraint trigger in the transaction — including
+-- zz_touch_client_activity (0007_client_activity.sql), which is
+-- DEFERRABLE INITIALLY DEFERRED specifically so its `update client` runs at
+-- COMMIT, not synchronously inside a row-level trigger. Measured: with a
+-- move_visit call earlier in an explicit transaction, `ALL IMMEDIATE` forces
+-- that trigger to fire immediately too, and a second session concurrently
+-- writing an appointment for the SAME client then BLOCKS indefinitely on the
+-- client row lock move_visit's own (still-open) transaction now holds early
+-- — the same unconditional hang 0007's own comment describes for a plain
+-- trigger, reintroduced through this one word. Naming the constraint
+-- restores only appointment_slot_unique to IMMEDIATE and leaves every other
+-- deferred constraint — the activity trigger included — deferred to COMMIT
+-- as designed.
 --
 -- security INVOKER throughout: they run under the caller's row-level security,
 -- not above it.
@@ -27,14 +42,15 @@ begin
   -- INITIALLY DEFERRED default. A PRIOR call to this function (or to
   -- swap_appointment_operators) inside the SAME explicit transaction left
   -- appointment_slot_unique in IMMEDIATE mode via ITS OWN trailing
-  -- SET CONSTRAINTS ALL IMMEDIATE below — and per Postgres semantics that
-  -- mode persists for the REST OF THE TRANSACTION, not just that one call.
-  -- Without this line, a second, otherwise non-colliding move_visit call in
-  -- the same explicit transaction has its own two updates below checked
-  -- row by row as they happen, and the first one's intermediate state can
-  -- transiently violate the unique constraint against the second, not-yet-
-  -- applied one — a false collision purely from call ordering. Fix-round-1
-  -- Step: removing this line reproduces exactly that, live.
+  -- SET CONSTRAINTS appointment_slot_unique IMMEDIATE below — and per
+  -- Postgres semantics that mode persists for the REST OF THE TRANSACTION,
+  -- not just that one call. Without this line, a second, otherwise
+  -- non-colliding move_visit call in the same explicit transaction has its
+  -- own two updates below checked row by row as they happen, and the first
+  -- one's intermediate state can transiently violate the unique constraint
+  -- against the second, not-yet-applied one — a false collision purely from
+  -- call ordering. Fix-round-1 Step: removing this line reproduces exactly
+  -- that, live.
   set constraints appointment_slot_unique deferred;
 
   update visit set visit_date = p_new_date where id = p_visit_id;
@@ -59,7 +75,10 @@ begin
     where visit_id = p_visit_id;
   end if;
 
-  set constraints all immediate;
+  -- Named, not ALL — see the file header. ALL would also un-defer
+  -- zz_touch_client_activity, forcing its client-row lock to be taken here
+  -- rather than at COMMIT.
+  set constraints appointment_slot_unique immediate;
 end
 $$;
 
@@ -101,7 +120,8 @@ begin
   update appointment set operator_id = op_b where id = p_a;
   update appointment set operator_id = op_a where id = p_b;
 
-  set constraints all immediate;
+  -- Named, not ALL — see move_visit above and the file header.
+  set constraints appointment_slot_unique immediate;
 end
 $$;
 
@@ -111,13 +131,19 @@ $$;
 -- Y's, while T2 concurrently swaps a DIFFERENT pair of appointments that
 -- also spans exactly X and Y — can deadlock: 25/60 trials, 40P01. The cause
 -- is the same deferred zz_touch_client_activity constraint trigger described
--- in 0007_client_activity.sql: SET CONSTRAINTS ALL IMMEDIATE above forces it
--- to fire, and lock the two affected clients' rows, INSIDE this function, in
--- whatever order the two visits' client_ids happen to resolve in — this
--- function locks `appointment` rows (in id order), not `client` rows, so
--- there is no analogous fixed order over clients here to prevent it, unlike
--- the operator lockout guard's ORDER BY over `operator`. This is an
--- ACCEPTED outcome, not a defect: one or both transactions abort with
+-- in 0007_client_activity.sql, and it still applies unchanged after the
+-- IMMEDIATE call above was narrowed to name appointment_slot_unique rather
+-- than ALL: naming it stops this function from un-deferring the
+-- client-activity trigger EARLY — a prior call in the same
+-- explicit transaction can no longer force it to fire before this one runs —
+-- but on the ordinary PostgREST path each call is its own transaction (spec
+-- §4.6), so the trigger still fires and locks the two affected clients'
+-- rows at this transaction's own commit, immediately after this function
+-- returns, in whatever order the two visits' client_ids happen to resolve
+-- in — this function locks `appointment` rows (in id order), not `client`
+-- rows, so there is no analogous fixed order over clients here to prevent
+-- it, unlike the operator lockout guard's ORDER BY over `operator`. This is
+-- an ACCEPTED outcome, not a defect: one or both transactions abort with
 -- 40P01 rather than any appointment or client data ending up wrong, and the
 -- application layer is expected to retry on 40P01, exactly as for the
 -- lockout guard's own documented deadlock (0009_operator_guard.sql).

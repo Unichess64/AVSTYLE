@@ -77,20 +77,27 @@ create policy salon_closure_access on salon_closure
 -- Privilege baseline for these four new tables, same reasoning as
 -- 00051_privilege_baseline.sql: Supabase grants anon and authenticated the
 -- full default ACL (delete, insert, references, select, trigger, truncate,
--- update) on every table it creates in public, and row-level security does
--- NOT gate TRUNCATE. 00051 closed this for the tables that existed at the
--- time; it is a fixed list of per-table statements and cannot reach tables
--- created afterwards, so every migration that adds a table must repeat the
--- revoke for its own tables. The schema-wide audit in
--- tests/schema/catalogue-audit.test.ts enumerates the catalogue rather than
--- a hardcoded list, so it is a check on this block, not a substitute for it.
+-- update, maintain) on every table it creates in public, and row-level
+-- security does NOT gate TRUNCATE or MAINTAIN. 00051 closed this for the
+-- tables that existed at the time; it is a fixed list of per-table
+-- statements and cannot reach tables created afterwards, so every migration
+-- that adds a table must repeat the revoke for its own tables. The
+-- schema-wide audit in tests/schema/catalogue-audit.test.ts enumerates the
+-- catalogue via `pg_class.relacl` rather than a hardcoded list (and rather
+-- than `information_schema.role_table_grants`, whose privilege vocabulary
+-- does not include MAINTAIN — see that file), so it is a check on this
+-- block, not a substitute for it.
 --
--- TRUNCATE/REFERENCES/TRIGGER: revoked from both roles. None is used by the
--- application, and TRUNCATE in particular bypasses RLS entirely.
-revoke truncate, references, trigger on weekly_availability from authenticated, anon;
-revoke truncate, references, trigger on exception_day from authenticated, anon;
-revoke truncate, references, trigger on exception_range from authenticated, anon;
-revoke truncate, references, trigger on salon_closure from authenticated, anon;
+-- TRUNCATE/REFERENCES/TRIGGER/MAINTAIN: revoked from both roles. None is
+-- used by the application, and TRUNCATE and MAINTAIN in particular bypass
+-- RLS entirely (RLS gates only SELECT/INSERT/UPDATE/DELETE) — MAINTAIN
+-- covers LOCK, VACUUM, ANALYZE, CLUSTER and REINDEX, so leaving it granted
+-- lets an unauthenticated caller take an ACCESS EXCLUSIVE lock and block
+-- every reader of the table.
+revoke truncate, references, trigger, maintain on weekly_availability from authenticated, anon;
+revoke truncate, references, trigger, maintain on exception_day from authenticated, anon;
+revoke truncate, references, trigger, maintain on exception_range from authenticated, anon;
+revoke truncate, references, trigger, maintain on salon_closure from authenticated, anon;
 
 -- INSERT/UPDATE/DELETE: revoked from anon only. anon can never satisfy
 -- app.is_active_operator(), so this removes nothing anon legitimately uses;

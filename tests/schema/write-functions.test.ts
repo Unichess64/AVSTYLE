@@ -83,6 +83,53 @@ describe('move_visit', () => {
     expect(dates).toEqual([DAY_TWO])
   })
 
+  // ⚠ discriminating: proves the closing `SET CONSTRAINTS` names
+  // appointment_slot_unique rather than ALL. `ALL` also un-defers
+  // zz_touch_client_activity (0007_client_activity.sql), so the client's
+  // last_activity_at would already reflect the move BEFORE this transaction
+  // commits — invisible to a test that only reads the post-commit value,
+  // which is why this test reads it from inside the still-open transaction
+  // too. CLIENT_MARIA's last_activity_at is DAY_ONE going in: her only
+  // appointments (inserted by beforeEach, each its own autocommit) are on
+  // DAY_ONE, and the deferred activity trigger already fired for them.
+  it('leaves last_activity_at deferred to commit across a move_visit call', async () => {
+    const c = await connect()
+    try {
+      await c.query('begin')
+      const before = await c.query<{ d: string }>(
+        'select last_activity_at as d from client where id = $1',
+        [CLIENT_MARIA],
+      )
+      expect(before.rows[0].d).toBe(DAY_ONE)
+
+      await c.query('select move_visit($1, $2::date, 0)', [V1, DAY_TWO])
+
+      // Still the OLD value: zz_touch_client_activity is deferred, and
+      // `SET CONSTRAINTS appointment_slot_unique IMMEDIATE` inside
+      // move_visit must not touch it.
+      const insideTx = await c.query<{ d: string }>(
+        'select last_activity_at as d from client where id = $1',
+        [CLIENT_MARIA],
+      )
+      expect(insideTx.rows[0].d).toBe(DAY_ONE)
+
+      await c.query('commit')
+    } finally {
+      await c.query('rollback').catch(() => {})
+      await c.end()
+    }
+
+    // The NEW value, now that the deferred trigger has fired at commit.
+    const after = await asOwner(async (owner) => {
+      const r = await owner.query<{ d: string }>(
+        'select last_activity_at as d from client where id = $1',
+        [CLIENT_MARIA],
+      )
+      return r.rows[0].d
+    })
+    expect(after).toBe(DAY_TWO)
+  })
+
   // ⚠ discriminating for `set constraints all immediate`: inside an EXPLICIT
   // transaction the deferred constraint would otherwise stay silent until
   // commit. Under autocommit both behaviours look identical.
