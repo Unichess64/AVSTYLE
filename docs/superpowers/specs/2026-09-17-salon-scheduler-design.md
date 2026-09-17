@@ -591,18 +591,21 @@ time"*, the test the plain-trigger shape hung.
 now deadlock (`40P01`) instead of silently racing. That is the right trade and it
 is an obligation on the application — §10.5.
 
-**Known deferred defect, recorded rather than fixed** (this task edits documents
-only): the lock statement reads `order by 1`, which orders by the **constant 1**
-and delivers no ordering at all — `EXPLAIN VERBOSE` shows a plan byte-identical
-to having no `ORDER BY`. It should read `order by id`. Sites:
-`supabase/migrations/0007_client_activity.sql:43` (the code) and `:29` (a comment
-claiming the ordering), and `supabase/migrations/0008_orphan_visit.sql:76` (a
-comment citing "touch_client_activity's own `order by 1` discipline"). The two
-sibling guards, `0009_operator_guard.sql:38` and
-`0010_write_functions.sql:79`, use `order by id` correctly. Measured as not
-changing today's deadlock rate — 11/12 trials deadlock either way, the cause
-being structural — so what is live today is two **comments asserting a guarantee
-the code does not provide**. Fix all three together. See §12.1.
+**Closed at the foundations fix wave, cited rather than deleted.** This note
+described a deferred defect: the lock statement read `order by 1`, which orders
+by the **constant 1** and delivers no ordering at all — `EXPLAIN VERBOSE` showed
+a plan byte-identical to having no `ORDER BY`. All three sites named below now
+read `order by id`. Measured, before the fix, as not changing the deadlock
+rate — 11/12 trials deadlock either way, the cause being structural — so what
+was live before this fix was two **comments asserting a guarantee the code did
+not provide**, not a wrong lock order in practice; the code is corrected anyway,
+because a comment that describes a discipline the statement does not implement
+is the same class of defect as a test that cannot fail. Sites:
+`supabase/migrations/0007_client_activity.sql` (the code, and the comment
+claiming the ordering) and `supabase/migrations/0008_orphan_visit.sql` (a
+comment citing "touch_client_activity's own `order by id` discipline"). The two
+sibling guards, `0009_operator_guard.sql` and `0010_write_functions.sql`, used
+`order by id` correctly throughout and needed no change. See §12.1.
 
 Retention eligibility uses `coalesce(last_activity_at, created_at::date)`, so a
 client created mid-booking and never confirmed is not exempt for ever.
@@ -715,6 +718,19 @@ Revision 3:
    for. `0005_occupancy.sql` therefore names every write-shaped privilege
    explicitly: `revoke insert, update, delete, truncate, references, trigger on
    appointment_slot from authenticated, anon`, leaving `SELECT` standing alone.
+
+   **Corrected at the foundations fix wave: that "leaving `SELECT` standing
+   alone" claim was false when written, and is cited rather than deleted.** The
+   revoke list above named six privileges and not the seventh, `MAINTAIN` —
+   also ungated by RLS, also grantable, and measured still held by `anon` and
+   `authenticated` on this table: as `anon`, `lock table appointment_slot in
+   access exclusive mode` and `analyze appointment_slot` both succeeded. So
+   `SELECT` was not, in fact, standing alone next to nothing — `MAINTAIN` stood
+   with it, unrevoked, capable of blocking every reader of the table. The fix
+   wave added `maintain` to this revoke (and to the two migrations below), and
+   the claim is true now: measured, `lock table … access exclusive mode` and
+   `analyze` as `anon` both fail `42501` post-fix. See the correction to the
+   privilege audits just below, which also could not have caught the gap.
 
    *Stage two — every other table.* A re-review then measured the identical hole
    open on all of them. As `anon`, **`truncate table client` succeeded** — the
@@ -1397,6 +1413,20 @@ Measured, in three places:
   activity trigger locking the two clients in whatever order their `client_id`s
   resolve; this function locks `appointment` rows in id order, not `client`
   rows, so there is no fixed order over clients to impose.
+- **`delete from client` against a concurrent `delete from appointment`.**
+  Measured 6/6, and — unlike the note below this list once read — through an
+  **existing** caller, not a future one: §11.3's right of erasure. `client →
+  visit → appointment` is two `ON DELETE CASCADE` foreign keys, so `delete
+  from client` locks `client` first and then cascades into `visit` — the
+  reverse of `zz_delete_orphan_visit`'s own visit-then-client order
+  (§6.3, §12.1). A concurrent `delete from appointment` against one
+  appointment of a two-appointment visit takes that trigger's `visit` row
+  lock without deleting the visit (the sibling appointment survives), and at
+  its own commit the deferred activity trigger then wants the `client` row —
+  held by the still-open `delete from client`, which itself is blocked
+  wanting the `visit` row. A genuine `40P01` cycle. Covered by
+  `orphan-visit.test.ts`'s *"keeps the visit while an appointment remains"*
+  and *"survives a client deletion cascading through both"*.
 
 **This is the correct trade, not a defect.** A loud, retryable abort beats the
 alternatives it replaced: two operators both committing and leaving the salon
@@ -1519,6 +1549,20 @@ not assumed** (§14).
     §11.4's sweep never picks her up: **over-retention, not data loss**, and not
     reachable by the application — §6.4's baseline revokes TRUNCATE on both
     tables from `anon` and `authenticated`, leaving only the database owner.
+12. **A fourth lockout route the guard of §6.1 cannot reach: deleting the last
+    linked account from `auth.users` directly.** Measured, with the other two
+    operators deactivated: `delete from auth.users where id = '<the linked
+    one>'` is allowed, and `app.guard_operator_lockout()`'s own count then
+    reads zero on the next write to `operator` — but the salon is already
+    locked out by then, because that trigger fires only `after update or
+    delete on operator`, and a delete on `auth.users` is neither. `auth.users`
+    is Supabase's own schema, not application-owned, so no trigger is added
+    there. Every write this schema controls already goes through
+    `app.is_active_operator()`, so once the last linked account is gone,
+    nobody — including whoever would fix it — passes that predicate: there is
+    no way back from inside the application. The recovery is out-of-band,
+    from the Supabase dashboard, and is documented in the README's
+    operator-accounts section.
 
 (Offboarding by deactivation is a capability, not a limit, and is described in
 §4.4.)
@@ -1528,25 +1572,38 @@ not assumed** (§14).
 New at revision 5. These are recorded, not fixed: the reconciliation task edits
 documents only, and each is measured rather than suspected.
 
-**Deferred defect — `order by 1` orders by a constant.** Three sites, to be
-fixed together: `supabase/migrations/0007_client_activity.sql:43` (the code,
-which should read `order by id`) and `:29` (a comment claiming a deterministic
-order), and `supabase/migrations/0008_orphan_visit.sql:76` (a comment citing
-"touch_client_activity's own `order by 1` discipline"). `EXPLAIN VERBOSE` shows
-a plan byte-identical to having no `ORDER BY`. The sibling guards,
-`0009_operator_guard.sql:38` and `0010_write_functions.sql:79`, are correct.
-Measured as not changing today's deadlock rate (11/12 trials either way — the
-cause is structural), so what is live is two comments asserting a guarantee the
-code does not deliver. §6.2.2 carries the same note in place.
+**Closed — `order by 1` orders by a constant.** Superseded wording, kept by
+citation rather than deletion, per this document's own convention: this item
+used to read "Deferred defect — `order by 1` orders by a constant," naming
+three sites to be fixed together and describing `EXPLAIN VERBOSE` showing a
+plan byte-identical to having no `ORDER BY`. All three — the code and its own
+comment in `supabase/migrations/0007_client_activity.sql`, and the comment in
+`supabase/migrations/0008_orphan_visit.sql` citing "touch_client_activity's own
+`order by 1` discipline" — now read `order by id`, matching the sibling guards
+`0009_operator_guard.sql` and `0010_write_functions.sql`, which were already
+correct. Measured before the fix as not changing the deadlock rate (11/12
+trials either way — the cause is structural), so the defect was in the
+comments' claim, not in observed behaviour; §6.2.2 carries the same note in
+place.
 
-**Obligation — lock `visit` before `client`.** §6.3's trigger locks `visit` and
-then, at commit, §6.2.2's deferred trigger locks `client`. Between those two
-functions the order can never invert, because a deferred trigger cannot run
-before the statement that queued it finishes. That is the **only** guarantee the
-structure provides, and it **is** a convention a future caller can break: an
-ordinary transaction that locks a `client` row and then the `visit` row,
-concurrent with this trigger, was measured into a genuine `40P01`. A rebook or a
-client-merge flow is exactly such a caller.
+**Obligation — lock `visit` before `client` — already broken by an EXISTING
+caller, not a future one.** §6.3's trigger locks `visit` and then, at commit,
+§6.2.2's deferred trigger locks `client`. Between those two functions the order
+can never invert, because a deferred trigger cannot run before the statement
+that queued it finishes. That is the **only** guarantee the structure provides,
+and it **is** a convention a caller can break — corrected at revision 5: the
+caller is not hypothetical. `delete from client` cascades `client → visit →
+appointment` through two `ON DELETE CASCADE` foreign keys, locking `client`
+**before** `visit` — the reverse of the trigger's own order — and this is
+§11.3's right of erasure, reachable today. Measured 6/6: a concurrent `delete
+from appointment` against one appointment of a two-appointment visit (taking
+the orphan-visit trigger's `visit` row lock without deleting the visit) against
+a concurrent `delete from client` on that visit's client deadlocks, `40P01` —
+now listed as a fourth measured shape in §10.5. Covered by
+`orphan-visit.test.ts`'s *"keeps the visit while an appointment remains"* and
+*"survives a client deletion cascading through both"*. A rebook or a
+client-merge flow, should one be added later, would be a second such caller,
+but the obligation is not waiting for one.
 
 **Obligation — lock visits in id order, not caller order.** Two *sequential*
 single-row `delete from appointment` statements against appointments of two
@@ -1618,10 +1675,20 @@ services**, so the scoping predicates are exercised rather than merely declared.
   role: **denied**; and **`SELECT` on it: permitted** — revision 2's revocation
   removed the read its own availability query needs, and its test checked only
   the three write verbs
-- **`TRUNCATE`, `REFERENCES` and `TRIGGER` granted to neither role on any table,
-  and `INSERT`/`UPDATE`/`DELETE` granted to `anon` on none** — enumerated from
-  the catalogue, not from a list, because §6.4 measure 2's revision-3 form
-  covered one table and `truncate table client` as `anon` succeeded
+- **`TRUNCATE`, `REFERENCES`, `TRIGGER` and `MAINTAIN` granted to neither role on
+  any table, and `INSERT`/`UPDATE`/`DELETE` granted to `anon` on none** — the
+  earlier wording here, "enumerated from the catalogue, not from a list,"
+  named the discipline but not the mechanism, and the mechanism it implied —
+  `information_schema.role_table_grants` — was itself measured false: that
+  view's privilege vocabulary predates `MAINTAIN`, so an audit built on it is
+  structurally blind to it and stayed green while `anon` held `MAINTAIN` on
+  every table (see §6.4's correction above). Corrected at the foundations fix
+  wave: the audits now enumerate `pg_class.relacl` via `aclexplode`, which
+  lists every privilege Postgres actually grants, `MAINTAIN` included — a
+  catalogue enumeration in the sense this bullet always meant, now true of the
+  mechanism as well as the discipline. §6.4 measure 2's revision-3 form
+  covered one table and `truncate table client` as `anon` succeeded, which is
+  what motivated the schema-wide audit in the first place
 - **`EXECUTE` on each of the four write functions: absent for `anon`, present
   for `authenticated`** — asserted with `has_function_privilege` against the
   exact signature, since three of the four raise `42501` from deeper causes and
@@ -1699,7 +1766,16 @@ services**, so the scoping predicates are exercised rather than merely declared.
   `set search_path = 'public'` (§4.3)
 - **`operator` does not have `force row level security`** set
 - The privilege baseline of §6.4 survives a fresh migration run — on
-  **every** table, not only on `appointment_slot`
+  **every** table, not only on `appointment_slot`. **Corrected at the
+  foundations fix wave: that claim was false as written**, because "survives"
+  implied the audit that would catch a regression, and the audit in place at
+  the time read `information_schema.role_table_grants`, which has no
+  `MAINTAIN` row at all — a fresh migration run that regranted `MAINTAIN` to
+  `anon` and `authenticated` on every table would have survived that audit
+  silently, not been caught by it. The claim is true now that the audits read
+  `pg_class.relacl` via `aclexplode` (§6.4, §13.2): a `maintain` regression on
+  any table is measured to redden *"grants no table truncate, references or
+  trigger to anon/authenticated…"* by name.
 - **Every one of these audits is shown going red against a deliberately
   violating object.** "All the audits pass" is not evidence that an audit can
   fail, and six probe objects were created, measured red and dropped to prove

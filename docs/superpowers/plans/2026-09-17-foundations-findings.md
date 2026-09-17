@@ -60,6 +60,21 @@ and insert are both `42501`, that its select still returns zero rows, that the
 `authenticated` write path still works end to end, and that the audit catches
 both a brand-new undefended table and a stray `grant truncate on client`.
 
+**Corrected at the foundations fix wave: "`anon` holds SELECT only on all nine
+tables" was false, cited rather than deleted.** `anon` also held `MAINTAIN` on
+every one of those tables — ungated by RLS, like `TRUNCATE` — and the
+re-reviewer's own measurement above could not have found it: it was taken
+against `information_schema.role_table_grants`, whose privilege vocabulary has
+no `MAINTAIN` entry to return, so the check that produced "SELECT only" was
+structurally unable to see the privilege it was missing. Measured live before
+this fix: as `anon`, `lock table client in access exclusive mode` and `analyze
+client` both succeeded. The fix wave revoked `maintain` alongside the other
+write-shaped privileges in all three migrations below and rewrote both audits
+to read `pg_class.relacl` via `aclexplode`, which does see it; "SELECT only" is
+true now, measured the same way, and re-confirmed by a red/green probe (revert
+one `maintain` word, `db reset`, watch the schema-wide audit name the table,
+restore).
+
 **Two standing obligations, now normative in §6.4:**
 1. **Every migration that creates a table must revoke in its own file.** `00051`
    is a fixed list and cannot reach a table that does not yet exist; a new table

@@ -29,3 +29,15 @@ update operator set auth_user_id = '<uuid from auth.users>' where name = 'Alessa
 
 Until a row is linked, that operator cannot sign in. Operators added later are linked
 from Settings by an operator who is already active (spec §9.9).
+
+**Warning: deleting an account from the Supabase dashboard while it is the last
+linked, active operator locks the salon out.** The database refuses to let the
+*last* active operator be deactivated, unlinked, or relinked to a non-existent
+account (spec §6.1) — but that guard only fires on writes to the `operator`
+table, and it cannot see a Supabase Auth account deleted directly from the
+dashboard's Authentication panel. If that account is the only one still
+linked and active, every `operator` row then fails `app.is_active_operator()`
+and nobody, including any operator, can sign in to fix it from inside the
+app (spec §12, item 12). The recovery is also out-of-band: from the Supabase
+dashboard, create or restore a Supabase account and set `operator.auth_user_id`
+to its id directly in the SQL editor, exactly as in the linking step above.
