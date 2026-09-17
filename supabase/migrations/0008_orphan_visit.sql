@@ -45,14 +45,36 @@ $$;
 -- test goes red).
 --
 -- Ordering against the deferred client-activity trigger: because that
--- trigger is deferred, every transaction that reaches both this trigger and
--- that one always acquires the `visit` row lock (here, synchronously, during
--- the DELETE) strictly BEFORE the `client` row lock (there, only at COMMIT
--- time). This ordering is structural, not a convention that could be
--- violated by a future caller — a deferred trigger cannot run before the
--- statement that queued it finishes — so the two functions can never
--- acquire `visit` and `client` locks in reversed order against each other,
--- and cannot deadlock against each other through those two locks.
+-- trigger is deferred, every transaction that reaches BOTH THESE TWO
+-- TRIGGER FUNCTIONS always acquires the `visit` row lock (here,
+-- synchronously, during the DELETE) strictly BEFORE the `client` row lock
+-- (there, only at COMMIT time) — a deferred trigger cannot run before the
+-- statement that queued it finishes, so between delete_orphan_visit and
+-- touch_client_activity specifically, the order can never invert. That is
+-- the ONLY guarantee this structure provides. It is NOT a schema-wide
+-- guarantee and IS a convention a future caller can violate: the reviewer
+-- built an ordinary transaction with no trigger involved — lock a `client`
+-- row (e.g. `update client ... where id = ...`), then lock the `visit` row
+-- this trigger would also lock — running concurrently against this
+-- trigger's visit-then-client order, and reproduced a genuine 40P01
+-- deadlock. A future flow that touches `client` before `visit` (a rebook or
+-- a client-merge, say) is exactly such a caller. Any code added later that
+-- locks both must take `visit` before `client`, matching this trigger.
+--
+-- Separately, and independent of `client` entirely: this trigger's OWN lock
+-- can deadlock against itself. Two SEQUENTIAL single-row
+-- `delete from appointment where id = ...` statements against appointments
+-- of two different visits, issued in reversed order across two concurrent
+-- transactions (T1: visit A then visit B; T2: visit B then visit A),
+-- deadlocked 5/5 runs measured (40P01) — each transaction holds one visit's
+-- lock and blocks on the other's. A single multi-row `DELETE ... WHERE id
+-- IN (...)` spanning both visits does NOT deadlock, because Postgres scans
+-- and locks in physical row order in both sessions. No flow the spec
+-- describes today issues sequential single-row deletes across visits in
+-- caller-controlled order, so this is not reachable yet — but a future
+-- caller that does must lock visits in a fixed order (id order, matching
+-- touch_client_activity's own `order by 1` discipline for `client`), not
+-- caller-supplied order.
 --
 -- Termination through `delete from client`: client → visit → appointment is
 -- two ON DELETE CASCADE foreign keys (visit.client_id, then
