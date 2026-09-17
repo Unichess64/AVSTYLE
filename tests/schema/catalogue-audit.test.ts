@@ -107,23 +107,46 @@ describe('catalogue audit', () => {
   // stores and lists every privilege it contains, MAINTAIN included, so a
   // future privilege this same way is caught here rather than demonstrated
   // again by a reviewer.
+  //
+  // A re-review measured a second, narrower gap in that same rewrite: both
+  // queries joined `pg_roles` on `r.oid = a.grantee` with an INNER join. A
+  // `grant ... to public` is stored by Postgres as an aclitem whose grantee
+  // OID is 0, and OID 0 has no row in `pg_roles` — an INNER join drops that
+  // aclitem before either query ever sees it. Measured live: `grant maintain
+  // on client to public` followed by `lock table client in access exclusive
+  // mode` as `anon` succeeded with both audits below still green, and `grant
+  // truncate, insert on weekly_availability to public` followed by
+  // `truncate table weekly_availability` as `anon` succeeded the same way.
+  // `PUBLIC` is not a corner case here — it is the grant shape a future
+  // migration is most likely to add by accident (a bare `grant ... on t to
+  // public`, no role list), and it is exactly the shape an inner join on
+  // `pg_roles` hides. Both queries below now `left join pg_roles` and read
+  // the grantee as `coalesce(r.rolname, 'PUBLIC')`, and — because a grant to
+  // PUBLIC is effectively a grant to every role including `anon` and
+  // `authenticated` — both queries fold a PUBLIC row into the same buckets
+  // those two roles are checked against, rather than adding a third bucket
+  // neither assertion looks at.
   it('grants authenticated and anon nothing but SELECT on appointment_slot', async () => {
     const rows = await asOwner(async (c) => {
       const r = await c.query<{ grantee: string; privilege_type: string }>(`
-        select r.rolname as grantee, a.privilege_type
+        select coalesce(r.rolname, 'PUBLIC') as grantee, a.privilege_type
         from pg_class c
         join pg_namespace n on n.oid = c.relnamespace
         cross join lateral aclexplode(c.relacl) a
-        join pg_roles r on r.oid = a.grantee
+        left join pg_roles r on r.oid = a.grantee
         where n.nspname = 'public'
           and c.relname = 'appointment_slot'
-          and r.rolname in ('authenticated', 'anon')
+          and coalesce(r.rolname, 'PUBLIC') in ('authenticated', 'anon', 'PUBLIC')
         order by 1, 2
       `)
       return r.rows
     })
+    // A PUBLIC grant applies to authenticated and anon alike, so it is
+    // folded into both buckets rather than checked as a third, unread one.
     const byRole = (role: string) =>
-      rows.filter((r) => r.grantee === role).map((r) => r.privilege_type)
+      rows
+        .filter((r) => r.grantee === role || r.grantee === 'PUBLIC')
+        .map((r) => r.privilege_type)
     expect(byRole('authenticated')).toEqual(['SELECT'])
     expect(byRole('anon')).toEqual(['SELECT'])
   })
@@ -148,6 +171,12 @@ describe('catalogue audit', () => {
   // with a gap in its vocabulary — so a future table, or a future privilege
   // Postgres adds, that forgets the baseline grant is caught here instead of
   // being demonstrated again by a reviewer.
+  //
+  // Like the audit above, this one now `left join`s `pg_roles` and reads the
+  // grantee as `coalesce(r.rolname, 'PUBLIC')`, folding a PUBLIC grant into
+  // the same `anon`/`authenticated` checks rather than letting the INNER
+  // join drop it: see the shared comment above this audit's sibling for the
+  // measured PUBLIC-grant blind spot this closes.
   it('grants no table truncate, references or trigger to anon/authenticated, and no insert/update/delete to anon', async () => {
     const offenders = await asOwner(async (c) => {
       const r = await c.query<{ o: string }>(`
@@ -155,14 +184,14 @@ describe('catalogue audit', () => {
         from pg_class c
         join pg_namespace n on n.oid = c.relnamespace
         cross join lateral aclexplode(c.relacl) a
-        join pg_roles r on r.oid = a.grantee
+        left join pg_roles r on r.oid = a.grantee
         where n.nspname = 'public'
           and c.relkind = 'r'
           and (
-            (r.rolname in ('anon', 'authenticated')
+            (coalesce(r.rolname, 'PUBLIC') in ('anon', 'authenticated', 'PUBLIC')
               and a.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'))
             or
-            (r.rolname = 'anon'
+            (coalesce(r.rolname, 'PUBLIC') in ('anon', 'PUBLIC')
               and a.privilege_type in ('INSERT', 'UPDATE', 'DELETE'))
           )
         order by 1

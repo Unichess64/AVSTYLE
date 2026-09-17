@@ -727,10 +727,25 @@ Revision 3:
    access exclusive mode` and `analyze appointment_slot` both succeeded. So
    `SELECT` was not, in fact, standing alone next to nothing — `MAINTAIN` stood
    with it, unrevoked, capable of blocking every reader of the table. The fix
-   wave added `maintain` to this revoke (and to the two migrations below), and
-   the claim is true now: measured, `lock table … access exclusive mode` and
-   `analyze` as `anon` both fail `42501` post-fix. See the correction to the
-   privilege audits just below, which also could not have caught the gap.
+   wave added `maintain` to this revoke (and to the two migrations below).
+
+   **Corrected again at the residual round: the previous sentence's claim
+   that `analyze` also fails `42501` post-fix was itself false when written,
+   and is cited rather than deleted.** It read: "the claim is true now:
+   measured, `lock table … access exclusive mode` and `analyze` as `anon`
+   both fail `42501` post-fix." Measured post-fix: `lock table … access
+   exclusive mode`, `reindex table` and `truncate` as `anon` do all fail
+   `42501` — but `analyze client` as `anon` does not; it returns the
+   `ANALYZE` command tag with no error at all, emitting only `WARNING:
+   permission denied to analyze "client", skipping it`, and
+   `pg_stat_user_tables.last_analyze` never moves. Postgres treats
+   `ANALYZE` on a table the caller cannot `MAINTAIN` as a statement-level
+   no-op with a warning, not a privilege error, so `ANALYZE` never raises
+   `42501` for `anon` regardless of the `MAINTAIN` revoke. The privilege is
+   still enforced — no statistics are ever collected on `anon`'s or
+   `authenticated`'s behalf — it is just a residual, not a fourth entry in
+   the list of probes that fail hard. See the correction to the privilege
+   audits just below, which also could not have caught the `MAINTAIN` gap.
 
    *Stage two — every other table.* A re-review then measured the identical hole
    open on all of them. As `anon`, **`truncate table client` succeeded** — the
@@ -1557,12 +1572,31 @@ not assumed** (§14).
     locked out by then, because that trigger fires only `after update or
     delete on operator`, and a delete on `auth.users` is neither. `auth.users`
     is Supabase's own schema, not application-owned, so no trigger is added
-    there. Every write this schema controls already goes through
-    `app.is_active_operator()`, so once the last linked account is gone,
-    nobody — including whoever would fix it — passes that predicate: there is
-    no way back from inside the application. The recovery is out-of-band,
-    from the Supabase dashboard, and is documented in the README's
-    operator-accounts section.
+    there.
+
+    **Corrected at the residual round: the rest of this item was false when
+    written, and is cited rather than deleted.** It read: "Every write this
+    schema controls already goes through `app.is_active_operator()`, so once
+    the last linked account is gone, nobody — including whoever would fix it
+    — passes that predicate: there is no way back from inside the
+    application. The recovery is out-of-band, from the Supabase dashboard,
+    and is documented in the README's operator-accounts section."
+    Measured false: `app.is_active_operator()` (`0001_access_control.sql`)
+    reads only `operator.auth_user_id = auth.uid() and operator.is_active` —
+    it never consults `auth.users`. With the other two operators deactivated
+    and the last linked account's `auth.users` row then deleted, a session
+    that already held that operator's claims still evaluated
+    `app.is_active_operator() = true` and successfully reactivated another
+    operator from inside the application. The lockout is real, but it bites
+    at the NEXT sign-in, not immediately: Supabase Auth cannot mint a new
+    access token for a deleted account, so the predicate only ever fails for
+    a session requesting a *fresh* token. Until every still-valid token for
+    the last linked operator has expired, the recovery is IN-band — any
+    operator holding a still-valid session can reactivate or relink another
+    operator through the application, same as any other roster edit. Only
+    once no such session remains is the recovery out-of-band, from the
+    Supabase dashboard, as documented in the README's operator-accounts
+    section.
 
 (Offboarding by deactivation is a capability, not a limit, and is described in
 §4.4.)

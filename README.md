@@ -35,9 +35,21 @@ linked, active operator locks the salon out.** The database refuses to let the
 *last* active operator be deactivated, unlinked, or relinked to a non-existent
 account (spec §6.1) — but that guard only fires on writes to the `operator`
 table, and it cannot see a Supabase Auth account deleted directly from the
-dashboard's Authentication panel. If that account is the only one still
-linked and active, every `operator` row then fails `app.is_active_operator()`
-and nobody, including any operator, can sign in to fix it from inside the
-app (spec §12, item 12). The recovery is also out-of-band: from the Supabase
-dashboard, create or restore a Supabase account and set `operator.auth_user_id`
-to its id directly in the SQL editor, exactly as in the linking step above.
+dashboard's Authentication panel (spec §12, item 12).
+
+Corrected at the residual round: this section used to say that, once that
+account is deleted, nobody — including any operator — can fix it from inside
+the app, and that the recovery is out-of-band. Measured false:
+`app.is_active_operator()` checks only `operator.is_active` and
+`operator.auth_user_id` against the current session's claims, and never
+consults `auth.users`, so a session that already holds a still-valid access
+token for the deleted account keeps passing it.
+**The lockout bites at the NEXT sign-in, not immediately** —
+Supabase Auth simply refuses to mint a fresh token for a deleted account.
+Until every still-valid session for that operator has expired, the recovery
+is IN-band: any operator with a still-valid session can reactivate or relink
+another operator from Settings, the same as any other roster edit. Only once
+no such session remains does the recovery become out-of-band: from the
+Supabase dashboard, create or restore a Supabase account and set
+`operator.auth_user_id` to its id directly in the SQL editor, exactly as in
+the linking step above.

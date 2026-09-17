@@ -13,13 +13,29 @@
 -- `operator` — but by then the salon is already locked out, because this
 -- trigger fires only `after update or delete on operator` and a delete on
 -- `auth.users` is neither. `auth.users` is Supabase's own schema, not
--- application-owned, so no trigger is added there; every write this schema
--- controls already goes through `app.is_active_operator()`, and once the
--- last linked account is gone that predicate is false for everyone,
--- including whoever would need to write `operator` to fix it. There is no
--- way back from inside the application — see the spec's §12 declared limits
--- and the README's operator-accounts section for the out-of-band recovery
--- (relink from the Supabase dashboard).
+-- application-owned, so no trigger is added there.
+--
+-- Corrected at the residual round: an earlier version of this comment (and
+-- the spec's §12 item 12) went on to say every write this schema controls
+-- already goes through `app.is_active_operator()`, so once the last linked
+-- account is gone that predicate is false for everyone and there is no way
+-- back from inside the application. Measured false. `app.is_active_operator()`
+-- (`0001_access_control.sql`) reads only `operator.auth_user_id = auth.uid()
+-- and operator.is_active` — it never consults `auth.users` at all. Measured
+-- with the other two operators deactivated and Vera's `auth.users` row then
+-- deleted: a session already holding Vera's claims still evaluated
+-- `app.is_active_operator() = true` and successfully reactivated Annalisa
+-- from inside the application. The lockout is real, but it bites at the
+-- NEXT sign-in, not immediately: Supabase Auth refuses to mint a new access
+-- token for a deleted account, so once every still-valid token for the last
+-- linked operator has expired, nobody can obtain a fresh session that
+-- passes the predicate. Until then, the recovery is IN-band — any operator
+-- holding a still-valid session (their own token has not yet expired) can
+-- reactivate or relink another operator through the application, same as
+-- any other roster edit. Only once no such session remains is the recovery
+-- out-of-band, from the Supabase dashboard (relink or restore the account) —
+-- see the spec's §12 declared limits and the README's operator-accounts
+-- section.
 --
 -- The FOR UPDATE lock is what makes the guard sound: without it, two
 -- transactions each deactivating a DIFFERENT one of the last two linked
