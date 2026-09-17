@@ -30,6 +30,13 @@ describe('catalogue audit', () => {
   })
 
   // Without this, a future `using (true)` policy satisfies the test above.
+  // Both USING and WITH CHECK are checked: Postgres does not allow USING on an
+  // INSERT policy, so `for insert with check (...)` is a real shape, and a
+  // policy that only sets WITH CHECK must still route through the predicate.
+  // polqual/polwithcheck are NULL when the corresponding clause is absent, and
+  // `pg_get_expr(NULL, ...)` returns NULL too, so each side is coalesced to
+  // '' first — otherwise `NULL not like '...'` is NULL, which WHERE treats as
+  // false and the row silently disappears from the audit.
   it('routes every policy through app.is_active_operator()', async () => {
     const rogue = await asOwner(async (c) => {
       const r = await c.query<{ t: string; p: string }>(`
@@ -38,7 +45,8 @@ describe('catalogue audit', () => {
         join pg_class c on c.oid = p.polrelid
         join pg_namespace n on n.oid = c.relnamespace
         where n.nspname = 'public'
-          and pg_get_expr(p.polqual, p.polrelid) not like '%is_active_operator%'
+          and coalesce(pg_get_expr(p.polqual, p.polrelid), '') not like '%is_active_operator%'
+          and coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') not like '%is_active_operator%'
         order by 1, 2
       `)
       return r.rows
@@ -48,6 +56,13 @@ describe('catalogue audit', () => {
 
   // §4.3 calls `set search_path = ''` "mandatory and not decoration ... the
   // textbook privilege-escalation route". This is the guard for that claim.
+  // The value must be EMPTY, not merely present: `search_path=public` would
+  // match a substring check just as happily as `search_path=`, but only the
+  // empty value forces every reference to be schema-qualified. `proconfig` is
+  // unnested so each `key=value` entry can be compared exactly, rather than
+  // substring-matching the whole array. Postgres unparses an empty search_path
+  // as `search_path=""` (a quoted empty identifier), not a bare trailing `=`,
+  // so the value half is unquoted before the emptiness check.
   it('pins search_path on every security definer function', async () => {
     const unpinned = await asOwner(async (c) => {
       const r = await c.query<{ f: string }>(`
@@ -56,7 +71,11 @@ describe('catalogue audit', () => {
         join pg_namespace n on n.oid = p.pronamespace
         where n.nspname in ('public', 'app')
           and p.prosecdef
-          and coalesce(array_to_string(p.proconfig, ','), '') not like '%search_path=%'
+          and not exists (
+            select 1 from unnest(p.proconfig) cfg
+            where split_part(cfg, '=', 1) = 'search_path'
+              and trim(both '"' from split_part(cfg, '=', 2)) = ''
+          )
         order by 1
       `)
       return r.rows.map((x) => x.f)
