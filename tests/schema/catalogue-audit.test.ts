@@ -111,6 +111,42 @@ describe('catalogue audit', () => {
     expect(byRole('anon')).toEqual(['SELECT'])
   })
 
+  // A re-review measured the appointment_slot audit above sees nothing
+  // beyond that one table: Supabase's default ACL grants anon and
+  // authenticated the full rDxtm set (references, delete, insert, select,
+  // trigger, truncate, update, maintain) on EVERY table it creates in
+  // public, and RLS does not gate TRUNCATE at all. Measured live before the
+  // 0005b baseline migration existed: `truncate table client;` as anon
+  // succeeded (wiping the only personal data in the system), and so did
+  // `truncate table appointment;` (the same double-booking vector 0005
+  // closed on appointment_slot, reached one join away by truncating its
+  // parent instead). This audit enumerates every table in the catalogue —
+  // not a hardcoded list, same discipline as the audits above — so a future
+  // table that forgets the baseline grant is caught here instead of being
+  // demonstrated again by a reviewer.
+  it('grants no table truncate, references or trigger to anon/authenticated, and no insert/update/delete to anon', async () => {
+    const offenders = await asOwner(async (c) => {
+      const r = await c.query<{ o: string }>(`
+        select g.table_name || ': ' || g.privilege_type as o
+        from information_schema.role_table_grants g
+        join pg_class c on c.relname = g.table_name
+        join pg_namespace n on n.oid = c.relnamespace and n.nspname = g.table_schema
+        where g.table_schema = 'public'
+          and c.relkind = 'r'
+          and (
+            (g.grantee in ('anon', 'authenticated')
+              and g.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER'))
+            or
+            (g.grantee = 'anon'
+              and g.privilege_type in ('INSERT', 'UPDATE', 'DELETE'))
+          )
+        order by 1
+      `)
+      return r.rows.map((x) => x.o)
+    })
+    expect(offenders).toEqual([])
+  })
+
   it('does not force row-level security on operator', async () => {
     // Cheap insurance. Note the spec's corrected reasoning: with the superuser
     // owner Supabase uses, FORCE is inert; with a nobypassrls owner it raises
