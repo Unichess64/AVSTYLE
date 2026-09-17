@@ -5,7 +5,7 @@ Internal appointment book for AVStyle — Beauty Specialist, Perugia.
 - Design specification: [`docs/superpowers/specs/2026-09-17-salon-scheduler-design.md`](docs/superpowers/specs/2026-09-17-salon-scheduler-design.md)
 - Brand assets: [`docs/brand/`](docs/brand/)
 
-Status: specification only. No implementation yet.
+Status: database foundations under implementation on the `foundations` branch. The application does not exist yet.
 
 ## Operator accounts
 

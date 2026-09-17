@@ -12,10 +12,21 @@ beforeEach(async () => {
 
 describe('auth configuration', () => {
   // The README asserts this. Without the assertion, the README is a false claim.
+  //
+  // config.toml has THREE `enable_signup` keys — under [auth], [auth.email]
+  // and [auth.sms] — so an unanchored regex over the whole file can match
+  // any of the three and never actually pin down the [auth] one this task
+  // set to false. [auth.email]'s enable_signup must stay true: it is the
+  // email/password provider toggle, and the three operators sign in with
+  // email/password. So this isolates the [auth] section (from its header
+  // to the next top-level `[` line) and asserts against that block alone.
   it('disables self-service signup and anonymous sign-in locally', () => {
     const config = readFileSync('supabase/config.toml', 'utf8')
-    expect(config).toMatch(/^\s*enable_signup\s*=\s*false/m)
-    expect(config).toMatch(/^\s*enable_anonymous_sign_ins\s*=\s*false/m)
+    const authSection = config.match(/^\[auth\]\n([\s\S]*?)(?=^\[)/m)
+    expect(authSection).not.toBeNull()
+    const [, block] = authSection!
+    expect(block).toMatch(/^\s*enable_signup\s*=\s*false/m)
+    expect(block).toMatch(/^\s*enable_anonymous_sign_ins\s*=\s*false/m)
   })
 })
 
