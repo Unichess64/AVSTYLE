@@ -1,0 +1,19 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx supabase start
+      - run: npm test
+
+# CI runs in UTC and the developer's machine does not. The date-parser line in
+# tests/helpers/db.ts is what keeps the two agreeing; if a date assertion ever
+# fails on one and passes on the other, that line is the first place to look.
