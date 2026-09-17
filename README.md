@@ -9,9 +9,13 @@ Status: specification only. No implementation yet.
 
 ## Operator accounts
 
-Three accounts with identical permissions, one per operator (spec §4.2). Self-service
-signup, anonymous sign-in and OAuth providers are disabled; the accounts are created
-from the Supabase dashboard.
+Three accounts with identical permissions, one per operator (spec §4.2). The accounts are
+created from the Supabase dashboard.
+
+Self-service signup, anonymous sign-in and OAuth providers **must be disabled** — spec §4.2.
+This is configuration, not schema: it is applied in `supabase/config.toml` for local
+development and in the project's Auth settings for the hosted project, and is asserted by
+the configuration test in the foundations plan.
 
 The three `operator` rows are created by a seed migration (spec D30). Linking each row
 to its Supabase account is a one-off statement, run once in the SQL editor after the

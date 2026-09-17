@@ -172,12 +172,24 @@ revision 1's hole.
 The function is owned by the migration role (`postgres`), recorded in the
 migration as §6.4 records the trigger's owner.
 
-**Why the recursion goes away, stated correctly.** It is not `security definer`
-by itself: row-level security is bypassed by the **owner** of the table, and the
-function's owner also owns `public.operator`. Revision 3 attributed it to the
-wrong mechanism, which matters, because `alter table operator force row level
-security` — otherwise sensible hardening — would bring `42P17` straight back.
-That statement must not be added.
+**Why the recursion goes away.** It is not `security definer` by itself:
+row-level security is bypassed by the **owner** of the table, and the function's
+owner also owns `public.operator`. Revision 3 attributed it to the wrong
+mechanism.
+
+Revision 4 then over-corrected, claiming that `alter table operator force row
+level security` would bring `42P17` straight back. **Measured on a live
+PostgreSQL by a reviewer of the foundations plan, that is wrong in both
+directions:** with the superuser owner Supabase actually uses, `force row level
+security` is inert; with a genuinely `nobypassrls` owner it raises `54001`,
+stack depth exceeded, not `42P17`. `42P17` comes only from a policy whose
+expression names its own table directly — which is the shape the helper
+function exists to avoid.
+
+The practical rule is unchanged — do not add `force row level security` on
+`operator`, and keep the helper — but the reason is ownership, and the failure
+mode would be stack exhaustion. The audit test of the foundations plan measures
+this for itself.
 
 `set search_path = ''` is mandatory and not decoration: a `security definer`
 function with a mutable search path is the textbook privilege-escalation route,
@@ -491,17 +503,33 @@ Revision 3:
 4. **The trigger is pinned verbatim**:
    `AFTER INSERT OR UPDATE OR DELETE ON appointment FOR EACH ROW`, **no column
    list**, **no `ON CONFLICT DO NOTHING`**, `SECURITY DEFINER` with
-   `SET search_path = ''`, owned by the migration role, **named
-   `zz_sync_appointment_slots`**, and deleting its old rows **by
+   `SET search_path = ''`, owned by the migration role, named
+   `zz_sync_appointment_slots`, and deleting its old rows **by
    `appointment_id` alone**.
 
-   The last two are not fussiness. After-row triggers on one row fire in name
-   order alongside the internal referential-integrity triggers, so a name that
-   sorts before them changes whether a delete succeeds — the difference between
-   working and failing sits in a name revision 3 did not pin. And a delete
-   predicate that also matches on `operator_id` and `appointment_date` misses
-   rows the foreign key's cascade has already rewritten, after which the
-   re-insert violates the primary key: every reassignment fails.
+   The delete predicate is load-bearing: one that also matches on `operator_id`
+   and `appointment_date` misses rows the foreign key's cascade has already
+   rewritten, after which the re-insert violates the primary key.
+
+   **Two claims revisions 3 and 4 made here have since been measured false**, by
+   a reviewer of the foundations plan working against a live PostgreSQL:
+
+   - **The `zz_` name prefix is not load-bearing.** Renaming the trigger so it
+     sorts before the referential-integrity triggers changed nothing: update,
+     reassignment and delete all still behaved. The prefix is kept as cheap
+     insurance against a firing order nothing should depend on, but it proves
+     nothing and the spec no longer says it does.
+   - **"No column list" is largely shadowed by measure 3.** Because the
+     composite foreign key carries `on update cascade`, a reassignment rewrites
+     the child rows by itself even with the trigger disabled. A column list on
+     `(start_cell, cell_count)` would therefore *appear* to work. The rule is
+     kept — the trigger must own its rows, and relying on a cascade to repair
+     what a trigger should have written is the drift this section exists to
+     prevent — but its justification is discipline, not a failure anyone has
+     observed.
+
+   This is §15 working as intended: two paragraphs of confident reasoning,
+   settled in the opposite direction by an hour with a database.
 
 Measure 4 is not pedantry. `AFTER UPDATE OF start_cell, cell_count` looks like an
 optimisation, and under it reassigning an appointment from Vera to Annalisa
@@ -1205,8 +1233,10 @@ services**, so the scoping predicates are exercised rather than merely declared.
 - `start_cell + cell_count <= 288` enforced
 - Overlap rejected on `weekly_availability` and on `exception_range`;
   `end_boundary <= 288` on both
-- `salon_closure`: one boundary set without the other, an inverted window, and a
-  partial closure spanning two dates — all rejected
+- `salon_closure`: one boundary set without the other, and an inverted window —
+  both rejected. **A partial closure spanning several dates is accepted**, and
+  its window is cut out of each date: revision 4 listed it here as something to
+  reject while §6.5 built it deliberately, and §6.5 is the side that is right
 - The birthday pair: both-or-neither; 29 February accepted; 31 February and
   31 April **rejected without raising**
 - `last_activity_at` after an appointment insert, move and delete, **after a
