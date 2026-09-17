@@ -1,0 +1,23 @@
+{
+  "name": "salon-scheduler",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "db:start": "supabase start",
+    "db:reset": "supabase db reset"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.0",
+    "supabase": "^2.117.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
