@@ -37,9 +37,24 @@ describe('client activity', () => {
     expect(await activity(CLIENT_MARIA)).toBe(DAY_ONE)
   })
 
+  // ⚠ discriminating: Lucia's last_activity_at is seeded DIRECTLY (bypassing
+  // the trigger, which only fires on visit/appointment — never on client
+  // itself) to a value that does NOT match her own booking history: she has
+  // none. A correctly SCOPED update touches only `affected` (Maria), so
+  // Lucia's seeded value survives untouched. Deleting `where c.id =
+  // any(affected)` — the mutation that leaves all ten ORIGINAL tests green
+  // — makes the update touch every client row instead; Lucia's is then
+  // recomputed from her REAL (empty) visit history and overwritten to null.
+  // Giving Lucia a REAL, consistent booking would NOT catch this: the
+  // recompute is self-correlated per client, so it reproduces the SAME
+  // correct value for her regardless of scope (confirmed: that version of
+  // this test stayed green under the unscoped mutation too). Only a value
+  // that's already out of sync with her real data can tell scoped from
+  // unscoped apart.
   it('leaves the other client untouched', async () => {
+    await asOwner((c) => c.query(`update client set last_activity_at = $1 where id = $2`, [DAY_TWO, CLIENT_LUCIA]))
     await book(DAY_ONE)
-    expect(await activity(CLIENT_LUCIA)).toBeNull()
+    expect(await activity(CLIENT_LUCIA)).toBe(DAY_TWO)
   })
 
   it('follows the visit when the visit date changes', async () => {
