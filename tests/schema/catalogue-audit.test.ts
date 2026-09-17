@@ -83,6 +83,34 @@ describe('catalogue audit', () => {
     expect(unpinned).toEqual([])
   })
 
+  // Guards against a double booking that RLS cannot see coming: TRUNCATE is
+  // not gated by row-level security, and Supabase's default ACL grants it to
+  // authenticated and anon. An operator who can truncate appointment_slot can
+  // wipe every occupied cell and then insert a clashing appointment with
+  // nothing left for the deferred unique constraint to collide against — a
+  // committed double booking (task 7, finding 1). This audit reads the
+  // catalogue directly, rather than re-deriving the privilege list from the
+  // migration, so a future migration that widens the grant (or a new write
+  // privilege Postgres adds) is caught here instead of being demonstrated
+  // again by a reviewer.
+  it('grants authenticated and anon nothing but SELECT on appointment_slot', async () => {
+    const rows = await asOwner(async (c) => {
+      const r = await c.query<{ grantee: string; privilege_type: string }>(`
+        select grantee, privilege_type
+        from information_schema.role_table_grants
+        where table_schema = 'public'
+          and table_name = 'appointment_slot'
+          and grantee in ('authenticated', 'anon')
+        order by 1, 2
+      `)
+      return r.rows
+    })
+    const byRole = (role: string) =>
+      rows.filter((r) => r.grantee === role).map((r) => r.privilege_type)
+    expect(byRole('authenticated')).toEqual(['SELECT'])
+    expect(byRole('anon')).toEqual(['SELECT'])
+  })
+
   it('does not force row-level security on operator', async () => {
     // Cheap insurance. Note the spec's corrected reasoning: with the superuser
     // owner Supabase uses, FORCE is inert; with a nobypassrls owner it raises

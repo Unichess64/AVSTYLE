@@ -59,10 +59,24 @@ create trigger zz_sync_appointment_slots
   after insert or update or delete on appointment
   for each row execute function app.sync_appointment_slots();
 
--- Measure 2. INSERT/UPDATE/DELETE only: the application MUST read this table
--- (the availability query, the narrowing check, the conflict pre-check and the
--- day view all do). REVOKE ALL would have taken SELECT with it.
-revoke insert, update, delete on appointment_slot from authenticated, anon;
+-- Measure 2. The application MUST read this table (the availability query,
+-- the narrowing check, the conflict pre-check and the day view all do), so
+-- SELECT is the only privilege left standing. REVOKE ALL would have taken
+-- SELECT with it — so every write-shaped privilege is named explicitly
+-- instead: insert, update, delete, AND, critically, truncate, references and
+-- trigger.
+--
+-- TRUNCATE is named on purpose, not swept up by a wildcard: Supabase's
+-- default ACL grants it to authenticated and anon (rDxtm — read, references,
+-- trigger, truncate, maintain), and row-level security does NOT apply to
+-- TRUNCATE — RLS only gates SELECT/INSERT/UPDATE/DELETE. Left in place, an
+-- authenticated client could `truncate table appointment_slot` (refused
+-- only by this revoke, not by RLS) and then insert a clashing appointment
+-- with no rows left for the deferred unique constraint to collide against —
+-- a committed double booking the occupancy guarantee exists to prevent.
+-- REFERENCES and TRIGGER are revoked for the same reason: unrevoked DDL-ish
+-- privileges are exactly the kind of gap RLS cannot close.
+revoke insert, update, delete, truncate, references, trigger on appointment_slot from authenticated, anon;
 
 alter table appointment_slot enable row level security;
 

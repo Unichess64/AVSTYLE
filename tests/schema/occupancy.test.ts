@@ -117,11 +117,18 @@ describe('occupancy', () => {
     expect([cells[0], cells[17]]).toEqual([126, 143])
   })
 
+  // Measures the composite FK's ON DELETE CASCADE, not the trigger: removing
+  // the trigger's DELETE branch leaves this green (verified by hand — flipping
+  // the FK to `on delete no action` is what turns it red, with 23503). The
+  // regression this actually guards is an earlier spec revision that shipped
+  // without the cascade.
   it('removes the cells when the appointment is deleted', async () => {
     await asOwner((c) => c.query('delete from appointment where id = $1', [APPT]))
     expect(await cellsOf(APPT)).toEqual([])
   })
 
+  // Same as above: measures the composite FK's ON DELETE CASCADE (through
+  // appointment) rather than the trigger. See the comment on the previous test.
   it('removes the cells when the client is deleted', async () => {
     await asOwner((c) => c.query('delete from client where id = $1', [CLIENT_MARIA]))
     expect(await slotCount()).toBe(0)
