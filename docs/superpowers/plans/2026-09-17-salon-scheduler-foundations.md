@@ -2894,12 +2894,12 @@ git commit -m "feat(db): expose auth account ids to active operators for linking
 - [ ] **Step 1: Prove it from a cold start**
 
 ```bash
-npx supabase stop
-npx supabase start
-npm test
+npx supabase db reset && npm test
 ```
 
-Expected: every test passes against a database built from migrations and seed alone. Any test that depended on state left by a previous test fails here, which is the point. `supabase start` already applies migrations and the seed; `db reset` is only needed after editing a migration.
+Expected: every test passes against a database built from migrations and seed alone. Any test that depended on state left by a previous test fails here, which is the point.
+
+**Corrected during Task 15, and this is why.** This step originally read `npx supabase stop` / `npx supabase start` / `npm test`, with the note that "`supabase start` already applies migrations and the seed; `db reset` is only needed after editing a migration". Measured: **`npx supabase stop` keeps a backup volume by default** (`"backup":true`), so `start` restores the previous, test-mutated database instead of rebuilding from migrations and seed — silently defeating the gate this step exists to be. `stop --no-backup` works too; `db reset` has no volume semantics to get wrong, so it is the form used here. The superseded wording is kept in this paragraph rather than deleted.
 
 - [ ] **Step 2: Write the CI workflow**
 

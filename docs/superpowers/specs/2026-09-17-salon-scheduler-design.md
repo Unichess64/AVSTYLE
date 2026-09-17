@@ -1,9 +1,22 @@
 # AVStyle Salon Scheduler — Design Specification
 
 **Date:** 2026-09-17
-**Status:** Draft, revision 4 — incorporates three rounds of adversarial review
-**Revision:** 4
+**Status:** Draft, revision 5 — reconciled with the migrations that were built
+**Revision:** 5
 
+> **Revision 5 reconciles this document with the twelve migrations of the
+> foundations plan** (`docs/superpowers/plans/2026-09-17-salon-scheduler-foundations.md`),
+> under §15's own rule that where a statement here and a passing test disagree,
+> the test wins. The migrations are `0001`…`0005`, `00051_privilege_baseline`,
+> `0006`…`0011`, and the suite that decided each correction is 143 tests in
+> `tests/schema/`. Every divergence, with what this document said, what the
+> migration does and **which test decided it**, is recorded in
+> `docs/superpowers/plans/2026-09-17-foundations-findings.md`; the site-by-site
+> census that guided the edit is
+> `.superpowers/sdd/2026-09-17-salon-scheduler-foundations/task-15-census.md`.
+> Withdrawn statements are cited as superseded rather than deleted.
+> **§15.1 states which sections were not re-reviewed and where to start next.**
+>
 > **How this document was built.** Revision 1 was examined by three independent
 > adversarial reviewers (domain assumptions; time-model correctness;
 > consistency, security and privacy). Revision 2 rewrote most of it and was
@@ -15,6 +28,21 @@
 > pattern a third time, all of it in database detail that reading can surface
 > but only a running migration can settle. Revision 4 answers round three and
 > §15 says where that loop should stop.
+>
+> **How to read this document's self-criticism — added at revision 5, and
+> normative.** The text says "revision 1/2/3 said X and that was wrong" in 61
+> places. Those attributions are **drafting history from the review rounds, and
+> not measurements.** Revisions 1–3 were never committed: `git log --follow` on
+> this file returns exactly two commits, the earlier of which (`2309452`)
+> already declares revision 4. So no attribution to revision 1, 2 or 3 can be
+> checked against this repository — 60 of the 63 such attributions are
+> **unverifiable in that sense**, and must not be read as evidence. The three
+> that attribute an error to **revision 4** *are* verifiable, were each checked
+> against `2309452`, and are marked as verified where they appear (§4.3, §6.4,
+> §13.2). Separately, whether the *underlying norm* was measured is a different
+> question with a better answer: 32 of the 60 are norms this plan proved with a
+> named test, and those tests are cited in the findings note. The census
+> enumerates all 69 sites with this classification.
 >
 > Decisions marked **(user)** in §2 were taken by the user. The rest are the
 > author's and are negotiable.
@@ -157,9 +185,20 @@ it does not even run:
 
 ```sql
 create schema app;
-grant usage on schema app to authenticated;
+grant usage on schema app to authenticated, anon;
+grant execute on function app.is_active_operator() to authenticated, anon;
 alter table <every table> enable row level security;
 ```
+
+**Corrected at revision 5:** revision 4 granted usage `to authenticated` only.
+`0001_access_control.sql` grants **`anon` as well**, and grants it EXECUTE on the
+helper. `anon` deliberately keeps `SELECT` on the tables, so an unauthenticated
+visitor sees **zero rows** — row-level security filtering — rather than a `42501`.
+Without usage on `app`, that same visitor's policy call raises *permission denied
+for schema app* instead, which is the failure mode this section already condemns
+one paragraph below for `authenticated`. Measured by
+*"shows nothing to an unauthenticated visitor"* and *"hides client data from an
+unauthenticated visitor"*.
 
 Without `create schema app` the migration fails outright. Without the `grant`,
 every policy call raises *permission denied for schema app*, so the app errors
@@ -180,11 +219,21 @@ mechanism.
 Revision 4 then over-corrected, claiming that `alter table operator force row
 level security` would bring `42P17` straight back. **Measured on a live
 PostgreSQL by a reviewer of the foundations plan, that is wrong in both
-directions:** with the superuser owner Supabase actually uses, `force row level
-security` is inert; with a genuinely `nobypassrls` owner it raises `54001`,
-stack depth exceeded, not `42P17`. `42P17` comes only from a policy whose
-expression names its own table directly — which is the shape the helper
-function exists to avoid.
+directions** (this attribution is verifiable: commit `2309452` reads "would
+bring `42P17` straight back. That statement must not be added."): with an owner
+that bypasses row-level security, `force row level security` is inert; with a
+genuinely `nobypassrls` owner it raises `54001`, stack depth exceeded, not
+`42P17`. `42P17` comes only from a policy whose expression names its own table
+directly — which is the shape the helper function exists to avoid.
+
+**Corrected again at revision 5 — the owner is not a superuser.** Revision 4
+wrote "the superuser owner Supabase actually uses", and the foundations plan's
+Task 13 report repeated it. Measured against the live catalogue: `postgres` has
+**`rolsuper = false` and `rolbypassrls = true`**. The conclusion is unchanged —
+an owner that bypasses row-level security makes `force row level security`
+inert — but the mechanism is `rolbypassrls`, not superuser status, and a reader
+who goes looking for a superuser will not find one. The superuser phrasing is
+superseded.
 
 The practical rule is unchanged — do not add `force row level security` on
 `operator`, and keep the helper — but the reason is ownership, and the failure
@@ -196,11 +245,33 @@ function with a mutable search path is the textbook privilege-escalation route,
 and Supabase's own linter flags it. The body is fully schema-qualified
 (`public.operator`, `auth.uid()`), so it resolves under an empty path.
 
+**Added at revision 5, because an audit got it wrong first.** Postgres unparses
+the empty pin as **`search_path=""`** — a quoted empty identifier — not as a
+bare `search_path=`. An audit that substring-matches `search_path=` therefore
+passes `set search_path = 'public'` just as happily, which is a guard that
+cannot fail in the case it exists for. The standing audit unnests `proconfig`
+and compares the value half exactly, after unquoting
+(*"pins search_path on every security definer function"*). The one function
+here with **no** pin is `app.touch_updated_at()`, which is `security invoker`,
+assigns only to `NEW` and references no schema-qualified object; the audit
+filters on `prosecdef` and correctly does not demand one.
+
 Every table's policy is `app.is_active_operator()`.
 
 **This is an authentication gate expressed in the row-level-security layer, not
 row-level security** — the predicate is identical for every table, every verb and
 every row. Calling it RLS would overstate it.
+
+**One carve-out, measured at revision 5.** Twelve of the thirteen tables carry a
+`for all` policy. **`appointment_slot` carries a `for select` policy only**
+(`polcmd = 'r'` in `pg_policy`), because §6.4 measure 2 revokes every write
+privilege on it from both roles and a write policy would describe a verb nobody
+holds. The predicate is still identical wherever a policy exists; "every verb"
+above is superseded by "every verb the role can hold". Audited by *"has at least
+one policy on every table in public"* and *"routes every policy through
+app.is_active_operator()"* — the latter reading **`polqual` AND `polwithcheck`
+with NULLs coalesced**, because a WITH CHECK-only policy (the only shape
+Postgres allows for INSERT) passed an earlier `polqual`-only version silently.
 
 **Bootstrap (D30).** The three operator rows are created by a seed migration.
 Linking each to its Supabase account is a one-off statement run in the SQL
@@ -261,6 +332,42 @@ separate round trips are enough.
 Before committing, the function issues `SET CONSTRAINTS ... IMMEDIATE` so a
 violation surfaces **inside** the transaction, where it can be caught and turned
 into the sentence of §10.1 rather than an opaque error at commit.
+
+**Three things revision 5 adds, each measured.**
+
+- **Each function also *begins* with `set constraints appointment_slot_unique
+  deferred`.** The trailing `SET CONSTRAINTS ALL IMMEDIATE` above persists for
+  the **rest of the transaction**, not just for that call — so a second,
+  otherwise non-colliding `move_visit` in the same explicit transaction had its
+  two updates checked row by row and raised a **false** collision purely from
+  call ordering. Removing the re-deferral reproduces it live. Measured by
+  *"allows two non-colliding move_visit calls in the same explicit transaction"*.
+- **`move_visit` and `swap_appointment_operators` raise `P0002`** when the target
+  does not exist, or when row-level security makes it invisible to the caller — an
+  outsider, or an operator whose account was just deactivated. Revision 4 left
+  both returning `void` on a target that matched nothing, which made a silent
+  no-op indistinguishable from a completed move and would have made §10.2's
+  "this was deleted while you had it open" unimplementable. Measured by
+  *"raises P0002 for a visit that does not exist"*, *"raises P0002, not a silent
+  success, when the caller cannot see the visit"*, and the two swap equivalents.
+- **EXECUTE is revoked from `public` and `anon`** and granted only to
+  `authenticated`: Supabase grants EXECUTE on a new `public` function to `anon`
+  by default, and `swap_appointment_operators` takes row locks **before**
+  row-level security filters anything, so an unauthenticated caller could
+  otherwise hold locks on `appointment` rows. The test must read
+  `has_function_privilege` against the exact signature, not call as `anon` and
+  expect `42501`: with EXECUTE wrongly granted, three of the four functions
+  still raised `42501` from a revoked table privilege or an RLS policy deeper
+  in, so three behavioural tests could not fail. Measured by *"anon lacks
+  EXECUTE on %s"* and *"authenticated has EXECUTE on %s"* over all four
+  signatures.
+
+The four functions are `public.move_visit(uuid, date, integer)`,
+`public.swap_appointment_operators(uuid, uuid)`,
+`public.write_exception_day(uuid, date, int[])` (§6.5) and
+`public.write_exception_days(uuid, date, date, int[])` (§6.5), all
+`security invoker`: they run **under** the caller's row-level security, not above
+it. Deadlocks from these functions are §10.5.
 
 ---
 
@@ -324,6 +431,13 @@ silently.
 
 Thirteen tables.
 
+*Counted from the catalogue at revision 5, not from this document:*
+`select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind = 'r'` → **13**. The word and the
+database agree, so nothing here changed. Recorded because a `grep` over this
+file's bold-backtick line starts also matches prose in §7 and would have
+reported a mismatch that does not exist.
+
 ### 6.1 Operators and services
 
 **`operator`** — `id`, `auth_user_id` (nullable, unique), `name`, `color`,
@@ -342,6 +456,35 @@ refuses any write that would leave **zero rows with `is_active` and a non-null
 - It would have raced: Vera deactivating Annalisa while Annalisa deactivates
   Vera, each seeing the other still active, both committing, nobody left. The
   row lock is what makes the guard real.
+
+**A fourth thing, found by measurement at revision 5: the account must still
+exist.** `auth_user_id is not null` is insufficient — the column stays non-null,
+and so keeps counting as "linked", after the account it names is deleted or if
+it was never real. Signed in as the only active operator, `update operator set
+auth_user_id = '<uuid of no real account>'` was **allowed**, leaving a row that
+looks linked and matches nobody: the salon locked out, reachable from the
+Settings *link to an account* screen. So `app.guard_operator_lockout()`
+(`0009_operator_guard.sql`) counts only operators for which
+`exists (select 1 from auth.users u where u.id = o.auth_user_id)`.
+
+Note the location precisely, because it is easy to misattribute: the
+`auth.users` existence check lives in **the guard**, not in
+`app.is_active_operator()`, whose body still matches `auth_user_id = auth.uid()
+and is_active` alone. The predicate does not need the check — a non-existent
+account cannot produce a JWT — but the guard's **count** must agree with reality
+or it approves a lockout it cannot see. Measured by *"refuses to relink the last
+linked active operator to a non-existent account"*.
+
+**What the lock buys, and what it does not.** The guard is a constraint trigger,
+`deferrable initially immediate`, and takes `perform 1 from public.operator
+order by id for update`. Measured: with the lock removed, both sides of a mutual
+deactivation committed 20/20 — an actual lockout. With it, at least one side is
+always refused, over 635 trials across 15 concurrency shapes, and the roster was
+never emptied. But **`order by id` does not prevent a deadlock**: each
+transaction's own initiating `update … where id = $1` has already locked its
+target row, by the caller's choice, before this trigger runs, so the fixed order
+the `ORDER BY` tries to impose has already been broken. A `40P01` here is an
+expected, correct outcome — see §10.5.
 
 **`service_category`** — `id`, `name`, `sort_order`. Managed in Settings.
 Revision 2 said the category was "constrained to a fixed list" while D4 says no
@@ -417,13 +560,62 @@ included**. Revision 2 fired it on `appointment` only, so moving a visit from ne
 week to next year left it stale — on a value that governs the deletion of
 personal data.
 
+**Revision 5 corrects the trigger's kind and adds a lock, both measured.**
+
+- **They are CONSTRAINT TRIGGERS, `DEFERRABLE INITIALLY DEFERRED`**, not plain
+  triggers. A plain trigger runs `update client` synchronously inside each
+  insert; both appointments of one visit share one `client` row, so the second
+  insert blocks on the row lock the first, still-open transaction holds. In the
+  occupancy concurrency test that is an **unconditional hang**, not a slow test,
+  because the test awaits the second insert before committing the first —
+  measured, and converting both triggers to deferred constraint triggers made it
+  resolve immediately. Revision 4 described a plain trigger, which the suite
+  cannot run.
+- **The recompute takes a row lock first:** `perform 1 from public.client where
+  id = any(affected) … for update`, before the `update`. Without it, under READ
+  COMMITTED, an `update` that blocks on the client row and then unblocks is
+  re-projected by EvalPlanQual using **the statement's original snapshot**,
+  which cannot see the other transaction's just-committed appointment. Measured
+  in both directions: one session booking 2027-06-01 while another books
+  2026-01-05 for the same client left `last_activity_at = 2026-01-05` —
+  **seventeen months backwards**, on the exact value §11.4's sweep deletes on,
+  so it would have deleted the personal data of a client with a booking next
+  year. With the lock, the same race is consistent.
+
+Both facts are proved by *"counts a future visit, so a client who has just
+rebooked is not swept"*, *"follows the visit when the visit date changes"* and —
+for the trigger kind — *"rejects a concurrent booking of the same cells at commit
+time"*, the test the plain-trigger shape hung.
+
+**Consequence, accepted:** with the lock, two concurrent same-client bookings can
+now deadlock (`40P01`) instead of silently racing. That is the right trade and it
+is an obligation on the application — §10.5.
+
+**Known deferred defect, recorded rather than fixed** (this task edits documents
+only): the lock statement reads `order by 1`, which orders by the **constant 1**
+and delivers no ordering at all — `EXPLAIN VERBOSE` shows a plan byte-identical
+to having no `ORDER BY`. It should read `order by id`. Sites:
+`supabase/migrations/0007_client_activity.sql:43` (the code) and `:29` (a comment
+claiming the ordering), and `supabase/migrations/0008_orphan_visit.sql:76` (a
+comment citing "touch_client_activity's own `order by 1` discipline"). The two
+sibling guards, `0009_operator_guard.sql:38` and
+`0010_write_functions.sql:79`, use `order by id` correctly. Measured as not
+changing today's deadlock rate — 11/12 trials deadlock either way, the cause
+being structural — so what is live today is two **comments asserting a guarantee
+the code does not provide**. Fix all three together. See §12.1.
+
 Retention eligibility uses `coalesce(last_activity_at, created_at::date)`, so a
 client created mid-booking and never confirmed is not exempt for ever.
 
 ### 6.3 Visits and appointments
 
-**`visit`** — `id`, `client_id` (fk, `on delete cascade`), `visit_date`, plus
-`unique (id, visit_date)`.
+**`visit`** — `id`, `client_id` (fk, `on delete cascade`), `visit_date`,
+`updated_at`, plus `unique (id, visit_date)`.
+
+*Revision 5 adds `visit.updated_at` to this list.* §10.2 already required it —
+moving a whole visit updates `visit_date` and would otherwise have no
+lost-update protection — but §6.3 did not declare the column, so the document
+asserted in one section a column it withheld in another.
 
 **`appointment`** — `id`, `visit_id`, `operator_id`, `service_id`,
 `appointment_date`, `start_cell` (0–287), `cell_count`
@@ -432,6 +624,23 @@ client created mid-booking and never confirmed is not exempt for ever.
 
 Every appointment belongs to a visit; a single-service booking makes a visit of
 one, so there is no nullable branch. A visit may span operators.
+
+**`updated_at` on both tables defaults to and is refreshed with
+`clock_timestamp()`, never `now()`** — added at revision 5. `now()` is fixed for
+the whole transaction, so two updates inside one transaction would compare equal
+and §10.2's compare-and-set would not see the second. One `before update`
+trigger per table calls `app.touch_updated_at()`, which is the **only**
+`security invoker` trigger function in this schema and therefore the only one
+without a `search_path` pin: it assigns to `NEW` and references nothing
+schema-qualified, so the pin would buy nothing (§4.3). Measured by *"bumps
+updated_at when an appointment changes"* and *"bumps updated_at when the visit
+changes"* — and note what it took to make those tests able to fail: each
+`asOwner` call opens its own connection, so an insert and a later update land in
+different transactions and `now()` would differ between them anyway. The shape
+that discriminates is **two updates inside one explicit transaction with
+`pg_sleep(0.01)` between them**; without the sleep it is ~50% flaky even with
+correct code, because `clock_timestamp()` has microsecond resolution while a
+JavaScript `Date` truncates to the millisecond.
 
 **The date is bound, not merely described:**
 
@@ -481,11 +690,69 @@ Revision 3:
    `DEFERRABLE INITIALLY DEFERRED` — for the reason given in §4.6, not the one
    revision 2 gave.
 
-2. **`REVOKE INSERT, UPDATE, DELETE ON appointment_slot FROM authenticated, anon`.**
+2. **A privilege baseline for the whole schema — not three verbs on one table.**
    Revision 2 wrote `REVOKE ALL`, which also removes `SELECT` — and the table is
    read by the availability query (§7.5), the narrowing check (§7.6), the
    conflict pre-check (§10.1) and the day view itself. The application must read
-   it and must not write it.
+   it and must not write it. Revision 3 corrected that to `REVOKE INSERT,
+   UPDATE, DELETE ON appointment_slot FROM authenticated, anon`.
+
+   **Revision 5 replaces that measure, because it was measured insufficient in
+   two stages, and the second stage reached the client list.**
+
+   *Stage one — the same table, more verbs.* Supabase's default ACL grants
+   `anon` and `authenticated` the **full `rDxtm` set** on every table it creates
+   in `public` — references, delete, insert, select, trigger, truncate, maintain
+   — and **row-level security does not apply to `TRUNCATE`**: RLS gates only
+   SELECT/INSERT/UPDATE/DELETE. So as `authenticated` with a real operator's
+   claims, `truncate appointment_slot` followed by a colliding appointment
+   **both committed**: two appointments for one operator on one date over the
+   same cells, with the occupancy table holding only the newer one, invisible to
+   every availability query, narrowing check and conflict pre-check. That is
+   revision 1's failure mode verbatim, through a door nobody had looked at, and
+   it left the guarantee resting on PostgREST having no TRUNCATE verb — a
+   convention, not a guarantee, which is exactly what revision 1 was rejected
+   for. `0005_occupancy.sql` therefore names every write-shaped privilege
+   explicitly: `revoke insert, update, delete, truncate, references, trigger on
+   appointment_slot from authenticated, anon`, leaving `SELECT` standing alone.
+
+   *Stage two — every other table.* A re-review then measured the identical hole
+   open on all of them. As `anon`, **`truncate table client` succeeded** — the
+   only personal data in the system, gone — and so did `truncate table
+   appointment`, which is the same double-booking vector reached one join away
+   by truncating the parent. Closed by **`00051_privilege_baseline.sql`**:
+   truncate, references and trigger revoked from both roles on every
+   application table, and insert/update/delete revoked from `anon` (which can
+   never satisfy the access predicate anyway, so this removes nothing the
+   application uses). `SELECT` stays granted to `anon` for the reason in §4.3.
+
+   *Why the file is named `00051`.* `0005b_` was tried first, and the Supabase
+   CLI (2.117.0) **silently skips a migration whose numeric prefix contains a
+   non-digit**: one easy-to-miss "Skipping migration" line, `db reset` still
+   exits 0, and this security fix would have shipped **completely inert while
+   reporting success**. `00051` is digits-only and still sorts strictly between
+   `0005` and `0006`. The applied set is therefore twelve files: `0001`…`0005`,
+   `00051_privilege_baseline`, `0006`…`0011`, confirmed against
+   `supabase_migrations.schema_migrations`.
+
+   *Two standing obligations follow, and they are normative.*
+
+   - **Every migration that creates a table must revoke in its own file.**
+     `00051` is a fixed list of per-table statements and cannot reach a table
+     that does not yet exist; a new table arrives with the full default ACL,
+     `anon` TRUNCATE included. `0006_availability.sql` honours this for its
+     four tables.
+   - **A standing catalogue audit enumerates the catalogue, not a list**, so an
+     omission is caught at test time rather than demonstrated again by a
+     reviewer. It is a check on those revokes, not a substitute for them.
+
+   Measured by *"grants authenticated and anon nothing but SELECT on
+   appointment_slot"*, *"grants no table truncate, references or trigger to
+   anon/authenticated, and no insert/update/delete to anon"*, *"lets the
+   application READ the cells"* and *"refuses a direct insert on
+   appointment_slot"*. The revision-3 wording above is superseded, not deleted:
+   it is still the right shape for the three verbs it names, and wrong only in
+   what it leaves out.
 
 3. **A composite foreign key**, which is what revision 2 called a check
    constraint and could not have been one (a `CHECK` cannot read another row):
@@ -512,7 +779,10 @@ Revision 3:
    rewritten, after which the re-insert violates the primary key.
 
    **Two claims revisions 3 and 4 made here have since been measured false**, by
-   a reviewer of the foundations plan working against a live PostgreSQL:
+   a reviewer of the foundations plan working against a live PostgreSQL. (The
+   revision-4 half of this attribution is verifiable: commit `2309452` bolds
+   "**named `zz_sync_appointment_slots`**" and argues the firing-order case, and
+   `641bfe0` withdrew it. The revision-3 half is not — see the header block.)
 
    - **The `zz_` name prefix is not load-bearing.** Renaming the trigger so it
      sorts before the referential-integrity triggers changed nothing: update,
@@ -584,8 +854,14 @@ claimed to have eliminated, renamed — and required a check reading across two
 tables, which Postgres cannot express. Removing the flag makes the two states one
 state.
 
-**An exception day and its ranges are written in one transaction**, through the
-same kind of database function as §4.6. Two separate calls would mean that a
+**An exception day and its ranges are written in one transaction**, through
+**`public.write_exception_day(p_operator_id uuid, p_date date, p_ranges
+int[][])`** — named here at revision 5, because revision 4 described the
+behaviour and left the function anonymous. It **deletes any existing exception
+for that operator and date first**, so a re-write replaces rather than
+accumulates, and it treats `p_ranges` **null or empty** as away, which is the
+zero-ranges state below. It returns the `exception_day` id. Two separate calls
+would mean that a
 request which hangs after the first — the case §10.3 singles out as the
 dangerous one — leaves the operator marked away all day, in a state
 indistinguishable from a deliberate absence. Collapsing *declared absence* with
@@ -598,12 +874,21 @@ range leaves the operator **away** that day. Deleting the *exception itself* is 
 separate action in §9.8 ("torna all'orario abituale"), and the editor labels a
 childless exception day as *assente* so the state is never silent.
 
-**Multi-day absence** is written in bulk from a date range (§9.8): two weeks of
-holiday entered one date at a time guarantees a missed day that leaves the
-operator silently bookable.
+**Multi-day absence** is written in bulk from a date range (§9.8) by
+**`public.write_exception_days(p_operator_id, p_from, p_to, p_ranges)`**, which
+loops `write_exception_day` over the range in **one** transaction and returns
+the number of days written: two weeks of holiday entered one date at a time
+guarantees a missed day that leaves the operator silently bookable, and a
+failure on day 7 must write none of days 1–6. Measured by *"writes the day and
+its ranges together"*, *"replaces the previous exception for the same date"*,
+*"leaves nothing behind when a range is invalid"* and *"writes a fortnight of
+absence in one call"*.
 
 **`salon_closure`** — `id`, `start_date`, `end_date` (`>= start_date`),
-`from_boundary`, `to_boundary` (both nullable), `reason`.
+`from_boundary`, `to_boundary` (both nullable), `reason` (**`not null`** —
+corrected at revision 5; revision 4 listed it without a nullability and §9.1
+renders it unconditionally, so a null would draw a dimmed column with no
+explanation, which is the failure `reason` exists to prevent).
 
 Constraints, all writable as plain checks and all left in prose by revision 2:
 both boundaries null or both set; `to_boundary > from_boundary`; both `<= 288`.
@@ -795,6 +1080,16 @@ and the retention sweep eventually deletes half of her.
 Accent-insensitive search is indexed through an **immutable wrapper** around
 `unaccent`, which is not itself immutable and cannot otherwise be indexed.
 
+*Named and pinned at revision 5:* `public.immutable_unaccent(text)`, `immutable
+strict parallel safe`, `set search_path = ''`, with the body
+`select extensions.unaccent('extensions.unaccent'::regdictionary, $1)`. The
+qualification is not cosmetic — Supabase installs extensions into schema
+`extensions` (measured: both `unaccent` and `btree_gist` are there), and under
+an empty `search_path` nothing unqualified resolves at all. Declaring the
+dictionary explicitly is what makes the wrapper honestly `immutable`, and
+therefore indexable. It is `security invoker`. Measured by *"finds a client
+whose name differs by accent and case"*.
+
 ### 8.3 The finder — the ringing-phone path
 
 Choose the service or services. The app shows the earliest free starts across
@@ -951,6 +1246,16 @@ that returns **only id and email** for existing users, callable only by an
 active operator. Revision 3 described this screen while leaving it no way to
 read the ids, which also removed the escape route D30 relies on.
 
+*Named at revision 5:* `public.list_auth_accounts()`, returning exactly
+`(id uuid, email text)` — never a hash, never a token — `security definer` with
+`set search_path = ''`, owned by `postgres`, EXECUTE revoked from `public` and
+`anon` and granted to `authenticated`. It returns nothing at all unless
+`app.is_active_operator()`, so an outsider and a deactivated operator each get
+an empty set while `anon` is refused at the function boundary with `42501`.
+Every id it can return satisfies §6.1's `auth.users` existence guard by
+construction. Measured by the eight tests of `account-directory.test.ts`,
+including an exact-set assertion on the returned columns.
+
 **Route:** navigation item *Impostazioni*.
 
 ### 9.10 First run
@@ -1044,7 +1349,10 @@ and would produce phantom conflicts.
 
 1. The appointment changed — show what changed.
 2. It was **deleted** while the sheet was open — unrecoverable under D15; say so
-   and offer to re-create it from the sheet's contents.
+   and offer to re-create it from the sheet's contents. **Through the
+   transactional functions this arrives as `P0002`** rather than as zero rows
+   affected (§4.6), which is what makes it distinguishable from a completed
+   move; revision 4's functions returned `void` either way.
 3. **Your account was deactivated** while the sheet was open (§4.4). Revision 2
    declared its enumeration exhaustive and was made wrong by a correction in
    another section: it would have told an operator that a client's appointment
@@ -1066,6 +1374,48 @@ believing a booking landed.
 ### 10.4 Deletion
 
 One confirmation, then gone (§8.7). The only path with no way back.
+
+### 10.5 Deadlocks: `40P01` is expected, and the write path must retry
+
+**New at revision 5, and it is an obligation on the application, not a remark.**
+
+Three of the guarantees in §6 are made real by row locks — the operator lockout
+guard (§6.1), the `last_activity_at` recompute (§6.2.2) and the orphan-visit
+trigger (§6.3) — and the transactional functions of §4.6 force the deferred
+activity trigger to fire inside their own transaction. Under genuine
+concurrency, those locks produce a real, Postgres-detected deadlock, `40P01`.
+Measured, in three places:
+
+- **Two operators deactivating each other.** 20/20 and 30/30 trials deadlocked,
+  at the same rate with `order by id` as without it. Exactly one side aborted
+  each time; the roster was never emptied.
+- **Two concurrent bookings for the same client.** 25/25 trials a genuine
+  `40P01` with a real wait-for cycle, never a hang, exactly one side aborted,
+  and the surviving side's `last_activity_at` correct every time.
+- **Two concurrent `swap_appointment_operators` calls** whose pairs span the same
+  two clients in opposite roles: 25/60 trials. The cause is the deferred
+  activity trigger locking the two clients in whatever order their `client_id`s
+  resolve; this function locks `appointment` rows in id order, not `client`
+  rows, so there is no fixed order over clients to impose.
+
+**This is the correct trade, not a defect.** A loud, retryable abort beats the
+alternatives it replaced: two operators both committing and leaving the salon
+locked out, or a `last_activity_at` written seventeen months backwards so the
+retention sweep deletes a client who has a booking next year. Nothing ends up
+wrong; one transaction is told to try again.
+
+**`ORDER BY id` does not prevent it, and no lock order can.** Each transaction's
+own initiating statement locks its target row first, by the caller's `WHERE id =
+$1`, before any trigger runs — so with each side already holding the row the
+other needs, the cycle exists before the ordered lock is ever attempted. The
+`ORDER BY` in these guards is consistency, not protection, and revision 4's
+claim that ordering prevents the deadlock is superseded.
+
+**So: every write path that touches `operator`, or that books, moves or deletes
+an appointment, retries on `40P01`.** A raw `40P01` reaching an operator as an
+error message is a defect in the application layer, not in the schema. Two
+further deadlock shapes are reachable by code that does not exist yet and are
+recorded as obligations on future callers in §12.1.
 
 ---
 
@@ -1160,9 +1510,64 @@ not assumed** (§14).
 9. No recurrence engine; §9.6's prefilled rebooking covers the common rhythm.
 10. The per-device default operator (§4.5) is lost when browser storage is
     cleared, falling back to the account's own operator.
+11. **`TRUNCATE` freezes `last_activity_at`** — added at revision 5.
+    `truncate table appointment` (or `visit`) fires **no row trigger at all**,
+    and a constraint trigger cannot be declared `FOR EACH STATEMENT … ON
+    TRUNCATE`, so §6.2.2's divergence to constraint triggers forecloses the
+    usual statement-trigger remedy. A client whose rows are removed that way
+    keeps her last-computed `last_activity_at` instead of reverting to null, so
+    §11.4's sweep never picks her up: **over-retention, not data loss**, and not
+    reachable by the application — §6.4's baseline revokes TRUNCATE on both
+    tables from `anon` and `authenticated`, leaving only the database owner.
 
 (Offboarding by deactivation is a capability, not a limit, and is described in
 §4.4.)
+
+### 12.1 Known deferred defects and obligations on future callers
+
+New at revision 5. These are recorded, not fixed: the reconciliation task edits
+documents only, and each is measured rather than suspected.
+
+**Deferred defect — `order by 1` orders by a constant.** Three sites, to be
+fixed together: `supabase/migrations/0007_client_activity.sql:43` (the code,
+which should read `order by id`) and `:29` (a comment claiming a deterministic
+order), and `supabase/migrations/0008_orphan_visit.sql:76` (a comment citing
+"touch_client_activity's own `order by 1` discipline"). `EXPLAIN VERBOSE` shows
+a plan byte-identical to having no `ORDER BY`. The sibling guards,
+`0009_operator_guard.sql:38` and `0010_write_functions.sql:79`, are correct.
+Measured as not changing today's deadlock rate (11/12 trials either way — the
+cause is structural), so what is live is two comments asserting a guarantee the
+code does not deliver. §6.2.2 carries the same note in place.
+
+**Obligation — lock `visit` before `client`.** §6.3's trigger locks `visit` and
+then, at commit, §6.2.2's deferred trigger locks `client`. Between those two
+functions the order can never invert, because a deferred trigger cannot run
+before the statement that queued it finishes. That is the **only** guarantee the
+structure provides, and it **is** a convention a future caller can break: an
+ordinary transaction that locks a `client` row and then the `visit` row,
+concurrent with this trigger, was measured into a genuine `40P01`. A rebook or a
+client-merge flow is exactly such a caller.
+
+**Obligation — lock visits in id order, not caller order.** Two *sequential*
+single-row `delete from appointment` statements against appointments of two
+different visits, issued in reversed order across two concurrent transactions,
+deadlocked 5/5. A single multi-row `delete … where id in (…)` does not, because
+Postgres scans and locks in physical row order in both sessions. No flow this
+document describes issues sequential single-row deletes across visits, so it is
+not reachable today.
+
+**Deliberate naming divergence.** The table is `appointment_slot` while its
+payload column is `cell_index`. Renaming would cost a migration and buy nothing;
+recorded so the next reader knows it was a decision.
+
+**Unmeasurable safeguard, declared.** §6.4's sync trigger has a DELETE branch
+whose effect cannot be observed: the composite foreign key's `on delete cascade`
+always removes the child rows first. Deleting the branch leaves *"removes the
+cells when the appointment is deleted"* and *"removes the cells when the client
+is deleted"* both green, while flipping the key to `on delete no action` turns
+both red with `23503` — so the real subject of those two tests is the foreign
+key, not the trigger. The branch is kept as discipline (the trigger owns its
+rows), exactly as measure 4's other two withdrawn justifications are.
 
 ---
 
@@ -1213,6 +1618,19 @@ services**, so the scoping predicates are exercised rather than merely declared.
   role: **denied**; and **`SELECT` on it: permitted** — revision 2's revocation
   removed the read its own availability query needs, and its test checked only
   the three write verbs
+- **`TRUNCATE`, `REFERENCES` and `TRIGGER` granted to neither role on any table,
+  and `INSERT`/`UPDATE`/`DELETE` granted to `anon` on none** — enumerated from
+  the catalogue, not from a list, because §6.4 measure 2's revision-3 form
+  covered one table and `truncate table client` as `anon` succeeded
+- **`EXECUTE` on each of the four write functions: absent for `anon`, present
+  for `authenticated`** — asserted with `has_function_privilege` against the
+  exact signature, since three of the four raise `42501` from deeper causes and
+  a behavioural test cannot tell a missing grant from a revoked table privilege
+- **`move_visit` and `swap_appointment_operators` raise `P0002`** on a target
+  that does not exist or that row-level security hides, rather than a silent
+  void success; and **two non-colliding `move_visit` calls succeed in one
+  explicit transaction**, which fails without the leading `set constraints
+  appointment_slot_unique deferred`
 - The composite foreign keys: an appointment's date cannot diverge from its
   visit's; a cell's operator or date cannot diverge from its appointment's
 - **Deleting a client with visits, appointments and cells succeeds in one
@@ -1229,18 +1647,33 @@ services**, so the scoping predicates are exercised rather than merely declared.
   concurrent sessions, since run in sequence it passes over the defect
 - **Two operators deactivating each other concurrently cannot leave the salon
   with no active linked operator**, and unlinking the last `auth_user_id` is
-  refused by the same guard
+  refused by the same guard — asserted as *at least one side fails and at least
+  one linked active operator remains*, **not** as a `40P01`: a test that awaits
+  the first statement before sending the second cannot fail on the deadlock
+  assertion, and `40P01` is an expected outcome here (§10.5)
+- **Relinking the last active operator to a `auth_user_id` that names no
+  `auth.users` row is refused** (`23514`), which the `is_active`-plus-non-null
+  form of the guard allowed
 - `start_cell + cell_count <= 288` enforced
 - Overlap rejected on `weekly_availability` and on `exception_range`;
   `end_boundary <= 288` on both
 - `salon_closure`: one boundary set without the other, and an inverted window —
   both rejected. **A partial closure spanning several dates is accepted**, and
   its window is cut out of each date: revision 4 listed it here as something to
-  reject while §6.5 built it deliberately, and §6.5 is the side that is right
+  reject while §6.5 built it deliberately, and §6.5 is the side that is right.
+  (This attribution is verifiable and was re-checked at revision 5: commit
+  `2309452` reads "a partial closure spanning two dates — all rejected", and
+  `641bfe0` replaced it with this bullet. The correction has held, and
+  *"stores a partial closure across several dates"* passes.)
 - The birthday pair: both-or-neither; 29 February accepted; 31 February and
   31 April **rejected without raising**
 - `last_activity_at` after an appointment insert, move and delete, **after a
-  visit's date changes**, and for a client with only a future visit
+  visit's date changes**, and for a client with only a future visit. Note, from
+  §6.2.2: the bullet *"leaves the other client untouched"* does **not** measure
+  the scoping it is named for — dropping `where c.id = any(affected)` entirely
+  leaves all ten tests green, because the recompute is self-correlated per
+  client. The version that discriminates seeds the other client's value out of
+  sync with her own (empty) history
 - Retention eligibility for a client with a null `last_activity_at`
 - The last active operator cannot be deactivated
 
@@ -1255,7 +1688,23 @@ services**, so the scoping predicates are exercised rather than merely declared.
 - **Every table in `public` has row-level security enabled** — enumerated from
   the catalogue, not listed by hand, since a policy on a table without it is
   inert and reopens the original hole in silence
-- The revocation on `appointment_slot` survives a fresh migration run
+- **Every table in `public` carries at least one policy, and every policy routes
+  through `app.is_active_operator()`** — reading **`polqual` and `polwithcheck`
+  with NULLs coalesced**, because `NULL not like '%…%'` is NULL and a WITH
+  CHECK-only policy therefore drops silently out of a `polqual`-only audit
+- **Every `security definer` function in `public` and `app` pins an EMPTY
+  `search_path`** — asserted by unnesting `proconfig` and comparing the value
+  half exactly after unquoting, since Postgres stores the pin as
+  `search_path=""` and a prefix match on `search_path=` would pass
+  `set search_path = 'public'` (§4.3)
+- **`operator` does not have `force row level security`** set
+- The privilege baseline of §6.4 survives a fresh migration run — on
+  **every** table, not only on `appointment_slot`
+- **Every one of these audits is shown going red against a deliberately
+  violating object.** "All the audits pass" is not evidence that an audit can
+  fail, and six probe objects were created, measured red and dropped to prove
+  it — the same discipline this document applies to schema safeguards, applied
+  to the guards over them
 
 ### 13.4 End-to-end
 
@@ -1328,3 +1777,46 @@ The DDL in §6 is therefore **normative in intent and indicative in syntax**. Wh
 a statement here and a passing test disagree, the test wins and this document is
 corrected — and the first plan step is to stand the schema up and run §13.2 and
 §13.3 against it, before a line of application code exists.
+
+### 15.1 What revision 5 re-reviewed, and what it did not
+
+That reckoning has happened. Twelve migrations were written, 143 tests run, and
+this revision applies their verdict. The rule above worked in both directions:
+it corrected §6.4's privilege measure, §6.2.2's trigger kind, §6.5's
+`salon_closure.reason`, §6.3's missing `visit.updated_at`, §4.3's grants and
+"every verb", §4.6's constraint handling and §4.3's superuser claim — and it
+also *confirmed* §6's table count, §6.4's composite key and measure 3, §6.5's
+exclusion constraints and the absence of an `is_absent` flag, which needed no
+change. Twenty divergences are recorded in
+`docs/superpowers/plans/2026-09-17-foundations-findings.md`, each with the test
+that decided it. Not one was found by reading — and six tests in this suite were
+caught being **unable to fail** at all, which is the other half of the same
+lesson: a safeguard is only as real as a test that goes red without it.
+
+**Re-reviewed against a running database at revision 5:** §4.2, §4.3, §4.6,
+§6.1–§6.5, §9.9's account directory, §10.2's database-facing halves, and the
+database bullets of §13.2 and §13.3.
+
+**NOT re-reviewed.** These sections were read for the census — every site naming
+a norm a migration touches was checked — but their **design reasoning was not
+re-examined**, because nothing in them can be settled by a test while no
+application code exists:
+
+- §1, §2 (except D17, D29 and D30, which the migrations exercise), §3, §5, §7,
+  §8, §9.1–§9.8, §9.10–§9.12, §10.1, §10.3, §11, §13.1, §13.4, §14.
+- **§6.6 (precedence)** deliberately has no task in this plan: it is resolution
+  logic with no schema surface.
+- §14's six open questions are unchanged. None is answerable by a migration, and
+  Q1–Q4 still need the privacy adviser and Q5 still needs a measurement of the
+  Supabase plan. Minor cross-reference note: D7 and Q6 both cite "§12.6", which
+  means §12 item 6 — §12 is a numbered list, not a subsectioned one.
+
+**Where a future reader should start: plan 2, with §7 and §13.1.** `proposeStarts`
+has never been exercised by anything, its contract changed twice on paper without
+a test to arbitrate, and it is a pure function — so its divergences will be
+settled the same way §6's were, and probably in the same proportion. §7.3's
+symmetric buffer rule and §7.1 step 4's fold are the two most likely to be wrong.
+After that, plan 3 for §8–§10 and §4.4's middleware sign-out, and plan 4 for
+§11.3–§11.5 — where §11.4's retention sweep meets §6.2.2's `last_activity_at`,
+the one value in this schema whose corruption deletes personal data, and §12
+item 11 records the one path that still freezes it.
