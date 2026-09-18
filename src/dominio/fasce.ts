@@ -35,15 +35,47 @@ export interface EsitoGiorno {
 
 export function risolviGiorno(ingresso: IngressoGiorno): EsitoGiorno {
   // Passo 1 e 2 di §7.1: l'eccezione SOSTITUISCE il giorno per intero.
-  // Si guarda `exception !== null`, non `exception.ranges.length`: zero fasce
-  // è un'assenza dichiarata, non l'assenza di un'eccezione.
   const base: Fascia[] =
     ingresso.exception !== null
       ? ingresso.exception.ranges.map(copia)
       : ingresso.weekly.map(copia)
 
-  const dayStatus: StatoGiorno = base.length === 0 ? 'operator_off' : 'open'
-  return { ranges: base, dayStatus }
+  // Passo 3 di §7.1, applicato alla BASE già risolta: §6.6 dice che la
+  // chiusura batte l'eccezione, che batte la settimana tipica, quindi la
+  // sottrazione viene dopo la sostituzione e non prima.
+  const chiusuraIntera = ingresso.closures.some((c) => c.fromBoundary === null || c.toBoundary === null)
+  let ranges = base
+  if (chiusuraIntera) {
+    ranges = []
+  } else {
+    for (const chiusura of ingresso.closures) {
+      ranges = ranges.flatMap((f) => sottrai(f, chiusura.fromBoundary!, chiusura.toBoundary!))
+    }
+  }
+
+  // D2-6. Tre domande in quest'ordine: il salone è chiuso del tutto? il giorno
+  // era già vuoto prima della chiusura? la chiusura lo ha svuotato?
+  const dayStatus: StatoGiorno = chiusuraIntera
+    ? 'salon_closed'
+    : base.length === 0
+      ? 'operator_off'
+      : ranges.length === 0
+        ? 'salon_closed'
+        : 'open'
+
+  return { ranges, dayStatus }
+}
+
+/**
+ * Toglie `[da, a)` da una fascia. Restituisce zero, una o DUE fasce: una
+ * chiusura nel mezzo di una giornata continua la spacca in due.
+ */
+function sottrai(f: Fascia, da: number, a: number): Fascia[] {
+  if (a <= f.startBoundary || da >= f.endBoundary) return [f]
+  const resto: Fascia[] = []
+  if (da > f.startBoundary) resto.push({ startBoundary: f.startBoundary, endBoundary: da })
+  if (a < f.endBoundary) resto.push({ startBoundary: a, endBoundary: f.endBoundary })
+  return resto
 }
 
 function copia(f: Fascia): Fascia {

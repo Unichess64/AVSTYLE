@@ -64,3 +64,148 @@ describe('risoluzione del giorno — settimana tipica ed eccezione', () => {
     expect(weekly[0].endBoundary).toBe(156)
   })
 })
+
+describe('risoluzione del giorno — chiusure e precedenza', () => {
+  const GIORNATA = { startBoundary: 108, endBoundary: 228 } // 09:00–19:00
+
+  it('svuota il giorno con una chiusura a giornata intera', () => {
+    const esito = risolviGiorno({
+      weekly: [GIORNATA],
+      exception: null,
+      closures: [{ fromBoundary: null, toBoundary: null }],
+    })
+    expect(esito.ranges).toEqual([])
+    expect(esito.dayStatus).toBe('salon_closed')
+  })
+
+  it('taglia una chiusura parziale dentro una fascia, lasciandone due', () => {
+    const esito = risolviGiorno({
+      weekly: [GIORNATA],
+      exception: null,
+      closures: [{ fromBoundary: 150, toBoundary: 162 }], // 12:30–13:30
+    })
+    expect(esito.ranges).toEqual([
+      { startBoundary: 108, endBoundary: 150 },
+      { startBoundary: 162, endBoundary: 228 },
+    ])
+    expect(esito.dayStatus).toBe('open')
+  })
+
+  it('accorcia una fascia quando la chiusura ne morde solo la coda', () => {
+    const esito = risolviGiorno({
+      weekly: [GIORNATA],
+      exception: null,
+      closures: [{ fromBoundary: 156, toBoundary: 288 }], // dalle 13:00 a fine giornata
+    })
+    expect(esito.ranges).toEqual([{ startBoundary: 108, endBoundary: 156 }])
+  })
+
+  it('lascia intatta una fascia che la chiusura non tocca', () => {
+    const esito = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }],
+      exception: null,
+      closures: [{ fromBoundary: 180, toBoundary: 228 }],
+    })
+    expect(esito.ranges).toEqual([{ startBoundary: 108, endBoundary: 156 }])
+  })
+
+  // ⚠ discriminante: una chiusura che sta TUTTA PRIMA della fascia non deve
+  // toglierle niente — e soprattutto non deve AGGIUNGERLE niente.
+  //
+  // Il valore di confine conta, ed è facile sbagliarlo: una chiusura che
+  // finisce ESATTAMENTE dove la fascia comincia (`a === startBoundary`) NON è
+  // osservabile, perché togliendo il primo guardiano i due `push` ricostruiscono
+  // la fascia identica. L'unico caso osservabile è `a < startBoundary`, ed è
+  // nel verso pericoloso: senza il guardiano la fascia si allungherebbe
+  // all'indietro fino all'inizio della chiusura, INVENTANDO disponibilità
+  // dove il salone è chiuso. Qui sono 40 minuti, dalle 07:30 alle 08:10.
+  it('non allunga una fascia all indietro per una chiusura che sta tutta prima', () => {
+    const tuttaPrima = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }],
+      exception: null,
+      closures: [{ fromBoundary: 90, toBoundary: 100 }],
+    })
+    expect(tuttaPrima.ranges).toEqual([{ startBoundary: 108, endBoundary: 156 }])
+
+    // Il caso che si tocca: stesso esito, e qui nessuna mutazione lo vede.
+    const attaccata = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }],
+      exception: null,
+      closures: [{ fromBoundary: 96, toBoundary: 108 }],
+    })
+    expect(attaccata.ranges).toEqual([{ startBoundary: 108, endBoundary: 156 }])
+  })
+
+  it('somma due chiusure sovrapposte senza danno', () => {
+    const esito = risolviGiorno({
+      weekly: [GIORNATA],
+      exception: null,
+      closures: [
+        { fromBoundary: 150, toBoundary: 170 },
+        { fromBoundary: 160, toBoundary: 180 },
+      ],
+    })
+    expect(esito.ranges).toEqual([
+      { startBoundary: 108, endBoundary: 150 },
+      { startBoundary: 180, endBoundary: 228 },
+    ])
+  })
+
+  // ⚠ discriminante: è l'esempio letterale di spec §7.4. Il 24 dicembre il
+  // salone chiude alle 13:00 e Alessandra lavorava 09:00–13:00: il giorno
+  // resta senza fasce, e DEVE leggersi «salone chiuso», non «aperto e pieno»
+  // né «operatrice assente».
+  it('legge come salone chiuso una chiusura PARZIALE che svuota il giorno', () => {
+    const esito = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }], // 09:00–13:00
+      exception: null,
+      closures: [{ fromBoundary: 156, toBoundary: 288 }], // chiuso dalle 13:00
+    })
+    expect(esito.ranges).toEqual([{ startBoundary: 108, endBoundary: 156 }])
+    expect(esito.dayStatus).toBe('open')
+
+    const chiusoPrima = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }],
+      exception: null,
+      closures: [{ fromBoundary: 96, toBoundary: 156 }], // chiuso fino alle 13:00
+    })
+    expect(chiusoPrima.ranges).toEqual([])
+    expect(chiusoPrima.dayStatus).toBe('salon_closed')
+  })
+
+  // ⚠ discriminante: D2-6, il ramo che distingue chi ha svuotato il giorno.
+  // Qui l'operatrice era GIÀ assente e la chiusura è parziale: non è la
+  // chiusura ad aver svuotato il giorno, quindi lo stato è operator_off.
+  it('non attribuisce alla chiusura parziale un giorno che era già vuoto', () => {
+    const esito = risolviGiorno({
+      weekly: [],
+      exception: null,
+      closures: [{ fromBoundary: 150, toBoundary: 162 }],
+    })
+    expect(esito.dayStatus).toBe('operator_off')
+  })
+
+  // ⚠ discriminante: D2-6, l'altro ramo. Con una chiusura a giornata INTERA
+  // il salone è chiuso, e questo vince anche se l'operatrice era assente.
+  it('dice salone chiuso quando la chiusura è intera, anche se l operatrice era assente', () => {
+    const esito = risolviGiorno({
+      weekly: [],
+      exception: null,
+      closures: [{ fromBoundary: null, toBoundary: null }],
+    })
+    expect(esito.dayStatus).toBe('salon_closed')
+  })
+
+  // ⚠ discriminante: §6.6. La chiusura batte l'eccezione, che batte la
+  // settimana tipica. L'eccezione qui ALLUNGA il giorno, e la chiusura taglia
+  // comunque: se la chiusura fosse applicata alla settimana tipica invece che
+  // all'eccezione, il risultato sarebbe un altro.
+  it('applica la chiusura DOPO l eccezione, non alla settimana tipica', () => {
+    const esito = risolviGiorno({
+      weekly: [{ startBoundary: 108, endBoundary: 156 }],
+      exception: { ranges: [{ startBoundary: 96, endBoundary: 240 }] },
+      closures: [{ fromBoundary: 96, toBoundary: 120 }],
+    })
+    expect(esito.ranges).toEqual([{ startBoundary: 120, endBoundary: 240 }])
+  })
+})
