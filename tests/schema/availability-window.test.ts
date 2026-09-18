@@ -252,6 +252,15 @@ describe('availability_window', () => {
   // prese e il vincolo del database le rifiuterebbe comunque. Una finestra che
   // le dichiarasse libere direbbe una bugia che salta fuori solo al
   // salvataggio, con un errore di vincolo al posto di «occupato».
+  //
+  // ⚠ La disponibilità è DUE tabelle, non una: la settimana tipica E le
+  // eccezioni. §7.1 dice che l eccezione SOSTITUISCE il giorno, quindi
+  // un operatrice disattivata con un eccezione su un giorno futuro tornerebbe
+  // proponibile anche senza settimana tipica. Per questo ANNALISA porta qui
+  // tutte e tre le cose — fascia settimanale, eccezione e appuntamento — e il
+  // confine è asserito su tutte e tre le sezioni: senza l eccezione,
+  // `and o.is_active` sulla giunzione delle eccezioni sarebbe dichiarato e mai
+  // esercitato, e a coprirlo non basterebbe il suo gemello su `weekly`.
   it('toglie le fasce di un operatrice disattivata e tiene la sua occupazione', async () => {
     await asOwner(async (c) => {
       await c.query(
@@ -259,11 +268,23 @@ describe('availability_window', () => {
          values ($1, $3, 108, 156), ($2, $3, 108, 156)`,
         [VERA, ANNALISA, GIOVEDI],
       )
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
+        ANNALISA,
+        DAY_ONE,
+        [[96, 132]],
+      ])
     })
     await prenota(VISIT_UNO, DAY_ONE, ANNALISA, SERVICE_REFILL, 120, 18)
 
     const prima = await finestra(DAY_ONE, DAY_ONE, [VERA, ANNALISA])
     expect(prima.weekly).toHaveLength(2)
+    expect(prima.exceptions).toEqual([
+      {
+        operator_id: ANNALISA,
+        date: DAY_ONE,
+        ranges: [{ start_boundary: 96, end_boundary: 132 }],
+      },
+    ])
     expect(prima.occupancy).toHaveLength(1)
 
     // Vera resta attiva: la guardia anti-blocco di 0009 rifiuterebbe di
@@ -274,6 +295,10 @@ describe('availability_window', () => {
     expect(dopo.weekly).toEqual([
       { operator_id: VERA, weekday: GIOVEDI, start_boundary: 108, end_boundary: 156 },
     ])
+    // L eccezione di chi è stata disattivata sparisce insieme alla sua
+    // settimana tipica: la riga esiste ancora nella tabella, ed è la giunzione
+    // su `operator` attiva a toglierla dal documento.
+    expect(dopo.exceptions).toEqual([])
     expect(dopo.occupancy).toHaveLength(1)
     expect((dopo.occupancy as Array<Record<string, unknown>>)[0]).toMatchObject({
       operator_id: ANNALISA,
@@ -286,6 +311,12 @@ describe('availability_window', () => {
   // chiamante deve produrre il vuoto sulle tre sezioni che hanno un operatrice.
   // `closures` NON è filtrato per operatrice — una chiusura è del salone — e
   // la prova lo asserisce invece di promettere un documento interamente vuoto.
+  //
+  // ⚠ Ognuna delle tre sezioni filtrate porta qui una riga SEMINATA, eccezione
+  // compresa: un `toEqual([])` su una tabella vuota non misura il filtro, misura
+  // il seme che manca. È l eccezione a presidiare `e.operator_id = any(…)`:
+  // senza quel predicato, con un elenco nullo il documento porterebbe le
+  // eccezioni di TUTTE e la lettura sicura di D2-8 degraderebbe in silenzio.
   it('tratta un elenco nullo di operatrici come nessuna operatrice', async () => {
     await asOwner(async (c) => {
       await c.query(
@@ -293,6 +324,11 @@ describe('availability_window', () => {
          values ($1, $2, 108, 156)`,
         [VERA, GIOVEDI],
       )
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
+        VERA,
+        DAY_ONE,
+        [[108, 156]],
+      ])
       await c.query(
         `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
          values ($1::date, $1::date, null, null, 'Ferie')`,
@@ -311,13 +347,21 @@ describe('availability_window', () => {
   // arbitra. Un account autenticato che non è operatrice deve vedere elenchi
   // VUOTI, non un errore e non i dati.
   it('non restituisce nulla a un account che non è operatrice', async () => {
-    await asOwner((c) =>
-      c.query(
+    await asOwner(async (c) => {
+      await c.query(
         `insert into weekly_availability (operator_id, weekday, start_boundary, end_boundary)
          values ($1, $2, 108, 156)`,
         [VERA, GIOVEDI],
-      ),
-    )
+      )
+      // Seminata apposta: `exceptions` è l unica sezione che l estraneo
+      // chiede per un operatrice esistente, quindi il suo vuoto misura la
+      // politica `exception_day_access` solo se una riga c è davvero.
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
+        VERA,
+        DAY_ONE,
+        [[108, 156]],
+      ])
+    })
     const w = await asOperator(OUTSIDER_AUTH, async (c) => {
       const r = await c.query<{ w: Record<string, unknown[]> }>(
         'select public.availability_window($1::date, $2::date, $3::uuid[]) as w',
@@ -326,6 +370,7 @@ describe('availability_window', () => {
       return r.rows[0].w
     })
     expect(w.weekly).toEqual([])
+    expect(w.exceptions).toEqual([])
     expect(w.occupancy).toEqual([])
     // `closures` è l unica sezione non filtrata per operatrice: la sua sola
     // difesa contro un estraneo è la politica `salon_closure_access`. Senza
