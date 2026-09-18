@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { risolviGiorno } from '../../src/dominio/fasce'
+import { piega, risolviGiorno } from '../../src/dominio/fasce'
 
 const MATTINA = { startBoundary: 108, endBoundary: 156 } // 09:00–13:00
 const POMERIGGIO = { startBoundary: 180, endBoundary: 228 } // 15:00–19:00
@@ -207,5 +207,99 @@ describe('risoluzione del giorno — chiusure e precedenza', () => {
       closures: [{ fromBoundary: 96, toBoundary: 120 }],
     })
     expect(esito.ranges).toEqual([{ startBoundary: 120, endBoundary: 240 }])
+  })
+})
+
+describe('la piega delle fasce contigue', () => {
+  it('ordina le fasce che arrivano disordinate', () => {
+    expect(
+      piega([
+        { startBoundary: 180, endBoundary: 228 },
+        { startBoundary: 108, endBoundary: 156 },
+      ]),
+    ).toEqual([
+      { startBoundary: 108, endBoundary: 156 },
+      { startBoundary: 180, endBoundary: 228 },
+    ])
+  })
+
+  // ⚠ discriminante: è l'esempio misurato di spec §7.2. 09:00–12:00 e
+  // 12:00–15:00 sono due fasce legali che si TOCCANO, ed è una mattina
+  // continua. Senza la piega, un massaggio da 10 celle che parte alla 140
+  // (11:40) arriva alla 150 e non sta in nessuna delle due.
+  it('fonde due fasce che si toccano', () => {
+    expect(
+      piega([
+        { startBoundary: 108, endBoundary: 144 },
+        { startBoundary: 144, endBoundary: 180 },
+      ]),
+    ).toEqual([{ startBoundary: 108, endBoundary: 180 }])
+  })
+
+  // ⚠ discriminante: TRE fasce che si toccano. È il caso che una passata a
+  // coppie sbaglia e una piega azzecca. Una passata a coppie produce
+  // [108,180) e [144,216), che si SOVRAPPONGONO.
+  it('fonde tre fasce che si toccano in una sola, senza sovrapposizioni', () => {
+    const esito = piega([
+      { startBoundary: 108, endBoundary: 144 },
+      { startBoundary: 144, endBoundary: 180 },
+      { startBoundary: 180, endBoundary: 216 },
+    ])
+    expect(esito).toEqual([{ startBoundary: 108, endBoundary: 216 }])
+    expect(esito).toHaveLength(1)
+  })
+
+  // ⚠ discriminante: la piega usa max(fine), non la fine dell'ultima letta.
+  // Qui la seconda fascia è INTERAMENTE dentro la prima: prendere la sua fine
+  // accorcerebbe il risultato da 228 a 150.
+  it('usa il massimo delle fini quando una fascia è contenuta nell altra', () => {
+    expect(
+      piega([
+        { startBoundary: 108, endBoundary: 228 },
+        { startBoundary: 120, endBoundary: 150 },
+      ]),
+    ).toEqual([{ startBoundary: 108, endBoundary: 228 }])
+  })
+
+  it('lascia separata una vera pausa pranzo', () => {
+    expect(
+      piega([
+        { startBoundary: 108, endBoundary: 156 },
+        { startBoundary: 180, endBoundary: 228 },
+      ]),
+    ).toEqual([
+      { startBoundary: 108, endBoundary: 156 },
+      { startBoundary: 180, endBoundary: 228 },
+    ])
+  })
+
+  it('non cambia niente su zero o una fascia', () => {
+    expect(piega([])).toEqual([])
+    expect(piega([{ startBoundary: 108, endBoundary: 156 }])).toEqual([
+      { startBoundary: 108, endBoundary: 156 },
+    ])
+  })
+
+  // ⚠ discriminante: la piega non deve restituire gli OGGETTI che ha ricevuto.
+  // È la seconda metà della garanzia contro l'aliasing del Task 2: lì la
+  // copiava `risolviGiorno`, qui l'array viene ricostruito da `piega`, e senza
+  // `copia` gli oggetti tornerebbero a essere condivisi.
+  it('non restituisce gli oggetti che le sono stati passati', () => {
+    const dentro = [{ startBoundary: 108, endBoundary: 156 }]
+    const fuori = piega(dentro)
+    ;(fuori[0] as { endBoundary: number }).endBoundary = 999
+    expect(dentro[0].endBoundary).toBe(156)
+  })
+
+  it('restituisce fasce piegate da risolviGiorno', () => {
+    const esito = risolviGiorno({
+      weekly: [
+        { startBoundary: 144, endBoundary: 180 },
+        { startBoundary: 108, endBoundary: 144 },
+      ],
+      exception: null,
+      closures: [],
+    })
+    expect(esito.ranges).toEqual([{ startBoundary: 108, endBoundary: 180 }])
   })
 })

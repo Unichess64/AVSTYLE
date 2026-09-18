@@ -63,7 +63,37 @@ export function risolviGiorno(ingresso: IngressoGiorno): EsitoGiorno {
         ? 'salon_closed'
         : 'open'
 
-  return { ranges, dayStatus }
+  return { ranges: piega(ranges), dayStatus }
+}
+
+/**
+ * Passo 4 di §7.1. Ordina per inizio e PIEGA: finché `fine_prec >= inizio_succ`
+ * le due fasce diventano `[inizio_prec, max(fine_prec, fine_succ))`.
+ *
+ * È una piega (una riduzione sull'accumulatore), NON una passata a coppie: su
+ * tre fasce che si toccano, una passata a coppie produce fasce che si
+ * sovrappongono fra loro.
+ *
+ * `>=` e non `>`: due fasce che si TOCCANO — 09:00–12:00 e 12:00–15:00 — sono
+ * una mattina continua, ed è il caso per cui questo passo esiste (§7.2).
+ *
+ * `max(fine)` e non «la fine dell'ultima letta»: una fascia interamente
+ * contenuta in quella prima di lei accorcerebbe il risultato.
+ */
+export function piega(fasce: readonly Fascia[]): Fascia[] {
+  const ordinate = [...fasce].sort((a, b) => a.startBoundary - b.startBoundary)
+  return ordinate.reduce<Fascia[]>((piegate, f) => {
+    const ultima = piegate[piegate.length - 1]
+    if (ultima !== undefined && ultima.endBoundary >= f.startBoundary) {
+      piegate[piegate.length - 1] = {
+        startBoundary: ultima.startBoundary,
+        endBoundary: Math.max(ultima.endBoundary, f.endBoundary),
+      }
+      return piegate
+    }
+    piegate.push(copia(f))
+    return piegate
+  }, [])
 }
 
 /**
