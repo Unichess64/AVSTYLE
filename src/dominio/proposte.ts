@@ -83,6 +83,9 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
     // `inizio + campata <= endBoundary` è la regola di §5: un indice di cella
     // e un indice di confine non si confrontano mai direttamente.
     for (let inizio = fascia.startBoundary; inizio + campata <= fascia.endBoundary; inizio++) {
+      // `nowCell` è nullo tranne quando `date` è oggi: sui giorni futuri non
+      // si filtra niente. Una partenza ALL'ora esatta è ancora futura.
+      if (ingresso.nowCell !== null && inizio < ingresso.nowCell) continue
       if (!celleLibere(occupati, inizio, campata)) continue
       if (!riassettoRispettato(occupati, inizio, campata, codaPropria)) continue
       starts.push(inizio)

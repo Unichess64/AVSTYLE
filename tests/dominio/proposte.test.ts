@@ -433,3 +433,91 @@ describe('proposeStarts — la visita multiservizio', () => {
     expect(esito.starts).toEqual([108])
   })
 })
+
+describe('proposeStarts — esclusioni e ora corrente', () => {
+  // ⚠ discriminante: senza l esclusione, le celle dell appuntamento stesso
+  // bloccano ogni partenza dentro la propria durata, e spostarlo di una cella
+  // è impossibile — con il messaggio che nomina come ostacolo l appuntamento
+  // che si sta trascinando.
+  it('propone uno spostamento di una cella escludendo l appuntamento stesso', () => {
+    const fisso = {
+      ranges: [{ startBoundary: 108, endBoundary: 180 }],
+      occupancy: [blocco('trascinato', 120, 18, 0)],
+      durations: [18],
+      buffers: [0],
+    }
+    expect(proposeStarts(ingresso(fisso)).starts).not.toContain(121)
+    expect(
+      proposeStarts(ingresso({ ...fisso, excludeAppointmentIds: ['trascinato'] })).starts,
+    ).toContain(121)
+  })
+
+  // ⚠ discriminante: excludeAppointmentIds è una LISTA perché §8.6 sposta una
+  // VISITA INTERA. Con un solo identificativo, l altro appuntamento della
+  // visita resta occupato e lo spostamento non viene proposto. Una prova con
+  // un solo appuntamento non distingue una lista da un valore singolo.
+  it('sposta una visita da due appuntamenti come un unico blocco', () => {
+    const fisso = {
+      ranges: [{ startBoundary: 108, endBoundary: 180 }],
+      occupancy: [blocco('primo', 120, 18, 0), blocco('secondo', 138, 10, 0)],
+      durations: [18, 10],
+      buffers: [0, 0],
+    }
+    expect(proposeStarts(ingresso({ ...fisso, excludeAppointmentIds: ['primo'] })).starts).not.toContain(121)
+    expect(
+      proposeStarts(ingresso({ ...fisso, excludeAppointmentIds: ['primo', 'secondo'] })).starts,
+    ).toContain(121)
+  })
+
+  it('ignora un identificativo escluso che non corrisponde ad alcun blocco', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('a1', 120, 18, 0)],
+        durations: [6],
+        buffers: [0],
+        excludeAppointmentIds: ['fantasma'],
+      }),
+    )
+    expect(esito.starts).not.toContain(120)
+  })
+
+  // ⚠ discriminante: senza nowCell, alle 14:00 il cercaposti offre OGGI alle
+  // 10:00. La cella 168 è le 14:00: la partenza a quell ora esatta è valida,
+  // quella prima no.
+  it('esclude le celle passate di oggi e tiene l ora esatta', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 228 }],
+        durations: [6],
+        buffers: [0],
+        nowCell: 168,
+      }),
+    )
+    expect(esito.starts).not.toContain(167)
+    expect(esito.starts[0]).toBe(168)
+  })
+
+  // ⚠ discriminante: nowCell nullo significa «non è oggi», e i giorni futuri
+  // NON si filtrano. Se il filtro fosse applicato con un valore di comodo,
+  // questa prova perderebbe il mattino.
+  it('non filtra niente sui giorni futuri', () => {
+    const esito = proposeStarts(
+      ingresso({ ranges: [{ startBoundary: 108, endBoundary: 228 }], durations: [6], buffers: [0] }),
+    )
+    expect(esito.starts[0]).toBe(108)
+  })
+
+  it('dice pieno quando l ora corrente ha mangiato tutta la giornata', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 228 }],
+        durations: [6],
+        buffers: [0],
+        nowCell: 240,
+      }),
+    )
+    expect(esito.starts).toEqual([])
+    expect(esito.reason).toBe('full')
+  })
+})
