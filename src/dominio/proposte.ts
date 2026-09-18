@@ -74,12 +74,17 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
   // non piegate.
   const fasce = [...ingresso.ranges].sort((a, b) => a.startBoundary - b.startBoundary)
 
+  // La pausa dell'ULTIMO servizio della visita: è la distanza pretesa verso
+  // l'appuntamento che segue (D2-3).
+  const codaPropria = ingresso.buffers[ingresso.buffers.length - 1]
+
   const starts: IndiceCella[] = []
   for (const fascia of fasce) {
     // `inizio + campata <= endBoundary` è la regola di §5: un indice di cella
     // e un indice di confine non si confrontano mai direttamente.
     for (let inizio = fascia.startBoundary; inizio + campata <= fascia.endBoundary; inizio++) {
       if (!celleLibere(occupati, inizio, campata)) continue
+      if (!riassettoRispettato(occupati, inizio, campata, codaPropria)) continue
       starts.push(inizio)
     }
   }
@@ -94,6 +99,54 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
 function celleLibere(occupati: readonly Blocco[], inizio: IndiceCella, campata: number): boolean {
   const ultimaProposta = inizio + campata - 1
   return occupati.every((b) => b.endCell < inizio || b.startCell > ultimaProposta)
+}
+
+/**
+ * §7.3: una partenza è proponibile solo se è LIBERA DAL RIASSETTO A ENTRAMBI I
+ * CAPI — dopo l'appuntamento che precede, della pausa di QUELL'appuntamento; e
+ * prima di quello che segue, della pausa PROPRIA del servizio proposto.
+ *
+ * La regola è simmetrica, e ogni revisione della spec ne aveva una metà: la 2
+ * onorava solo la coda propria e solo quando qualcosa seguiva, la 3 solo
+ * quella dell'appuntamento precedente. Le due metà sono scritte qui come due
+ * condizioni distinte, apposta.
+ *
+ * «L'appuntamento che precede» è IL PIÙ VICINO, non tutti quelli prima
+ * (D2-9): se una visita lunga con un'ora di riassetto è seguita subito da una
+ * breve senza pausa — scrivibile per la via esplicita di §8.1 — la pausa della
+ * prima è già stata consumata, e pretenderla di nuovo dopo la seconda
+ * nasconderebbe un posto libero che esiste.
+ *
+ * `endCell` è inclusiva (D2-1), quindi le celle libere fra un blocco che
+ * finisce alla `endCell` e una proposta che parte a `inizio` sono
+ * `inizio - endCell - 1`.
+ */
+function riassettoRispettato(
+  occupati: readonly Blocco[],
+  inizio: IndiceCella,
+  campata: number,
+  codaPropria: number,
+): boolean {
+  const ultimaProposta = inizio + campata - 1
+
+  let precedente: Blocco | null = null
+  let seguente: Blocco | null = null
+  for (const b of occupati) {
+    if (b.endCell < inizio && (precedente === null || b.endCell > precedente.endCell)) {
+      precedente = b
+    }
+    if (b.startCell > ultimaProposta && (seguente === null || b.startCell < seguente.startCell)) {
+      seguente = b
+    }
+  }
+
+  if (precedente !== null && inizio - precedente.endCell - 1 < precedente.bufferAfterCells) {
+    return false
+  }
+  if (seguente !== null && seguente.startCell - ultimaProposta - 1 < codaPropria) {
+    return false
+  }
+  return true
 }
 
 /**

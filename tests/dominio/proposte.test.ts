@@ -216,3 +216,136 @@ describe('proposeStarts — le partenze dentro una fascia', () => {
     expect(esito.starts).toEqual([108, 120])
   })
 })
+
+describe('proposeStarts — il tempo di riassetto è simmetrico', () => {
+  // ⚠ discriminante: la metà che la revisione 2 della spec aveva perso. Un
+  // massaggio di Alessandra finisce alle 11:00 — celle 122–131, con l ultima
+  // alla 131 — e porta una pausa di 3 celle (15 minuti). Una ceretta proposta
+  // alle 11:00 (cella 132) le starebbe attaccata. La prima partenza legittima
+  // è la 135, cioè le 11:15. NIENTE SEGUE: la revisione 2 applicava la regola
+  // solo quando c era un appuntamento dopo, e qui sarebbe verde a torto.
+  it('onora la pausa dell appuntamento PRECEDENTE anche quando non segue niente', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('massaggio', 122, 10, 3)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).not.toContain(132)
+    expect(esito.starts).not.toContain(134)
+    expect(esito.starts).toContain(135)
+  })
+
+  // ⚠ discriminante: la metà che la revisione 3 della spec aveva perso. Qui
+  // NIENTE PRECEDE: una ceretta con pausa propria di 3 celle viene proposta
+  // alle 11:00 e una manicure è già prenotata alle 11:30 (cella 138). La
+  // ceretta da 6 celle occuperebbe 132–137 e non lascerebbe riassetto. La
+  // partenza più tarda compatibile è la 129.
+  it('onora la pausa PROPRIA del servizio proposto anche quando non precede niente', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('manicure', 138, 18, 0)],
+        durations: [6],
+        buffers: [3],
+      }),
+    )
+    expect(esito.starts).not.toContain(132)
+    expect(esito.starts).not.toContain(130)
+    expect(esito.starts).toContain(129)
+  })
+
+  // ⚠ discriminante: le due metà INSIEME, con pause DIVERSE, e sull elenco
+  // INTERO invece che con toContain.
+  //
+  // Fascia [108, 180). `prima` occupa 108–119 con pausa 3; `dopo` occupa
+  // 140–151 con pausa 0; il servizio dura 6 celle e ha pausa propria 2.
+  //   - libere: 120–134 e 152–174
+  //   - dopo `prima`: 123 <= inizio
+  //   - prima di `dopo`: inizio + 5 + 1 + 2 <= 140, cioè inizio <= 132
+  //   - dalla 152 in poi chi precede è `dopo`, che ha pausa 0, e non segue
+  //     più niente: tutto il pomeriggio è legittimo
+  // Una sola condizione che usasse `Math.max(pausa_del_precedente, pausa
+  // propria)` darebbe [123..132] e poi 154..174, non 152: è il motivo per cui
+  // l elenco va asserito per intero.
+  it('onora tutte e due le pause quando c è qualcosa prima e qualcosa dopo', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('prima', 108, 12, 3), blocco('dopo', 140, 12, 0)],
+        durations: [6],
+        buffers: [2],
+      }),
+    )
+    const attese = [
+      123, 124, 125, 126, 127, 128, 129, 130, 131, 132,
+      152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+      162, 163, 164, 165, 166, 167, 168, 169, 170, 171,
+      172, 173, 174,
+    ]
+    expect(esito.starts).toEqual(attese)
+  })
+
+  // ⚠ discriminante: D2-9. `lungo` occupa 09:00–10:00 e pretende un ora di
+  // riassetto; `corto` è prenotato SUBITO DOPO, dalle 10:00 alle 10:30, e non
+  // pretende niente — è scrivibile toccando una cella spenta, che §7.3
+  // dichiara legale. Alle 10:30 (cella 126) si PUÒ proporre, perché chi
+  // precede è `corto`. Applicando la pausa di OGNI blocco precedente la prima
+  // partenza slitterebbe alla 132, cioè le 11:00, nascondendo mezz ora libera.
+  it('guarda solo l appuntamento PIÙ VICINO, non tutti quelli prima', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('lungo', 108, 12, 12), blocco('corto', 120, 6, 0)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts[0]).toBe(126)
+    expect(esito.starts).toContain(126)
+    expect(esito.starts).toContain(131)
+  })
+
+  it('accetta una pausa nulla come nessuna pausa', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('prima', 108, 12, 0)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toContain(120)
+  })
+
+  // ⚠ discriminante: la pausa NON è occupazione (commento della migrazione
+  // 0002: «advisory: applied when proposing, never as occupancy»). Se lo
+  // fosse, la fascia libera prima dell appuntamento si accorcerebbe anche
+  // all indietro e questa partenza sparirebbe.
+  it('non tratta la pausa come occupazione all indietro', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('dopo', 138, 12, 9)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toContain(132)
+  })
+
+  it('dice pieno quando le sole partenze possibili cadono per il riassetto', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 120 }],
+        occupancy: [blocco('prima', 108, 6, 3)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toEqual([])
+    expect(esito.reason).toBe('full')
+  })
+})
