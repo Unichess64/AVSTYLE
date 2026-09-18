@@ -103,3 +103,116 @@ describe('proposeStarts — i quattro motivi', () => {
     expect(() => proposeStarts(ingresso({ durations: [], buffers: [] }))).toThrow(RangeError)
   })
 })
+
+import { blocco } from '../../src/dominio/tempo'
+
+describe('proposeStarts — le partenze dentro una fascia', () => {
+  it('propone ogni cella da cui il servizio ci sta, e nessuna oltre', () => {
+    const esito = proposeStarts(
+      ingresso({ ranges: [{ startBoundary: 108, endBoundary: 114 }], durations: [4], buffers: [0] }),
+    )
+    expect(esito.starts).toEqual([108, 109, 110])
+    expect(esito.reason).toBeNull()
+  })
+
+  // ⚠ discriminante: D2-2. Con proposte valide non esiste alcun motivo.
+  it('non dà alcun motivo quando ci sono proposte', () => {
+    expect(proposeStarts(ingresso()).reason).toBeNull()
+  })
+
+  // ⚠ discriminante: è la regola di §5 sul confine di FINE, esclusa.
+  // Una fascia [108, 114) accoglie un servizio da 6 celle che parte alla 108 e
+  // finisce alla 113 inclusa; da 109 non ci starebbe.
+  it('accetta il servizio che finisce esattamente sull ultimo confine', () => {
+    const esito = proposeStarts(
+      ingresso({ ranges: [{ startBoundary: 108, endBoundary: 114 }], durations: [6], buffers: [0] }),
+    )
+    expect(esito.starts).toEqual([108])
+  })
+
+  it('non propone partenze a cavallo di due fasce separate', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [
+          { startBoundary: 108, endBoundary: 114 },
+          { startBoundary: 120, endBoundary: 126 },
+        ],
+        durations: [4],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toEqual([108, 109, 110, 120, 121, 122])
+  })
+
+  // ⚠ discriminante: è l'esempio misurato di §7.2, che chiude il cerchio con
+  // la piega del Task 4. Un massaggio da 10 celle nella mattina PIEGATA
+  // [108, 180) può partire dalla 135 alla 143 — 11:15–11:55 — che sono
+  // esattamente le partenze che due fasce non piegate rifiuterebbero.
+  it('propone le partenze da 11:15 a 11:55 su una mattina piegata', () => {
+    const esito = proposeStarts(
+      ingresso({ ranges: [{ startBoundary: 108, endBoundary: 180 }], durations: [10], buffers: [0] }),
+    )
+    expect(esito.starts).toContain(135)
+    expect(esito.starts).toContain(143)
+    expect(esito.starts).toContain(140)
+  })
+
+  // ⚠ discriminante: l'ULTIMA cella del blocco è occupata (D2-1). Un blocco
+  // 120–137 lascia libera la 138: se endCell fosse esclusivo, la 137 sarebbe
+  // proposta e questa prova la vedrebbe.
+  it('non propone una partenza sopra un appuntamento esistente', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('a1', 120, 18, 0)],
+        durations: [1],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toContain(119)
+    expect(esito.starts).not.toContain(120)
+    expect(esito.starts).not.toContain(137)
+    expect(esito.starts).toContain(138)
+  })
+
+  it('non propone una partenza che attraverserebbe un appuntamento più avanti', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('a1', 120, 18, 0)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toContain(114)
+    expect(esito.starts).not.toContain(115)
+    expect(esito.starts).toContain(138)
+  })
+
+  it('dice pieno quando l occupazione non lascia alcuna partenza', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 126 }],
+        occupancy: [blocco('a1', 108, 18, 0)],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toEqual([])
+    expect(esito.reason).toBe('full')
+  })
+
+  it('restituisce le partenze in ordine crescente anche con le fasce disordinate', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [
+          { startBoundary: 120, endBoundary: 126 },
+          { startBoundary: 108, endBoundary: 114 },
+        ],
+        durations: [6],
+        buffers: [0],
+      }),
+    )
+    expect(esito.starts).toEqual([108, 120])
+  })
+})

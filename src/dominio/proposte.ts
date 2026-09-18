@@ -62,7 +62,38 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
   const fasciaPiuLunga = Math.max(...ingresso.ranges.map((f) => f.endBoundary - f.startBoundary))
   if (campata > fasciaPiuLunga) return { starts: [], reason: 'service_too_long' }
 
-  return { starts: [], reason: 'full' }
+  // Gli appuntamenti che si stanno spostando non occupano: §8.6 sposta una
+  // visita intera, e senza l'esclusione le sue stesse celle bloccherebbero
+  // ogni partenza dentro la propria durata.
+  const occupati = ingresso.occupancy.filter(
+    (b) => !ingresso.excludeAppointmentIds.includes(b.appointmentId),
+  )
+
+  // Le fasce si scorrono ORDINATE, così le partenze escono crescenti senza
+  // riordinarle dopo: riordinarle nasconderebbe un chiamante che passa fasce
+  // non piegate.
+  const fasce = [...ingresso.ranges].sort((a, b) => a.startBoundary - b.startBoundary)
+
+  const starts: IndiceCella[] = []
+  for (const fascia of fasce) {
+    // `inizio + campata <= endBoundary` è la regola di §5: un indice di cella
+    // e un indice di confine non si confrontano mai direttamente.
+    for (let inizio = fascia.startBoundary; inizio + campata <= fascia.endBoundary; inizio++) {
+      if (!celleLibere(occupati, inizio, campata)) continue
+      starts.push(inizio)
+    }
+  }
+
+  return starts.length > 0 ? { starts, reason: null } : { starts: [], reason: 'full' }
+}
+
+/**
+ * Nessun blocco occupato tocca `[inizio, inizio + campata)`. `endCell` è
+ * l'ultima cella OCCUPATA (D2-1), quindi il confronto è `b.endCell < inizio`.
+ */
+function celleLibere(occupati: readonly Blocco[], inizio: IndiceCella, campata: number): boolean {
+  const ultimaProposta = inizio + campata - 1
+  return occupati.every((b) => b.endCell < inizio || b.startCell > ultimaProposta)
 }
 
 /**
