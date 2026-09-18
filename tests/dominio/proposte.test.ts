@@ -349,3 +349,87 @@ describe('proposeStarts — il tempo di riassetto è simmetrico', () => {
     expect(esito.reason).toBe('full')
   })
 })
+
+import { campataOccupata } from '../../src/dominio/proposte'
+
+describe('proposeStarts — la visita multiservizio', () => {
+  // ⚠ discriminante: D2-3. Due servizi da 18 e 10 celle con una pausa di 3
+  // fra loro occupano 31 celle, non 28. La pausa dell ULTIMO servizio non è
+  // dentro la campata.
+  it('somma le pause FRA i servizi e non quella dell ultimo', () => {
+    expect(campataOccupata([18, 10], [3, 5])).toBe(31)
+    expect(campataOccupata([18], [5])).toBe(18)
+    expect(campataOccupata([6, 6, 6], [1, 2, 9])).toBe(21)
+  })
+
+  // ⚠ discriminante: è il caso che spec §13.1 chiede per nome — «una visita
+  // multiservizio che ci sta solo senza le pause». La fascia è di 30 celle,
+  // i due servizi ne chiedono 28 nude e 31 con la pausa in mezzo.
+  it('rifiuta una visita che ci starebbe solo senza le pause', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 138 }],
+        durations: [18, 10],
+        buffers: [3, 0],
+      }),
+    )
+    expect(esito.starts).toEqual([])
+    expect(esito.reason).toBe('service_too_long')
+  })
+
+  it('accetta la stessa visita in una fascia lunga abbastanza', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 139 }],
+        durations: [18, 10],
+        buffers: [3, 0],
+      }),
+    )
+    expect(esito.starts).toEqual([108])
+  })
+
+  // ⚠ discriminante: D2-4. La pausa intermedia sta DENTRO la campata, quindi
+  // le sue celle devono essere libere: un appuntamento di tre celle infilato
+  // lì spezzerebbe la contiguità della visita.
+  it('rifiuta una partenza la cui pausa intermedia è occupata', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('intruso', 126, 3, 0)],
+        durations: [18, 10],
+        buffers: [3, 0],
+      }),
+    )
+    expect(esito.starts).not.toContain(108)
+    expect(esito.starts).toContain(129)
+  })
+
+  // ⚠ discriminante: la coda pretesa verso l appuntamento seguente è quella
+  // dell ULTIMO servizio, non del primo. Qui il primo ha pausa 9 e l ultimo 2:
+  // usare quella del primo sposterebbe la partenza indietro di sette celle.
+  it('pretende verso l appuntamento seguente la pausa dell ULTIMO servizio', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 180 }],
+        occupancy: [blocco('dopo', 150, 6, 0)],
+        durations: [6, 6],
+        buffers: [9, 2],
+      }),
+    )
+    // campata = 6 + 9 + 6 = 21; ultima cella proposta = inizio + 20
+    // il blocco comincia alla 150, coda propria 2 → inizio + 20 <= 147
+    expect(esito.starts).toContain(127)
+    expect(esito.starts).not.toContain(128)
+  })
+
+  it('tratta tre servizi come due, senza casi speciali', () => {
+    const esito = proposeStarts(
+      ingresso({
+        ranges: [{ startBoundary: 108, endBoundary: 129 }],
+        durations: [6, 6, 6],
+        buffers: [1, 2, 0],
+      }),
+    )
+    expect(esito.starts).toEqual([108])
+  })
+})
