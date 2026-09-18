@@ -92,6 +92,13 @@ describe('i due domini del tempo', () => {
   it('rifiuta un blocco che scavalca la mezzanotte o dura zero', () => {
     expect(() => blocco('a1', 280, 9, 0)).toThrow(RangeError)
     expect(() => blocco('a1', 120, 0, 0)).toThrow(RangeError)
+    // ⚠ discriminante: il confine va provato dai DUE lati. `0004:21` porta
+    // `check (start_cell + cell_count <= 288)`, quindi un appuntamento che
+    // finisce alle 24:00 in punto è LEGALE nel database. Senza questa riga,
+    // mutare `>` in `>=` resterebbe verde e decodificaFinestra solleverebbe
+    // RangeError su una riga valida, facendo esplodere l intera richiesta del
+    // cercaposti invece di nascondere un posto.
+    expect(() => blocco('a1', 280, 8, 0)).not.toThrow()
   })
 
   // ⚠ discriminante: la guardia sul dominio di start_cell. Il database la

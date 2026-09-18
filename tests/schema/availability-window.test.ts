@@ -206,6 +206,12 @@ describe('availability_window', () => {
         DAY_ONE,
         [[108, 156]],
       ])
+      // Dentro l intervallo DAY_ONE–DAY_TWO senza coprirlo: è la chiusura che
+      // solo un predicato di sovrapposizione restituisce.
+      await c.query(
+        `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
+         values ('2026-03-16', '2026-03-17', null, null, 'Ferie di primavera')`,
+      )
     })
     const w = await finestra(DAY_ONE, DAY_TWO, [VERA])
 
@@ -220,6 +226,24 @@ describe('availability_window', () => {
 
     const eccezioni = (w.exceptions as Array<Record<string, unknown>>).map((e) => e.date)
     expect(eccezioni).toEqual([DAY_ONE, DAY_TWO])
+
+    // ⚠ discriminante: la SOVRAPPOSIZIONE delle chiusure, provata su un
+    // intervallo VERO. Le altre prove sulle chiusure chiedono un solo giorno,
+    // e con `p_from = p_to` sovrapposizione e contenimento sono la stessa
+    // espressione scritta due volte: nessuna di loro può vedere lo scambio dei
+    // due parametri. Questa chiusura sta DENTRO l intervallo senza coprirlo —
+    // come ogni chiusura vera, una settimana di ferie dentro i 28 giorni che
+    // il cercaposti chiede — e con il predicato mutato in contenimento
+    // sparirebbe, lasciando il salone aperto a saracinesca abbassata.
+    expect(w.closures).toEqual([
+      {
+        start_date: '2026-03-16',
+        end_date: '2026-03-17',
+        from_boundary: null,
+        to_boundary: null,
+        reason: 'Ferie di primavera',
+      },
+    ])
   })
 
   it('non riporta un appuntamento fuori dall intervallo di date', async () => {
@@ -353,15 +377,26 @@ describe('availability_window', () => {
          values ($1, $2, 108, 156)`,
         [VERA, GIOVEDI],
       )
-      // Seminata apposta: `exceptions` è l unica sezione che l estraneo
-      // chiede per un operatrice esistente, quindi il suo vuoto misura la
-      // politica `exception_day_access` solo se una riga c è davvero.
+      // Seminata apposta: il vuoto visto dall estraneo misura la politica
+      // `exception_day_access` solo se una riga c è davvero.
       await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
         VERA,
         DAY_ONE,
         [[108, 156]],
       ])
+      // Seminata per la stessa ragione, e qui pesa di più: `closures` è
+      // l unica sezione NON filtrata per operatrice, quindi la politica
+      // `salon_closure_access` è la sua sola difesa. Senza questa riga il
+      // `toEqual([])` qui sotto misurerebbe il tavolo vuoto, non la politica.
+      await c.query(
+        `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
+         values ($1::date, $1::date, null, null, 'Ferie')`,
+        [DAY_ONE],
+      )
     })
+    // Anche l occupazione: un appuntamento c è, e il suo vuoto misura
+    // `appointment_access` invece del seme che manca.
+    await prenota(VISIT_UNO, DAY_ONE, VERA, SERVICE_REFILL, 120, 18)
     const w = await asOperator(OUTSIDER_AUTH, async (c) => {
       const r = await c.query<{ w: Record<string, unknown[]> }>(
         'select public.availability_window($1::date, $2::date, $3::uuid[]) as w',
@@ -436,13 +471,25 @@ describe('availability_window', () => {
   // scandisce zero giorni, quindi non fa danno; l asserzione dice il vero
   // invece di promettere un documento interamente vuoto.
   it('svuota le sezioni datate quando l intervallo è rovesciato', async () => {
-    await asOwner((c) =>
-      c.query(
+    // Tutte e tre le sezioni datate portano una riga: su una tabella vuota il
+    // `toEqual([])` registrerebbe il seme che manca invece del predicato.
+    await asOwner(async (c) => {
+      await c.query(
         `insert into weekly_availability (operator_id, weekday, start_boundary, end_boundary)
          values ($1, $2, 108, 156)`,
         [VERA, GIOVEDI],
-      ),
-    )
+      )
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
+        VERA,
+        DAY_ONE,
+        [[108, 156]],
+      ])
+      await c.query(
+        `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
+         values ($1::date, $1::date, null, null, 'Ferie')`,
+        [DAY_ONE],
+      )
+    })
     await prenota(VISIT_UNO, DAY_ONE, VERA, SERVICE_REFILL, 120, 18)
     const w = await finestra('2026-04-08', DAY_ONE, [VERA])
     expect(w.occupancy).toEqual([])
@@ -469,7 +516,15 @@ describe('availability_window', () => {
         `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
          values ('2026-03-01', '2026-03-31', null, null, 'Ferie')`,
       )
+      // Anche queste due seminate: il vuoto atteso dev essere il documento
+      // che fallisce chiuso, non quattro tabelle mai riempite.
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [
+        VERA,
+        DAY_ONE,
+        [[108, 156]],
+      ])
     })
+    await prenota(VISIT_UNO, DAY_ONE, VERA, SERVICE_REFILL, 120, 18)
     const coppie: Array<[string | null, string | null]> = [
       [null, DAY_ONE],
       [DAY_ONE, null],

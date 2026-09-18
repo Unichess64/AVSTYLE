@@ -319,15 +319,26 @@ describe('cercaPosti', () => {
   // ⚠ discriminante: D2-7. Fra 28 giorni ci sono un giorno chiuso e uno aperto
   // ma pieno: il motivo riportato è quello del giorno aperto, perché estendere
   // l orizzonte ha senso solo in quel caso.
+  //
+  // ⚠ discriminante anche sul CABLAGGIO di §7.4. Ogni altra prova di questo
+  // file passa `buffers: [0]` e `excludeAppointmentIds: []`, e su quei due
+  // valori il cablaggio non è osservabile: con pausa nulla il riassetto non
+  // vincola niente, e con elenco vuoto filtrare o non filtrare l occupazione
+  // è la stessa cosa. Qui la fascia è 108–120 e l appuntamento occupa
+  // 114–119: le celle 108–113 sono LIBERE, ed è solo la pausa PROPRIA di 3
+  // celle a renderle improponibili. Se `buffers` non arrivasse a
+  // proposeStarts, il giorno non sarebbe pieno. E il secondo giro esclude
+  // quell appuntamento: se `excludeAppointmentIds` non arrivasse, la prima
+  // riga non esisterebbe.
   it('riporta full quando almeno un giorno era aperto e pieno', () => {
     const pieno = documento({
-      weekly: [{ operator_id: VERA, weekday: GIOVEDI, start_boundary: 108, end_boundary: 114 }],
+      weekly: [{ operator_id: VERA, weekday: GIOVEDI, start_boundary: 108, end_boundary: 120 }],
       occupancy: [
         {
           appointment_id: 'a1',
           operator_id: VERA,
           date: '2026-03-12',
-          start_cell: 108,
+          start_cell: 114,
           cell_count: 6,
           buffer_after_cells: 0,
         },
@@ -342,9 +353,26 @@ describe('cercaPosti', () => {
         },
       ],
     })
-    const esito = cercaPosti(ingressoCerca({ finestra: decodificaFinestra(pieno) }))
+    const esito = cercaPosti(
+      ingressoCerca({ finestra: decodificaFinestra(pieno), durations: [6], buffers: [3] }),
+    )
     expect(esito.rows).toEqual([])
     expect(esito.reason).toBe('full')
+
+    const spostando = cercaPosti(
+      ingressoCerca({
+        finestra: decodificaFinestra(pieno),
+        durations: [6],
+        buffers: [3],
+        excludeAppointmentIds: ['a1'],
+      }),
+    )
+    expect(spostando.rows[0]).toEqual({
+      date: '2026-03-12',
+      operatorId: VERA,
+      startCell: 108,
+    })
+    expect(spostando.reason).toBeNull()
   })
 
   it('riporta salone chiuso quando ogni giorno dell orizzonte lo è', () => {

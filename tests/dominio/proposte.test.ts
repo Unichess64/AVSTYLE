@@ -439,17 +439,30 @@ describe('proposeStarts — esclusioni e ora corrente', () => {
   // bloccano ogni partenza dentro la propria durata, e spostarlo di una cella
   // è impossibile — con il messaggio che nomina come ostacolo l appuntamento
   // che si sta trascinando.
+  // ⚠ La pausa è 3 e NON zero, apposta. Con le pause a zero la regola del
+  // riassetto non vincola niente, e calcolarla sull occupazione FILTRATA o su
+  // quella grezza dà lo stesso identico elenco: è l unico ingresso in cui le
+  // due implementazioni coincidono. Con pausa 3, l appuntamento che si sta
+  // trascinando pretenderebbe da sé stesso le tre celle per lato — cioè
+  // proprio le partenze che uno spostamento piccolo usa — e l elenco atteso
+  // qui sotto le contiene tutte.
   it('propone uno spostamento di una cella escludendo l appuntamento stesso', () => {
     const fisso = {
       ranges: [{ startBoundary: 108, endBoundary: 180 }],
-      occupancy: [blocco('trascinato', 120, 18, 0)],
+      occupancy: [blocco('trascinato', 120, 18, 3)],
       durations: [18],
-      buffers: [0],
+      buffers: [3],
     }
     expect(proposeStarts(ingresso(fisso)).starts).not.toContain(121)
-    expect(
-      proposeStarts(ingresso({ ...fisso, excludeAppointmentIds: ['trascinato'] })).starts,
-    ).toContain(121)
+    const conEsclusione = proposeStarts(
+      ingresso({ ...fisso, excludeAppointmentIds: ['trascinato'] }),
+    ).starts
+    expect(conEsclusione).toContain(121)
+    // L elenco INTERO: escluso l appuntamento, la fascia è libera da capo a
+    // fondo e ogni partenza da cui il servizio ci sta è proponibile. Le celle
+    // 138, 139 e 140 — le tre subito dopo la fine del trascinato — ci sono
+    // solo se anche il riassetto legge l occupazione filtrata.
+    expect(conEsclusione).toEqual(Array.from({ length: 55 }, (_, i) => 108 + i))
   })
 
   // ⚠ discriminante: excludeAppointmentIds è una LISTA perché §8.6 sposta una
