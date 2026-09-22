@@ -3,9 +3,10 @@
 **Data:** 18 settembre 2026
 **Piano:** `docs/superpowers/plans/2026-09-18-salon-scheduler-availability.md`
 **Spec:** `docs/superpowers/specs/2026-09-17-salon-scheduler-design.md`, revisione 5 — **non corretta** da questa
-riconciliazione. Le divergenze 1–11 non toccano la spec; la n. 12, aggiunta il 22 settembre 2026, registra un
-esempio della spec (§7.4) che, preso alla lettera, non fa ciò che dichiara: correggerlo resta una decisione
-dell'utente
+riconciliazione (salvo l'esempio di §7.4, corretto per decisione dell'utente: vedi n. 12). Le divergenze 1–11 non
+toccano la spec; la n. 12, aggiunta il 22 settembre 2026, registra un esempio della spec (§7.4) che, preso alla
+lettera, non faceva ciò che dichiarava. Lo stesso giorno, per decisione dell'utente, l'esempio è stato corretto in
+spec §7.4 (paragrafo «Corrected on 2026-09-22»); la revisione resta la 5
 **Suite al momento della scrittura:** 256 prove su 18 file, tutte verdi; 13 migrazioni
 **Ledger decisione per decisione:** `.superpowers/sdd/2026-09-18-salon-scheduler-availability/progress.md`
 
@@ -154,9 +155,10 @@ e 5** — l'unica che cattura una rottura del cablaggio fra i due moduli — qui
 `tests/dominio/cercaposti.test.ts:397`, la stessa narrazione stava in `tests/dominio/fasce.test.ts:154`, sopra
 *«legge come salone chiuso una chiusura PARZIALE che svuota il giorno»* (numeri di riga di `a5775b4`). Il
 censimento precedente l'aveva mancata.
-Tutte e due le note ora dicono che la chiusura è 96→156, cioè 08:00–13:00, e che è uno scenario **scelto per
-svuotare il giorno**, non una citazione della spec; e rimandano alla divergenza n. 12. I valori delle prove non sono
-cambiati.
+Tutte e due le note dicevano allora che la chiusura è 96→156, cioè 08:00–13:00, e che è uno scenario **scelto per
+svuotare il giorno**, non una citazione della spec; e rimandavano alla divergenza n. 12. I valori delle prove non sono
+cambiati. Dopo la correzione di §7.4, lo stesso giorno, le due note sono state riscritte ancora: ora chiamano
+questo scenario **equivalente** all'esempio corretto. Vedi lo Stato della n. 12.
 
 ---
 
@@ -257,15 +259,16 @@ nessuna prova di questo repo si accorgerebbe di una migrazione saltata. È mater
 
 ## 12. L'esempio del 24 dicembre di §7.4, preso alla lettera, non svuota il giorno
 
-**La spec dice** (§7.4, `docs/superpowers/specs/2026-09-17-salon-scheduler-design.md:1048`): `dayStatus` è
-`'salon_closed'` quando una chiusura, anche parziale, lascia il giorno senza fasce; altrimenti «a 24 December
-closed from 13:00, on a day Alessandra worked 09:00–13:00» risulterebbe aperto e pieno. Porta cioè quel giorno come
-esempio di chiusura parziale che **svuota** il giorno.
+**La spec diceva** (§7.4, `docs/superpowers/specs/2026-09-17-salon-scheduler-design.md:1048` in `ad98457`):
+`dayStatus` è `'salon_closed'` quando una chiusura, anche parziale, lascia il giorno senza fasce; altrimenti «a 24
+December closed from 13:00, on a day Alessandra worked 09:00–13:00» risulterebbe aperto e pieno. Portava cioè quel
+giorno come esempio di chiusura parziale che **svuota** il giorno.
 
 **Che cosa dice la misura.** Una chiusura che **comincia** alle 13:00 non tocca una fascia che **finisce** alle
 13:00. Lo mostra la prima metà di *«legge come salone chiuso una chiusura PARZIALE che svuota il giorno»*
 (`tests/dominio/fasce.test.ts:158` in `a5775b4`): fascia 108→156, chiusura 156→288, attesa `dayStatus`
-**`'open'`**, e la prova passa. L'esempio di §7.4, così com'è scritto, non produce il caso che vuole illustrare.
+**`'open'`**, e la prova passa. L'esempio di §7.4, così com'era scritto, non produceva il caso che voleva
+illustrare.
 
 §6.5 (`:928`) nomina lo stesso giorno con «24 December until 13:00», nella stessa frase delle settimane a orario
 ridotto. La lettura più naturale è «si lavora fino alle 13:00», cioè chiuso dalle 13:00, come in §7.4. È al massimo
@@ -278,11 +281,25 @@ giorno**, non una citazione della spec.
 revisione indipendente, che ha mostrato come la prima stesura leggesse in §6.5 una contraddizione che il testo non
 impone.
 
-**Perché conta.** Il codice e le prove sono giusti. Ma chi rilegge §7.4 per scrivere una prova nuova la scriverebbe
-con la chiusura dalle 13:00, e otterrebbe un giorno aperto invece di un giorno chiuso.
+**Perché conta.** Il codice e le prove sono giusti. Ma chi rileggeva §7.4 per scrivere una prova nuova l'avrebbe
+scritta con la chiusura dalle 13:00 e il turno 09:00–13:00, e avrebbe ottenuto un giorno aperto invece di un giorno
+chiuso.
 
-**Che cosa fare.** Correggere l'esempio di §7.4 perché svuoti davvero il giorno è una decisione dell'utente. Nel
-frattempo le due note delle prove dicono che l'esempio preso alla lettera non svuota il giorno.
+**Che cosa fare.** Correggere l'esempio di §7.4 perché svuoti davvero il giorno era una decisione dell'utente.
+
+**Stato (22 settembre 2026):** esempio corretto in spec §7.4, con il turno 14:00–18:00, per decisione dell'utente.
+Ora dice «a 24 December closed from 13:00, on a day Alessandra worked 14:00–18:00»: la chiusura 156→288 copre
+tutto il turno 168→216 e il giorno resta senza fasce. Il testo sostituito è citato nel paragrafo «**Corrected on
+2026-09-22, after the availability plan:**», subito dopo la frase corretta, in
+`docs/superpowers/specs/2026-09-17-salon-scheduler-design.md:1053`. Le due note delle prove ora dicono che
+l'esempio corretto è «chiuso dalle 13:00, turno 14:00–18:00» e che la prova ne usa uno equivalente con la chiusura
+al mattino. La nota di `fasce.test.ts` dice anche che la sua prima metà resta perché documenta l'esempio vecchio.
+I valori e le attese delle prove non sono cambiati. §6.5 non è stato toccato.
+
+La stessa correzione precisa anche la conseguenza. «Aperto e pieno», qui sopra, cita la vecchia spec, e non era il
+comportamento reale: senza la regola il giorno esce `'open'` con le fasce vuote, e `proposeStarts` risponde
+`operator_off` (D2-5, `src/dominio/proposte.ts:55`), non `full`. Misurato dalla revisione indipendente togliendo la
+regola. Ora §7.4 dice che il cercaposti darebbe la colpa all'operatrice.
 
 ---
 

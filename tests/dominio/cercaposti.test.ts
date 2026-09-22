@@ -394,13 +394,15 @@ describe('cercaPosti', () => {
   // ⚠ discriminante: è §13.1 riga per riga — «ogni dayStatus col suo motivo,
   // COMPRESA la chiusura parziale che svuota il giorno, che deve leggersi
   // chiusa e non piena» — percorsa DA CAPO A FONDO, dal documento grezzo fino
-  // al codice di motivo. Lo scenario è ispirato al 24 dicembre di spec §7.4,
-  // ma i numeri sono SCELTI per svuotare il giorno, non citati dalla spec:
-  // l operatrice lavora 108→156, cioè 09:00–13:00, e il salone è chiuso
-  // 96→156, cioè dalle 08:00 alle 13:00. L esempio di §7.4 preso alla lettera
-  // (chiuso dalle 13:00) non svuoterebbe il giorno: una chiusura che comincia
-  // alle 13:00 non tocca una fascia che finisce alle 13:00. Lo mostra la prima
-  // metà della prova gemella in fasce.test.ts, che attende 'open'.
+  // al codice di motivo. La regola è quella del 24 dicembre di spec §7.4.
+  // L esempio, corretto il 22/09, è «chiuso dalle 13:00, turno 14:00–18:00».
+  // Qui lo scenario è equivalente, con la chiusura al mattino: l operatrice
+  // lavora 108→156, cioè 09:00–13:00, e il salone è chiuso 96→156, cioè dalle
+  // 08:00 alle 13:00. Come nell esempio, la chiusura copre tutto il turno.
+  // L esempio VECCHIO di §7.4 (turno 09:00–13:00, chiuso dalle 13:00) non
+  // svuotava il giorno: una chiusura che comincia alle 13:00 non tocca un
+  // turno che finisce alle 13:00. Lo mostra la prima metà della prova gemella
+  // in fasce.test.ts, che attende 'open' (divergenza n. 12 dei findings).
   //
   // Le due metà di questa regola sono provate separatamente nei Task 3 e 5, e
   // questa è l unica prova che le congiunge: una rottura del cablaggio fra i

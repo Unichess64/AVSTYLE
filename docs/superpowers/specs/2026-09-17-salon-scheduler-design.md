@@ -1046,8 +1046,27 @@ longer than any range. On the phone those are four different sentences.
 
 `dayStatus` is `'salon_closed'` whenever a closure — whole-day **or partial** —
 leaves the day with no ranges. Otherwise a 24 December closed from 13:00, on a
-day Alessandra worked 09:00–13:00, would report "open but full" for a shut
-salon.
+day Alessandra worked 14:00–18:00, would read as open, and the finder would
+blame the operator (`operator_off`, decision D2-5 of the availability plan) for
+a shut salon.
+
+**Corrected on 2026-09-22, after the availability plan:** this example read
+*on a day Alessandra worked 09:00–13:00, would report "open but full"*. Two
+things were wrong. First, a closure from 13:00 does not empty that day: a
+closure that starts at 13:00 does not touch a range that ends at 13:00, so the
+day stays `'open'` and the rule went unillustrated. A 14:00–18:00 shift
+(cells 168→216) lies wholly inside the closure (156→288), so the closure leaves
+the day with no ranges. The first half of *"legge come salone chiuso una
+chiusura PARZIALE che svuota il giorno"* in `tests/dominio/fasce.test.ts` still
+measures the old wording. Second, "open but full" was imprecise. Without this
+rule the day comes out `'open'` with no ranges, and `proposeStarts` answers
+that with `operator_off`, not `full` (`src/dominio/proposte.ts:55`, decision
+D2-5 of `docs/superpowers/plans/2026-09-18-salon-scheduler-availability.md`).
+The phrase dates from revision 4; D2-5 made it false later. Measured by the
+independent review of this correction, with the rule removed. Recorded as
+divergence 12 of `docs/superpowers/plans/2026-09-18-availability-findings.md`.
+§6.5's "24 December until 13:00" is unchanged: it is compatible with a closure
+from 13:00.
 
 The eligible-operator set is resolved by the caller from `operator_service`,
 **restricted to active operators**. Without that restriction the finder keeps

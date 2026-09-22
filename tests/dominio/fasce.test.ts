@@ -154,19 +154,20 @@ describe('risoluzione del giorno — chiusure e precedenza', () => {
     ])
   })
 
-  // ⚠ discriminante: parte dall'esempio del 24 dicembre di spec §7.4. Là il
-  // salone è chiuso dalle 13:00 e Alessandra lavora 09:00–13:00, cioè 108→156.
+  // ⚠ discriminante: è la regola del 24 dicembre di spec §7.4. L'esempio,
+  // corretto il 22/09, è «chiuso dalle 13:00, turno 14:00–18:00»: la
+  // chiusura, 156→288, copre tutto il turno, 168→216.
   //
-  // La prima metà prende quell'esempio alla lettera: chiusura 156→288, dalle
-  // 13:00 a mezzanotte. Non tocca la fascia, che finisce proprio alle 13:00:
-  // il giorno resta 'open'. Quindi l'esempio di §7.4, così com'è scritto, NON
-  // svuota il giorno. (§6.5 nomina lo stesso giorno in modo ambiguo, e non
-  // chiarisce.)
+  // La prima metà tiene l'esempio VECCHIO di §7.4: turno 09:00–13:00, cioè
+  // 108→156, e chiusura 156→288, dalle 13:00 a mezzanotte. La chiusura non
+  // tocca il turno, che finisce proprio alle 13:00: il giorno resta 'open'.
+  // Resta qui per questo: mostra perché l'esempio vecchio non svuotava il
+  // giorno (divergenza n. 12 dei findings).
   //
-  // La seconda metà usa uno scenario SCELTO per svuotare il giorno, non una
-  // citazione della spec: chiusura 96→156, dalle 08:00 alle 13:00. Copre tutta
-  // la fascia: il giorno resta senza fasce, e DEVE leggersi «salone chiuso»,
-  // non «aperto e pieno» né «operatrice assente».
+  // La seconda metà usa uno scenario equivalente all'esempio corretto, con la
+  // chiusura al mattino: turno 108→156, chiusura 96→156, dalle 08:00 alle
+  // 13:00. Copre tutto il turno: il giorno resta senza fasce, e DEVE leggersi
+  // «salone chiuso», non «aperto e pieno» né «operatrice assente».
   it('legge come salone chiuso una chiusura PARZIALE che svuota il giorno', () => {
     const esito = risolviGiorno({
       weekly: [{ startBoundary: 108, endBoundary: 156 }], // 09:00–13:00
