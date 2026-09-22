@@ -157,8 +157,10 @@ describe('availability_window', () => {
   })
 
   // ⚠ discriminante: D2-1 sul lato SQL. La funzione restituisce cell_count
-  // GREZZO: l ultima cella occupata la calcola blocco() e nessun altro. Se qui
-  // comparisse un end_cell, l aritmetica esisterebbe in due lingue. E
+  // GREZZO: l ultima cella occupata, in TypeScript, la calcola solo blocco().
+  // In SQL la stessa somma esiste già nella funzione del trigger di
+  // 0005_occupancy.sql, che riempie appointment_slot, e le due vanno tenute d accordo. Se qui
+  // comparisse anche un end_cell, le copie in SQL diventerebbero due. E
   // buffer_after_cells viene dal SERVIZIO, non dall appuntamento: senza la
   // giunzione la regola del riassetto non è calcolabile.
   it('riporta l occupazione con il conteggio delle celle e la pausa del servizio', async () => {

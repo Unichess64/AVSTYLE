@@ -3,7 +3,9 @@
 **Data:** 18 settembre 2026
 **Piano:** `docs/superpowers/plans/2026-09-18-salon-scheduler-availability.md`
 **Spec:** `docs/superpowers/specs/2026-09-17-salon-scheduler-design.md`, revisione 5 — **non corretta** da questa
-riconciliazione: nessuna delle divergenze qui sotto tocca la spec
+riconciliazione. Le divergenze 1–11 non toccano la spec; la n. 12, aggiunta il 22 settembre 2026, registra un
+esempio della spec (§7.4) che, preso alla lettera, non fa ciò che dichiara: correggerlo resta una decisione
+dell'utente
 **Suite al momento della scrittura:** 256 prove su 18 file, tutte verdi; 13 migrazioni
 **Ledger decisione per decisione:** `.superpowers/sdd/2026-09-18-salon-scheduler-availability/progress.md`
 
@@ -16,14 +18,16 @@ sono in disaccordo, vince la prova**, e il documento si corregge.
 Il piano 1 divergeva **nel comportamento**: la spec diceva una cosa e le migrazioni ne facevano un'altra, e venti
 volte su venti a decidere era stata una prova. **Qui no.** Il piano 2 prescriveva il codice per intero, il codice
 è stato trascritto alla lettera — verificato a macchina, byte per byte, su tutti e undici i task — e **il
-comportamento non diverge mai dal piano**. Le undici divergenze qui sotto sono tutte fra la **prosa del piano** e
-la **misura**: annotazioni di sonde, attese di conteggio, commenti con numeri sbagliati accanto a valori giusti.
+comportamento non diverge mai dal piano**. Le prime undici divergenze qui sotto sono tutte fra la **prosa del
+piano** e la **misura**: annotazioni di sonde, attese di conteggio, commenti con numeri sbagliati accanto a valori
+giusti. La dodicesima, aggiunta dopo, è fra un esempio della **spec** e la misura.
 
 Non sono innocue per questo. Una tabella di sonde che dichiara un esito diverso da quello reale è una **bugia sul
 presidio**, ed è esattamente ciò che fa credere presidiato un ramo che non lo è: le prime due qui sotto sono di
 quella specie.
 
-Undici divergenze, ordinate per quanto danno stavano facendo.
+Dodici divergenze: le prime undici ordinate per quanto danno stavano facendo, la n. 12 aggiunta in coda il 22
+settembre 2026.
 
 ---
 
@@ -49,6 +53,17 @@ futuro: il commento lo invita a credere che cambiare la convenzione di `endCell`
 **Che cosa fare.** O correggere il commento perché nomini la seconda sede — «l'unico posto in TypeScript; in SQL la
 stessa regola vive nel trigger di 0005» — o ricondurre la materializzazione dei minuti a una sola definizione.
 È una decisione dell'utente, non dell'esecutore, e per questo il commento è stato lasciato com'era.
+
+**Stato (22 settembre 2026):** note corrette nel codice e nelle prove; l'utente ha scelto la prima strada. Ora
+`src/dominio/tempo.ts` (commento di `blocco()`), `src/dominio/tipi.ts` (commento di `Blocco`),
+`src/dominio/finestra.ts` e `tests/schema/availability-window.test.ts` dicono «l'unico posto **in TypeScript**» e
+nominano come seconda sede, da tenere d'accordo, la funzione `app.sync_appointment_slots` di
+`0005_occupancy.sql`, eseguita dal trigger `zz_sync_appointment_slots`. **Resta** invece il commento
+falso in `supabase/migrations/0012_availability_window.sql:111-112`: la migrazione è già applicata, e quel commento
+sta dentro il corpo `$$` della funzione, quindi cambiarlo cambierebbe la funzione salvata nel database. Chi legge
+quella migrazione trovi qui la correzione. Il commento di testa di `tempo.ts` («l'unico posto dove una cella
+diventa un orario») è stato verificato e lasciato: nessun'altra conversione da cella a orario in `src/` o in
+`supabase/`.
 
 ---
 
@@ -109,6 +124,14 @@ pericoloso — e la prova discrimina. Ma chi ricontrolla l'aritmetica la trova i
 valori, cioè di spostare la prova sul caso innocuo: esattamente il difetto che la seconda revisione del piano aveva
 già dovuto correggere una volta.
 
+**Stato (22 settembre 2026):** note corrette nel codice e nelle prove; il commento di `tests/dominio/fasce.test.ts`
+ora dice che la chiusura è 90→100, cioè 07:30–08:20, e che i 40 minuti inventati sarebbero 08:20–09:00. Nel
+secondo giro è stata corretta anche la frase subito sopra, che era falsa allo stesso modo: senza il guardiano
+`a <= f.startBoundary` la fascia si allunga all'indietro fino alla **fine** della chiusura (100), non al suo inizio
+(90), e nel caso `a === startBoundary` scatta **un solo** `push`, non due. Misurato togliendo il guardiano da
+`sottrai()`: la prova arrossisce con `startBoundary: 100` ricevuto al posto di 108. I valori della prova non sono
+cambiati.
+
 ---
 
 ## 5. Il commento della prova da capo a fondo del Task 11 descrive una chiusura al contrario
@@ -126,6 +149,14 @@ di `dayStatus`.
 **Perché conta.** Stessa specie della n. 4: numeri giusti, prosa fuorviante. Ed è la prova che **congiunge i Task 3
 e 5** — l'unica che cattura una rottura del cablaggio fra i due moduli — quindi è quella che meno di tutte va
 «corretta» da chi legge il commento invece dei numeri.
+
+**Stato (22 settembre 2026):** note corrette nel codice e nelle prove. Le sedi erano **due**, non una: oltre a
+`tests/dominio/cercaposti.test.ts:397`, la stessa narrazione stava in `tests/dominio/fasce.test.ts:154`, sopra
+*«legge come salone chiuso una chiusura PARZIALE che svuota il giorno»* (numeri di riga di `a5775b4`). Il
+censimento precedente l'aveva mancata.
+Tutte e due le note ora dicono che la chiusura è 96→156, cioè 08:00–13:00, e che è uno scenario **scelto per
+svuotare il giorno**, non una citazione della spec; e rimandano alla divergenza n. 12. I valori delle prove non sono
+cambiati.
 
 ---
 
@@ -224,9 +255,40 @@ nessuna prova di questo repo si accorgerebbe di una migrazione saltata. È mater
 
 ---
 
+## 12. L'esempio del 24 dicembre di §7.4, preso alla lettera, non svuota il giorno
+
+**La spec dice** (§7.4, `docs/superpowers/specs/2026-09-17-salon-scheduler-design.md:1048`): `dayStatus` è
+`'salon_closed'` quando una chiusura, anche parziale, lascia il giorno senza fasce; altrimenti «a 24 December
+closed from 13:00, on a day Alessandra worked 09:00–13:00» risulterebbe aperto e pieno. Porta cioè quel giorno come
+esempio di chiusura parziale che **svuota** il giorno.
+
+**Che cosa dice la misura.** Una chiusura che **comincia** alle 13:00 non tocca una fascia che **finisce** alle
+13:00. Lo mostra la prima metà di *«legge come salone chiuso una chiusura PARZIALE che svuota il giorno»*
+(`tests/dominio/fasce.test.ts:158` in `a5775b4`): fascia 108→156, chiusura 156→288, attesa `dayStatus`
+**`'open'`**, e la prova passa. L'esempio di §7.4, così com'è scritto, non produce il caso che vuole illustrare.
+
+§6.5 (`:928`) nomina lo stesso giorno con «24 December until 13:00», nella stessa frase delle settimane a orario
+ridotto. La lettura più naturale è «si lavora fino alle 13:00», cioè chiuso dalle 13:00, come in §7.4. È al massimo
+ambigua, e non è una seconda versione su cui appoggiarsi.
+
+Le prove che svuotano il giorno usano 96→156, cioè chiuso 08:00–13:00. È uno scenario **scelto per svuotare il
+giorno**, non una citazione della spec.
+
+**Chi l'ha decisa.** Trovata correggendo le note delle divergenze 4 e 5, il 22 settembre 2026; riformulata dopo la
+revisione indipendente, che ha mostrato come la prima stesura leggesse in §6.5 una contraddizione che il testo non
+impone.
+
+**Perché conta.** Il codice e le prove sono giusti. Ma chi rilegge §7.4 per scrivere una prova nuova la scriverebbe
+con la chiusura dalle 13:00, e otterrebbe un giorno aperto invece di un giorno chiuso.
+
+**Che cosa fare.** Correggere l'esempio di §7.4 perché svuoti davvero il giorno è una decisione dell'utente. Nel
+frattempo le due note delle prove dicono che l'esempio preso alla lettera non svuota il giorno.
+
+---
+
 ## Buchi di presidio trovati dopo gli undici task, e chiusi
 
-Le undici divergenze qui sopra riguardano la prosa. Questa sezione riguarda qualcosa di più serio: prove che
+Le dodici divergenze qui sopra riguardano la prosa. Questa sezione riguarda qualcosa di più serio: prove che
 **passavano per il motivo sbagliato**. Nessuna è un difetto del codice, che in ogni caso misurato era corretto;
 ognuna è una regola che il piano dichiarava presidiata e che nessuna prova avrebbe difeso da una regressione.
 
@@ -256,11 +318,19 @@ vicino sì e il `seguente` no. Un piano che dichiara «presidiato» guardando un
 Non producono oggi un dato sbagliato su un percorso che un utente percorre; sono scritti perché nessuno li scopra
 credendo di aver trovato un buco nuovo.
 
-- **Il fuso orario in CI — decisione dell'utente.** In `src/dominio/tempo.ts:64`, sostituire `getUTCDay()` con
-  `getDay()` lascia la suite verde sotto `Europe/Rome` **e sotto `UTC`**, cioè sotto `ubuntu-latest` di
-  `.github/workflows/ci.yml`; muore solo sotto `America/New_York` (10 prove rosse). Il presidio vive in una sonda
-  manuale del piano che la suite non ricorda. Il rimedio è fissare `TZ` in CI o in `vitest.config.ts`, e scegliere
-  quale fuso — per un'applicazione italiana — non spetta a chi esegue.
+- ~~**Il fuso orario in CI — decisione dell'utente.**~~ **Chiuso il 22 settembre 2026.** In
+  `src/dominio/tempo.ts:64`, sostituire `getUTCDay()` con `getDay()` lasciava la suite verde sotto `Europe/Rome`
+  **e sotto `UTC`**, cioè sotto `ubuntu-latest` di `.github/workflows/ci.yml`; moriva solo sotto
+  `America/New_York`. Ora `package.json` ha lo script `test:fuso` (`TZ=America/New_York vitest run tests/dominio`)
+  e la CI lo esegue subito dopo `npm ci`, prima di avviare Supabase. `vitest.config.ts` non è stato toccato.
+  Misura, sul codice giusto: 4 file, 96 prove, tutte verdi. Due mutanti, ciascuno eseguito e poi ripristinato:
+  `getUTCDay()` → `getDay()` (lasciando `Date.UTC`), e `new Date(Date.UTC(anno, mese - 1, giorno)).getUTCDay()` →
+  `new Date(data).getDay()`. Per **tutti e due**: con `npm run test:fuso` **14 prove rosse su 96** (12 in
+  `cercaposti.test.ts`, 2 in `tempo.test.ts`); con `TZ=UTC` e con `TZ=Europe/Rome`, 96 verdi su 96. Il «10» scritto
+  in `test-audit.md:148` era sbagliato già allora: la revisione indipendente ha rimisurato il mutante 1 su
+  istantanee di `4ba27e2` (il commit dell'audit), `bdf511c` e `a5775b4`, e dà sempre 14 (12 + 2); rimisurato anche dall'esecutore su un'istantanea di `4ba27e2`: 14. Nessuna deriva.
+  Rapporto:
+  `.superpowers/sdd/2026-09-18-salon-scheduler-availability/seguito-22-09-report.md`.
 - `src/dominio/proposte.ts:141` — la scelta del `seguente` **più vicino** contro il **più lontano** non è esercitata
   da nessuna prova con due blocchi dopo la partenza. Il codice è corretto. Da non confondere con l'equivalenza
   dichiarata dal piano, che riguarda «il più vicino contro tutti».

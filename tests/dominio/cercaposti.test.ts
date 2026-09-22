@@ -394,11 +394,17 @@ describe('cercaPosti', () => {
   // ⚠ discriminante: è §13.1 riga per riga — «ogni dayStatus col suo motivo,
   // COMPRESA la chiusura parziale che svuota il giorno, che deve leggersi
   // chiusa e non piena» — percorsa DA CAPO A FONDO, dal documento grezzo fino
-  // al codice di motivo. È l esempio del 24 dicembre: il salone chiude alle
-  // 13:00 e l operatrice lavorava 09:00–13:00. Le due metà di questa regola
-  // sono provate separatamente nei Task 3 e 5, e questa è l unica prova che le
-  // congiunge: una rottura del cablaggio fra i due moduli resterebbe verde
-  // senza di lei.
+  // al codice di motivo. Lo scenario è ispirato al 24 dicembre di spec §7.4,
+  // ma i numeri sono SCELTI per svuotare il giorno, non citati dalla spec:
+  // l operatrice lavora 108→156, cioè 09:00–13:00, e il salone è chiuso
+  // 96→156, cioè dalle 08:00 alle 13:00. L esempio di §7.4 preso alla lettera
+  // (chiuso dalle 13:00) non svuoterebbe il giorno: una chiusura che comincia
+  // alle 13:00 non tocca una fascia che finisce alle 13:00. Lo mostra la prima
+  // metà della prova gemella in fasce.test.ts, che attende 'open'.
+  //
+  // Le due metà di questa regola sono provate separatamente nei Task 3 e 5, e
+  // questa è l unica prova che le congiunge: una rottura del cablaggio fra i
+  // due moduli resterebbe verde senza di lei.
   it('porta una chiusura parziale fino al motivo salone chiuso', () => {
     const vigilia = documento({
       weekly: [{ operator_id: VERA, weekday: GIOVEDI, start_boundary: 108, end_boundary: 156 }],

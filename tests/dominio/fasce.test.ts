@@ -114,11 +114,14 @@ describe('risoluzione del giorno — chiusure e precedenza', () => {
   //
   // Il valore di confine conta, ed è facile sbagliarlo: una chiusura che
   // finisce ESATTAMENTE dove la fascia comincia (`a === startBoundary`) NON è
-  // osservabile, perché togliendo il primo guardiano i due `push` ricostruiscono
-  // la fascia identica. L'unico caso osservabile è `a < startBoundary`, ed è
-  // nel verso pericoloso: senza il guardiano la fascia si allungherebbe
-  // all'indietro fino all'inizio della chiusura, INVENTANDO disponibilità
-  // dove il salone è chiuso. Qui sono 40 minuti, dalle 07:30 alle 08:10.
+  // osservabile, perché togliendo il guardiano `a <= f.startBoundary` scatta
+  // un solo `push`, quello che parte da `a`, e ricostruisce la fascia
+  // identica. L'unico caso osservabile è `a < startBoundary`, ed è nel verso
+  // pericoloso: senza il guardiano la fascia si allungherebbe all'indietro
+  // fino alla FINE della chiusura, INVENTANDO disponibilità prima dell'orario
+  // di lavoro. Qui la chiusura è 90→100, cioè 07:30–08:20. La fascia comincia
+  // a 108, cioè 09:00. Senza il guardiano la fascia partirebbe da 100: 40
+  // minuti inventati, dalle 08:20 alle 09:00.
   it('non allunga una fascia all indietro per una chiusura che sta tutta prima', () => {
     const tuttaPrima = risolviGiorno({
       weekly: [{ startBoundary: 108, endBoundary: 156 }],
@@ -151,10 +154,19 @@ describe('risoluzione del giorno — chiusure e precedenza', () => {
     ])
   })
 
-  // ⚠ discriminante: è l'esempio letterale di spec §7.4. Il 24 dicembre il
-  // salone chiude alle 13:00 e Alessandra lavorava 09:00–13:00: il giorno
-  // resta senza fasce, e DEVE leggersi «salone chiuso», non «aperto e pieno»
-  // né «operatrice assente».
+  // ⚠ discriminante: parte dall'esempio del 24 dicembre di spec §7.4. Là il
+  // salone è chiuso dalle 13:00 e Alessandra lavora 09:00–13:00, cioè 108→156.
+  //
+  // La prima metà prende quell'esempio alla lettera: chiusura 156→288, dalle
+  // 13:00 a mezzanotte. Non tocca la fascia, che finisce proprio alle 13:00:
+  // il giorno resta 'open'. Quindi l'esempio di §7.4, così com'è scritto, NON
+  // svuota il giorno. (§6.5 nomina lo stesso giorno in modo ambiguo, e non
+  // chiarisce.)
+  //
+  // La seconda metà usa uno scenario SCELTO per svuotare il giorno, non una
+  // citazione della spec: chiusura 96→156, dalle 08:00 alle 13:00. Copre tutta
+  // la fascia: il giorno resta senza fasce, e DEVE leggersi «salone chiuso»,
+  // non «aperto e pieno» né «operatrice assente».
   it('legge come salone chiuso una chiusura PARZIALE che svuota il giorno', () => {
     const esito = risolviGiorno({
       weekly: [{ startBoundary: 108, endBoundary: 156 }], // 09:00–13:00

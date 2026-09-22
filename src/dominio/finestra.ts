@@ -75,9 +75,12 @@ export function decodificaFinestra(documento: DocumentoFinestra): Finestra {
     })
   }
 
-  // `blocco()` e non un oggetto letterale: è l'unico posto che calcola
-  // l'ultima cella occupata (D2-1), ed è anche la porta che rifiuta una riga
-  // fuori dominio invece di lasciarla entrare in silenzio.
+  // `blocco()` e non un oggetto letterale: è l'unico posto in TypeScript che
+  // calcola l'ultima cella occupata (D2-1; in SQL la stessa somma vive anche
+  // nella funzione del trigger di 0005_occupancy.sql, e le due vanno tenute
+  // d'accordo), ed è
+  // anche la porta che rifiuta una riga fuori dominio invece di lasciarla
+  // entrare in silenzio.
   const perOccupazione = new Map<string, Blocco[]>()
   for (const r of documento.occupancy) {
     const chiave = `${r.operator_id}|${r.date}`

@@ -74,9 +74,13 @@ export function sommaGiorni(data: string, giorni: number): string {
 /**
  * Costruisce un blocco occupato da `start_cell` e `cell_count`, che sono i
  * nomi delle colonne di `appointment`. `endCell` è l'ultima cella occupata,
- * INCLUSA (D2-1), e QUESTO è l'unico posto in tutto il sistema che la calcola:
- * `availability_window` restituisce `cell_count` grezzo proprio per non avere
- * la stessa aritmetica anche in SQL.
+ * INCLUSA (D2-1), e QUESTO è l'unico posto in TypeScript che la calcola.
+ * `availability_window` restituisce `cell_count` grezzo per non aggiungere
+ * un'altra copia in SQL. Ma in SQL la stessa somma esiste già: la funzione
+ * `app.sync_appointment_slots`, che il trigger `zz_sync_appointment_slots`
+ * esegue, in `supabase/migrations/0005_occupancy.sql`, calcola
+ * `start_cell + cell_count - 1` per riempire `appointment_slot`. Le due vanno
+ * tenute d'accordo: chi cambia la convenzione qui la cambia anche lì.
  */
 export function blocco(
   appointmentId: string,

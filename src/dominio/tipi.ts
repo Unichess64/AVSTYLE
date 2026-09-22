@@ -24,8 +24,10 @@ export interface Fascia {
  * PRECEDE, e un insieme piatto di celle prese non può fornirla.
  *
  * `endCell` è l'ULTIMA CELLA OCCUPATA, INCLUSA (decisione D2-1): si costruisce
- * con `blocco()`, che è l'unico posto in tutto il sistema dove quel numero
- * viene calcolato.
+ * con `blocco()`, che è l'unico posto in TypeScript dove quel numero viene
+ * calcolato. In SQL la stessa somma vive anche nella funzione del trigger di
+ * `0005_occupancy.sql`, che riempie `appointment_slot`: le due vanno tenute
+ * d'accordo.
  */
 export interface Blocco {
   readonly appointmentId: string
