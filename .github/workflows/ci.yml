@@ -11,9 +11,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:fuso
       - run: npx supabase start
       - run: npm test
 
 # CI runs in UTC and the developer's machine does not. The date-parser line in
 # tests/helpers/db.ts is what keeps the two agreeing; if a date assertion ever
 # fails on one and passes on the other, that line is the first place to look.
+#
+# Il passo test:fuso rifà le prove di tests/dominio con TZ=America/New_York: un getDay()
+# al posto di getUTCDay() in src/dominio/tempo.ts si vede solo a ovest di UTC, e qui siamo in UTC.

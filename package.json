@@ -5,6 +5,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:fuso": "TZ=America/New_York vitest run tests/dominio",
     "db:start": "supabase start",
     "db:reset": "supabase db reset"
   },
