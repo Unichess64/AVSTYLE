@@ -55,8 +55,8 @@ Valgono per **ogni** task; non si ripetono task per task.
 | `supabase/migrations/0019_annunci.sql` | tabella `annuncio`, trigger per istruzione su `appointment` e `visit`, pubblicazione agli inserimenti |
 | `supabase/migrations/0020_revoca_move_visit.sql` | revoca della vecchia `move_visit` ad `authenticated` |
 | `supabase/migrations/0021_ricerca_e_colori.sql` | `pg_trgm`, `public.cerca_clienti`, `public.doppioni_cliente`, colori delle operatrici di D3-6 |
-| `tests/helpers/sessioni.ts` | accesso vero a GoTrue locale, riuso dei token, `comeOperatriceConSessione()` |
-| `tests/helpers/db.ts` (modifica) | `inRole` accetta `session_id`; `resetData` resta com'è |
+| `tests/helpers/sessioni.ts` | accesso vero a GoTrue locale e riuso dei token: `preparaAccountLocali()`, `accedi()`, `sessioneDi()`, `dimenticaSessioni()`, `rinnovoRiesce()` |
+| `tests/helpers/db.ts` (modifica) | i claim portano `session_id`; si aggiungono `asOperatorCommit`, `asOperatorConSessione`, `asOperatorSenzaSessione` e il parser dell'array di date (OID 1182); `resetData` resta com'è |
 | `tests/schema/invii.test.ts` | tabelle di servizio, permessi, trigger delle cancellate |
 | `tests/schema/sessione-viva.test.ts` | chiusura immediata, i cinque casi del trigger, la funzione gemella |
 | `tests/schema/salva-visita.test.ts` | contratto di `salva_visita` (regole 0–11) |
@@ -67,7 +67,7 @@ Valgono per **ogni** task; non si ripetono task per task.
 | `tests/schema/outsider-write.test.ts` | `OUTSIDER-WRITE` sulle quattro funzioni, con le gemelle positive |
 | `tests/schema/presidi-mancanti.test.ts` | i cinque presidi del Task 11 |
 | `supabase/rientro/0014_rientro_sessione_viva.sql` | il rientro dalla chiusura immediata, fuori dalle migrazioni |
-| `tests/schema/catalogue-audit.test.ts` (modifica) | uguaglianza esatta delle politiche, elenchi nominativi dei permessi, `realtime.messages`, isolamento |
+| `tests/schema/catalogue-audit.test.ts` (modifica) | uguaglianza esatta delle politiche, elenchi nominativi dei permessi, la pubblicazione (esattamente `annuncio`), nessun trigger disabilitato, isolamento |
 
 ---
 
