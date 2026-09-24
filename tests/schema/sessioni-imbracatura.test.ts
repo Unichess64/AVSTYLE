@@ -15,7 +15,7 @@ import {
   esigiDatabaseLocale,
   resetData,
 } from '../helpers/db'
-import { accedi, preparaAccountLocali, sessioneDi } from '../helpers/sessioni'
+import { EMAIL_DI, accedi, dimenticaSessioni, preparaAccountLocali, sessioneDi } from '../helpers/sessioni'
 
 beforeEach(async () => {
   await resetData()
@@ -32,6 +32,35 @@ describe('imbracatura con sessioni vere', () => {
     const a = await sessioneDi(VERA_AUTH)
     const b = await sessioneDi(VERA_AUTH)
     expect(b.sessionId).toBe(a.sessionId)
+  })
+
+  // La gemella CONCORRENTE di quella sopra. Sequenziale la cache basta; in
+  // parallelo no, se in cache va il risultato: entrambe le chiamate trovano la
+  // cache vuota e aprono due sessioni. Non conto le righe di auth.sessions
+  // perché Vitest esegue i file in parallelo e altri file accedono con gli
+  // stessi account: il conteggio globale sarebbe instabile. Il `sessionId`
+  // condiviso è la conseguenza osservabile, e la mutazione la ribalta.
+  it('due chiamate concorrenti per lo stesso account aprono una sessione sola', async () => {
+    dimenticaSessioni()
+    const [a, b] = await Promise.all([sessioneDi(VERA_AUTH), sessioneDi(VERA_AUTH)])
+    expect(b.sessionId).toBe(a.sessionId)
+  })
+
+  // Mettere in cache la promessa porta con sé un rischio nuovo: una promessa
+  // RIFIUTATA che resta in cache rende rosse per sempre tutte le prove
+  // successive dello stesso file, con l'errore del primo guasto — un 429
+  // passeggero diventerebbe un difetto permanente che non nomina la sua causa.
+  // Il ritentativo che riesce è il solo modo di osservare che non resta.
+  it('un accesso fallito non resta in cache: il ritentativo riesce', async () => {
+    const vera = EMAIL_DI[ANNALISA_AUTH]
+    delete EMAIL_DI[ANNALISA_AUTH]
+    try {
+      await expect(sessioneDi(ANNALISA_AUTH)).rejects.toThrow(/nessuna email nota/)
+    } finally {
+      EMAIL_DI[ANNALISA_AUTH] = vera
+    }
+    const sessione = await sessioneDi(ANNALISA_AUTH)
+    expect(sessione.userId).toBe(ANNALISA_AUTH)
   })
 
   it('porta il session_id dentro i claim della connessione di prova', async () => {

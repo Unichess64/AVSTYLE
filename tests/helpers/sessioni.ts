@@ -76,7 +76,8 @@ export async function preparaAccountLocali(): Promise<void> {
 
 export type Sessione = { accessToken: string; refreshToken: string; sessionId: string; userId: string }
 
-const cache = new Map<string, Sessione>()
+// La cache tiene la PROMESSA, non il risultato: vedi `sessioneDi`.
+const cache = new Map<string, Promise<Sessione>>()
 
 function pezziDelToken(accessToken: string): { session_id: string; sub: string } {
   const corpo = accessToken.split('.')[1]
@@ -103,23 +104,41 @@ export async function accedi(email: string, password = PASSWORD_PROVA): Promise<
   }
 }
 
-/** La sessione dell'account, creata una volta sola e riusata. */
-export async function sessioneDi(authUid: string): Promise<Sessione> {
+/**
+ * La sessione dell'account, creata una volta sola e riusata.
+ *
+ * In cache va la **promessa**, non il risultato, e ci va **prima** di ogni
+ * `await`: mettendoci il risultato, due chiamate concorrenti per lo stesso
+ * account trovavano entrambe la cache vuota e aprivano DUE sessioni — misurato
+ * dalla revisione del Task 2, due `sessionId` diversi da
+ * `Promise.all([sessioneDi(X), sessioneDi(X)])`. Il Task 4 asserisce che le
+ * sessioni vive di un account siano **una**.
+ */
+export function sessioneDi(authUid: string): Promise<Sessione> {
   const gia = cache.get(authUid)
   if (gia) return gia
-  const email = EMAIL_DI[authUid]
-  if (!email) throw new Error(`nessuna email nota per ${authUid}`)
-  const nuova = await accedi(email)
-  // La sessione deve essere DI questo account. Senza questo controllo una voce
-  // sbagliata in EMAIL_DI è muta per sempre: mutando l'estranea in
-  // vera@example.test, le cinque prove che si aspettano zero righe restano
-  // verdi girando con la sessione di Vera — misurato dalla revisione del
-  // Task 2, zero rosse anche con la chiusura immediata accesa.
-  if (nuova.userId !== authUid) {
-    throw new Error(`EMAIL_DI sbaglia: ${email} è l'account ${nuova.userId}, non ${authUid}`)
-  }
-  cache.set(authUid, nuova)
-  return nuova
+  const in_volo = (async () => {
+    const email = EMAIL_DI[authUid]
+    if (!email) throw new Error(`nessuna email nota per ${authUid}`)
+    const nuova = await accedi(email)
+    // La sessione deve essere DI questo account. Senza questo controllo una voce
+    // sbagliata in EMAIL_DI è muta per sempre: mutando l'estranea in
+    // vera@example.test, le cinque prove che si aspettano zero righe restano
+    // verdi girando con la sessione di Vera — misurato dalla revisione del
+    // Task 2, zero rosse anche con la chiusura immediata accesa.
+    if (nuova.userId !== authUid) {
+      throw new Error(`EMAIL_DI sbaglia: ${email} è l'account ${nuova.userId}, non ${authUid}`)
+    }
+    return nuova
+  })()
+  cache.set(authUid, in_volo)
+  // Una promessa RIFIUTATA non resta in cache: un guasto passeggero (un 429, la
+  // rete) renderebbe altrimenti rosse per sempre tutte le prove successive
+  // dello stesso file, con un errore che non nomina la causa vera.
+  in_volo.catch(() => {
+    if (cache.get(authUid) === in_volo) cache.delete(authUid)
+  })
+  return in_volo
 }
 
 /** Da chiamare quando una prova chiude le sessioni: la cache non vale più. */
