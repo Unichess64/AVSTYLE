@@ -5324,3 +5324,203 @@ e non erano i contenitori (`docker ps`: tutti `healthy`). **Il gate si esegue in
 - `invio` **non porta** l'operatrice che ha scritto il codice: la regola «stesso codice, stessa operatrice» resta sul
   telefono, come dice la spec. Se il Task 7 la volesse nel database, costa una migrazione in più.
 - Nessun file di rientro per `0013`.
+
+---
+
+## Appendice — Esecuzione del Task 2 e revisione (24 settembre 2026)
+
+Scritta da chi ha eseguito il Task 2, dopo due revisioni indipendenti avversariali in parallelo — una **empirica**
+(proprietaria esclusiva del database e di Vitest) e una **a secco** (sola lettura, che consegna ipotesi falsificabili).
+Il partizionamento non è una comodità: con un solo database locale, due revisore che lanciano la suite insieme
+producono 110-114 rosse **false**. Sostituisce il resoconto di chat: la chat del Task 3 legge questa.
+
+**Consegnato in quattro commit:**
+
+| Commit | Cosa |
+|---|---|
+| `53a57dc` | `tests/helpers/sessioni.ts`, `tests/helpers/db.ts`, `tests/schema/sessioni-imbracatura.test.ts` (7 prove), `supabase/config.toml` |
+| `827c2f4` | prove sui due aiuti negativi, controllo dell'account in `sessioneDi`, guardia `esigiDatabaseLocale()` |
+| `5a00668` | `resetData` ripristina il ruolo per **id**, non per nome |
+| `557793e` | in cache va la **promessa**, non il risultato |
+
+**Gate finale, misurato in serie a suite ferma:** `npx supabase db reset` senza nessuna riga `Skipping migration`;
+`npm test` → **20 file, 286 prove verdi** in 13,99 s; `npm run test:fuso` → 4 file, **96 verdi**;
+`npx tsc --noEmit` → uscita 0. La consegna era 277 (270 del Task 1 + 7); la remediation ha portato a 286.
+
+**La durata della suite è passata da 8,48 s a ~14 s.** Sono i **24 accessi HTTP** veri per passata (misurati anche in
+`auth.audit_log_entries`): 16 di Vera, 5 dell'estranea, 2 di Alessandra, 1 di Annalisa. Il numero cresce con
+**account × file**, non con i file — il messaggio di `53a57dc` dice «uno per file di prova» e su questo **sbaglia**.
+
+### Lo scopo del task è raggiunto, e la misura è alla fonte che conta
+
+La revisora empirica ha applicato al database la `app.is_active_operator()` del **Task 3** — quella con il secondo
+`exists` su `auth.sessions` — e ha lanciato tutta la suite: **277 verdi** (misurato sulla consegna). Togliendo il
+secondo `exists`, sul suo banco le tre prove negative del Task 3 diventano rosse. Nessuna prova entra più con claim
+scritti a mano.
+
+### ⚠︎ Il Passo 6 del Task 3 è stato corretto: attende VERDE, non rosso
+
+Diceva «Atteso: **rosso**, all'incirca 57 prove su 81». Misurato: **zero rosse**, perché il Task 2 ha fatto il suo
+lavoro. **L'obbligo delle gemelle positive accanto alle prove negative RESTA**, ed è il punto più fragile del piano:
+misurato dalla revisione, con le sessioni di un'operatrice cancellate e la cache non svuotata, una prova negativa
+generica (`expect(righe).toEqual([])`) resta **VERDE** e solo la gemella positiva arrossisce. Se chi esegue il Task 3
+vede tutto verde e salta quel passo, la classe di verdi silenziosi resta scoperta.
+
+### Le sonde di mutazione, con il numero di rosse MISURATO
+
+Sette sulla consegna, nove sulla remediation. Ognuna: mutazione applicata al file, **suite intera** lanciata, rosse
+contate, ripristino **da copia di scorta** (i file nuovi non sono tracciati: `git checkout --` li cancellerebbe),
+verifica per hash, rilancio verde.
+
+| # | Mutazione | Rosse | Prova arrossita |
+|---|---|---|---|
+| 1 | `inRole`: claim senza `session_id` | **1** | *porta il session_id dentro i claim* |
+| 2 | `asOperator`: `session_id` inventato | **1** | la stessa |
+| 3 | `asOperatorCommit`: `commit` → `rollback` | **1** | *con asOperatorCommit la scrittura resta…* |
+| 4 | `asOperator`: commette invece di annullare | **1** | *con asOperator invece la scrittura sparisce…* |
+| 5 | `resetData`: aggiunge `delete from auth.sessions` | **2** | *la sessione … esiste davvero…* e *resetData non chiude le sessioni…* |
+| 6 | via l'`insert into auth.identities` | **0** | nessuna — codice morto, vedi sotto |
+| 7 | via gli 8 `coalesce` sulle colonne testuali | **96** su 15 file | tutte, con `500 {"msg":"Database error querying schema"}` |
+| 8 | `asOperatorSenzaSessione`: claim `sub` caduto | **1** | *asOperatorSenzaSessione porta il sub vero…* |
+| 9 | `asOperatorConSessione`: claim `sub` caduto | **1** | *asOperatorConSessione porta il sub vero…* |
+| 10 | `EMAIL_DI`: estranea → `vera@example.test`, **con** il controllo | **6** su 5 file | il controllo nomina l'errore |
+| 11 | la stessa, **senza** il controllo | **0** | nessuna — era muta per sempre |
+| 12 | `esigiDatabaseLocale` svuotata | **1** | *le prove rifiutano un database che non sia quello locale* |
+| 13 | via la chiamata alla guardia da `resetData` | **1** | *resetData si rifiuta di girare…* |
+| 14 | via la chiamata alla guardia da `preparaAccountLocali` | **1** | *preparaAccountLocali si rifiuta di scrivere…* |
+| 15 | `resetData`: si torna al ripristino per **nome** | **37** su 10 file | il danno vero di R4 |
+| 16 | `resetData`: via la cancellazione delle righe non previste | **3** | la mia più due di `access-control` |
+| 17 | `sessioneDi`: in cache il risultato invece della promessa | **1** | *due chiamate concorrenti … una sessione sola* |
+| 18 | `sessioneDi`: la promessa rifiutata resta in cache | **1** | *un accesso fallito non resta in cache…* |
+
+### Metà del Passo 1 è codice morto, e la sonda 6 mente se non si azzera il database
+
+L'`insert into auth.identities` **non serve** su GoTrue v2.196.0: a identità azzerate, 24 accessi riusciti, e
+rispondono **200** anche `grant_type=refresh_token` e `GET /user`. Le colonne testuali invece servono (sonda 7). Il
+piano le dà per necessarie insieme: sono due cose diverse. L'`insert` **resta**, con la misura scritta sopra di sé in
+`sessioni.ts` — una versione futura di GoTrue potrebbe tornare a pretenderlo, e il guasto sarebbe rumoroso.
+
+⚠︎ **La sonda 6 va misurata dopo un `db reset`.** Senza, le identità della passata precedente sono ancora nel database
+e la mutazione appare innocua **per la ragione sbagliata**: misurate tutte e due le volte, 0 rosse senza reset e 0 con.
+La stessa trappola vale per la sonda 7 (le colonne restano a `''` dalla passata prima). È il «caso facile» del Task 1
+su un asse nuovo: non il **profilo**, ma lo **stato residuo nel database**.
+
+### Il reperto peggiore, e come è stato chiuso
+
+`asOperatorSenzaSessione` e `asOperatorConSessione` nascevano usati da **zero** prove. Facendo cadere il claim `sub` da
+entrambi — cioè scrivendo `inRole('authenticated', null, …)`, la forma di `asAnon`, un riordino plausibilissimo — su un
+banco con la funzione del Task 3 applicata **tutte e quattro** le prove della chiusura immediata restavano **verdi con
+D3-17 assente dal database**, positiva compresa. Era il difetto che il Task 2 esiste per impedire, **spostato di un
+anello**. Chiuso da due prove (sonde 8 e 9).
+
+Della stessa famiglia: `sessioneDi` non controllava che la sessione fosse **di** quell'account. Mutando `EMAIL_DI`
+dall'estranea a `vera@example.test`: **0 rosse oggi e 0 con la chiusura immediata accesa** — muta per sempre, e le
+cinque prove della seconda direzione di §13.3 sarebbero girate con la sessione di Vera. Chiuso da una riga, che ora dà
+6 rosse parlanti (sonde 10 e 11).
+
+### Una guardia ha due assi: la logica e il collegamento
+
+`esigiDatabaseLocale()` rifiuta un `DATABASE_URL` non locale, perché `resetData()` fa `truncate` di **ogni** tabella di
+`public` e `preparaAccountLocali()` riscrive le password con una stringa in chiaro nel repo — e `2026-09-17-salon-scheduler-foundations.md:321`
+suggerisce proprio di leggere l'indirizzo da `npx supabase status` e di esportarlo in `DATABASE_URL`. Le prove sulla **logica**
+mordevano (sonda 12), ma togliendo la **chiamata** da `resetData` o da `preparaAccountLocali` si otteneva **zero
+rosse**: la guardia si scollegava in silenzio e il buco si riapriva intero. Perché il collegamento sia verificabile, la
+guardia **rilegge l'ambiente alla chiamata** (`process.env.DATABASE_URL ?? DB_URL`) e sta **prima** di
+`if (preparati) return`, che al secondo giro la saltava (sonde 13 e 14).
+
+### `resetData` avvelenava il database in modo persistente
+
+Ripristinava `auth_user_id` con `case name … end` e **nessun `else`**: una riga il cui nome era stato cambiato da una
+scrittura **commessa** finiva con `auth_user_id = NULL` e restava così. Il veleno sta nel **database**, non nel
+processo: sopravvive a una passata intera e solo un `db reset` lo toglie. Tornando a quella forma: **37 rosse su 10
+file** (sonda 15). Il codice era preesistente, ma `asOperatorCommit` — nato qui — allarga la superficie da zero a una
+sessantina di punti del piano.
+
+Ora il ripristino va per **`id`**, copre anche `name`, e cancella le righe di `operator` non previste (sonda 16).
+`color` e `sort_order` **non** si ripristinano di proposito: li possiede la migrazione — il Task 10 li riscrive per
+D3-6 — e le prove che li cambiano li rimettono nel proprio `finally`. Ripristinarli qui congelerebbe i valori di `0001`
+e farebbe arrossire il Task 10.
+
+⚠︎ La prova che inquina il ruolo tiene l'inquinamento in un `try`/`finally` con pulizia esplicita, la convenzione che
+la revisione del piano ha imposto al Task 4 (suo reperto 13). Verificato: con la cancellazione mutata la passata è
+**rossa** e il database resta con le **tre** operatrici. Senza il `finally`, una prova caduta a metà avvelenerebbe un
+**altro** file, con il sintomo lontanissimo dalla causa.
+
+### Presìdi ancora dichiarati e non presidiati (danno misurato, nessuno bloccante)
+
+1. **`asOperator` non si accorge di una sessione morta in cache.** È una scelta: il riaccesso automatico uccideva tre
+   prove negative (bloccante 2 del quinto giro). Ma la conseguenza misurata è che con le sessioni cancellate una prova
+   negativa generica resta **verde**. L'unica difesa è la gemella positiva del Passo 6 del Task 3. Un `asOperator` che
+   **lancia** (senza riaccedere) quando la sessione in cache non è più in `auth.sessions` trasformerebbe ogni verde
+   silenzioso in un rosso parlante, al costo di una query per chiamata. **Non fatto**, da valutare al Task 3 o 4.
+2. **`dimenticaSessioni()` ridotto a `{}` → 0 rosse**, e lo chiamano ~30 punti del piano. Resta scoperto: al Task 4 il
+   guasto diventa rumoroso (`P0004`), due task dopo la causa.
+3. **`rinnovoRiesce()` che ritorna sempre `false` → 0 rosse.** La protezione esiste solo al **Task 4**, che ha due
+   `expect(await rinnovoRiesce(sessione)).toBe(true)`: sono le gemelle positive che rendono capaci di fallire gli otto
+   `toBe(false)`. **Se qualcuno tagliasse quelle due, otto prove negative diventerebbero decorative.** Inoltre
+   `rinnovoRiesce` **ruota** il refresh token e **non salva** quello nuovo (rotazione attiva, `config.toml:170-173`):
+   si chiama **una volta sola** per sessione, altrimenti può dare `false` su una sessione viva e persino revocarne la
+   famiglia — la sonda ucciderebbe ciò che misura.
+4. **`asOperatorCommit` duplica il corpo di `inRole`**, e quella copia non è presidiata: mutandone il `session_id`, 0
+   rosse oggi. Una modifica futura ai claim non arriverebbe alle prove dei Task 5-8, che sono le più numerose.
+5. **`salon_settings` non si ripristina**: è escluso dal `truncate`, e una scrittura commessa vi sopravvive come
+   sopravviveva su `operator` (misurato su database pulito).
+6. **`EMAIL_DI` resta esercitata per un account su quattro** dalle prove di questo file: il controllo di `sessioneDi`
+   chiude la direzione che contava, ma una trasposizione fra Annalisa e Alessandra si scopre solo al Task 3.
+7. **Il commento «Solo in locale» in `config.toml` è falso.** `supabase config push` porta al progetto collegato «le
+   proprietà che il tuo config.toml **dichiara**», e in esecuzione non interattiva «procede per difetto» (letto
+   dall'aiuto del CLI). `sign_in_sign_ups` è dichiarata: al primo collegamento il limite anti-forza-bruta del salone
+   passerebbe da 30 a 300 tentativi ogni 5 minuti per IP. Oggi non c'è `project-ref` in `supabase/.temp/` e
+   `config push` non compare nel repo, quindi non è raggiungibile — ma §8.7 manda qualcuno a collegare l'ospitato.
+   Rimedio: `supabase config diff` **prima** di ogni `config push`.
+8. **Il Task 2 chiude di fatto una decisione che il design §8.5 lascia aperta:** «il piano decide se togliere i quattro
+   utenti `@example.test`». Il piano non decide, ma `EMAIL_DI` e `preparaAccountLocali` ne **dipendono**. La decisione
+   è presa — restano — e va scritta nella spec.
+
+### Trappole di processo nuove, misurate
+
+1. **`db reset` non applica le modifiche a `config.toml` al GoTrue.** Lo **riavvia**, non lo ricrea, e le variabili
+   d'ambiente si fissano alla creazione. Misurato due volte in modo indipendente: `Created` del contenitore auth fermo,
+   `StartedAt` aggiornato; e mettendo `42` nel file, dopo un `db reset` l'ambiente diceva ancora `300`. Serve
+   `npx supabase stop && npx supabase start`. Il vincolo globale «dopo ogni modifica a `config.toml`: `db reset`» è
+   **insufficiente** per questa classe di chiavi.
+2. **Nel CLI 2.117.0 `sign_in_sign_ups` si mappa su `GOTRUE_RATE_LIMIT_OTP`.** Una variabile
+   `GOTRUE_RATE_LIMIT_SIGN_IN_SIGN_UPS` **non esiste**: cercarla fa perdere tempo. `token_verifications` resta su
+   `GOTRUE_RATE_LIMIT_VERIFY=30`, quindi non c'è effetto collaterale sulle **verifiche** OTP.
+3. **`pgrep -f vitest` è troppo largo.** Ha fermato l'esecuzione tre volte su processi di un **altro progetto** della
+   stessa macchina (`chessbooking`), che ha il suo database. La trappola è «due suite sullo **stesso** database»:
+   il controllo giusto è `pgrep -fl vitest | grep salon-scheduler`.
+4. **Vitest esegue i file in parallelo** (la somma dei tempi dei file supera la durata della passata). Quindi
+   **nessuna prova può contare righe globali in `auth.sessions`**: altri file accedono con gli stessi account e il
+   conteggio sarebbe verde o rosso a seconda di chi gira nello stesso istante. La prova sulla concorrenza asserisce il
+   `sessionId` condiviso, non un conteggio.
+5. **Una sonda su codice con stato residuo nel database si misura dopo un `db reset`** (vedi sonde 6 e 7).
+
+### Il limite a 300 è giusto oggi, e stretto domani
+
+24 accessi per passata → dodici passate in cinque minuti. Ma dal **Task 4** il `beforeEach` azzera le sessioni e chiama
+`dimenticaSessioni()`, quindi si accede **per prova**, e con ~30 punti di `dimenticaSessioni()` nel piano il conto sale
+molto: un ciclo TDD stretto può arrivare a 300 in cinque minuti. Sintomo: **429** all'accesso. `token_refresh = 150` è
+invece abbondante, perché oggi **nessuno rinnova**.
+
+### Correzioni applicate a questo piano
+
+- **Passo 6 del Task 3:** l'atteso passa da «rosso, ~57 prove su 81» a **verde**, con l'avvertimento che l'obbligo
+  delle gemelle positive resta e perché.
+- **Casella 15 della tabella di «Appendice — Revisione del piano»** (il primo giro): diceva «`asOperator` controlla
+  che la sessione sia viva», che contraddiceva il corpo del Task 2 e il **bloccante 2 del secondo giro**. Chi leggeva la vecchia formula avrebbe
+  «ripristinato» il riaccesso automatico.
+
+### Che cosa NON è stato fatto, per decisione dell'orchestratrice
+
+- I sei presìdi da 1 a 6 dell'elenco qui sopra restano aperti, con il danno misurato accanto.
+- **Il commento «Solo in locale» in `config.toml` non è stato corretto** (presidio 7), e la decisione di §8.5 non è
+  stata scritta nella spec (presidio 8).
+- **Il messaggio di `53a57dc` non è stato corretto** sulla glossa «uno per file di prova»: il totale 24 è giusto, la
+  spiegazione no.
+- **Il parser dell'array di date (OID 1182)**, che la riga 59 attribuisce a `db.ts`, non è stato consegnato: è del
+  **Task 8** (lo dice la riga 5096) e nessuna prova di questo piano legge un `date[]`. Il deliverable resta aperto.
+- **`circa 24 su 81`** citato nel messaggio di `53a57dc` non è stato riprodotto: è una misura della spec §4.7, che è
+  essa stessa vecchia (parla di 13 file su 14 e 81 prove su 160; oggi `tests/schema` ha **16 file e 190 prove**, misurate con `npx vitest run tests/schema` — non con un `grep` su `it(`, che ne conta 164 perché salta le annidate).
+  Non è marcato verificato.
+- Nessun file di rientro, nessuna anticipazione del Task 3.
