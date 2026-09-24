@@ -5514,8 +5514,11 @@ invece abbondante, perché oggi **nessuno rinnova**.
 ### Che cosa NON è stato fatto, per decisione dell'orchestratrice
 
 - I sei presìdi da 1 a 6 dell'elenco qui sopra restano aperti, con il danno misurato accanto.
-- La decisione di §8.5 **non è stata scritta nella spec** (presidio 8): resta l'unica di dominio, e la prende
-  l'orchestratrice.
+- La decisione di §8.5 **è stata scritta nella spec** il 24/09/2026 (presidio 8): i quattro utenti `@example.test`
+  **restano**, con le ragioni misurate e il rischio residuo dichiarato. La spec 3a passa a **revisione 11** — chi la
+  rilegge se ne accorga. Nello stesso giro §8.7 ha guadagnato il controllo «nessun utente `@example.test` in
+  `auth.users`» sull'ospitato, che non elencava. Misurato a supporto: con `encrypted_password = ''` ogni password dà
+  `400 invalid_credentials`, quindi quei quattro account sono inerti finché le fixture non li armano.
 - Il commento «Solo in locale» in `config.toml` **è stato corretto** il 24/09/2026 (presidio 7): ora dice che la chiave
   viaggia con `config push`, che serve un `config diff` prima, e che `db reset` non la applica.
 - La glossa «uno per file di prova» nel messaggio di `53a57dc` **è stata corretta con una `git note`**, non con un

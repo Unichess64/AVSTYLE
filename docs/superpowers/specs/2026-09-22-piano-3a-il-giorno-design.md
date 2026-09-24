@@ -1,7 +1,10 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 10 — corregge i reperti del controllo dei 5 casi (appendice I), che non ha trovato bloccanti;
+**Revisione:** 11 — chiude in §8.5 la sola decisione che la revisione 10 lasciava al piano: i quattro utenti
+`@example.test` di `seed.sql` **restano**, con le ragioni misurate e il rischio residuo dichiarato (dall'esecuzione del
+Task 2 del piano 3a-1, 24 settembre 2026). Nient'altro è cambiato; **revisione 10** — corregge i reperti del controllo
+dei 5 casi (appendice I), che non ha trovato bloccanti;
 **revisione 9** — corregge i reperti della verifica dei 20 casi (appendice H); **revisione 8** — dopo sei giri e un
 giro finale su 105 casi (appendice G); prima, **revisione 7** — dopo sei giri di revisione avversariale (cinque, quattro, tre, due, due e due revisori, tutti su
 Opus); registri nelle appendici A–F. La rev. 7 corregge i reperti del sesto giro (appendice F); uno dei revisori del
@@ -785,7 +788,26 @@ Il trascinamento su un iPhone vero (verifica a mano, dichiarata nel piano); il c
   spezzati.
 - Password degli account locali **solo** nelle fixture, **mai** in `seed.sql`: `[db.seed]` è attivo
   (`supabase/config.toml:65-67`) e `db reset --linked` lo applicherebbe al progetto ospitato [dalla revisione; commento
-  in `seed.sql:18`]. Già oggi `seed.sql` inserisce quattro utenti `@example.test`: il piano decide se toglierli.
+  in `seed.sql:18`].
+- **I quattro utenti `@example.test` di `seed.sql` RESTANO — decisione presa il 24 settembre 2026, all'esecuzione del
+  Task 2 del piano 3a-1.** La frase precedente («il piano decide se toglierli») è chiusa. Le ragioni, misurate:
+  - L'imbracatura delle prove **dipende** da loro: `tests/helpers/sessioni.ts` li nomina in `EMAIL_DI` e li seleziona
+    con `where email like '%@example.test'`, e ogni passata della suite fa **24 accessi veri** al GoTrue locale. Senza
+    quei quattro account non accede nessuna prova.
+  - Il quarto, `outsider@example.test`, è l'unico modo di avere **un account autenticato che non è operatrice**, cioè la
+    seconda direzione di §13.3. Crearlo a tempo di prova costerebbe una registrazione per passata.
+  - La regola qui sopra **resta rispettata**: `seed.sql` non contiene nessuna password, solo
+    `encrypted_password = ''`. **Misurato il 24/09/2026:** con quel valore, e con le colonne testuali a posto perché il
+    500 non mascheri il risultato, **ogni** password dà `400 invalid_credentials` — la stringa vuota, quella del repo e
+    una qualsiasi. I quattro account sono quindi **inerti** finché le fixture non danno loro una password, e quella
+    password (`prova-3a-1`) sta solo in `tests/helpers/sessioni.ts`.
+  - **Rischio residuo, dichiarato:** un `db reset --linked` creerebbe i quattro account **sul progetto ospitato**. Vi
+    arriverebbero inerti, non utilizzabili per accedere, e gli `update` su `operator` di `seed.sql` sono già guardati
+    (`seed.sql:16-23`). Ciò che **non** può accadere è che ricevano la password del repo: dal Task 2
+    `preparaAccountLocali()` e `resetData()` chiamano `esigiDatabaseLocale()`, che rifiuta un `DATABASE_URL` che non sia
+    `127.0.0.1`/`localhost` — e il CLI esegue `seed.sql` dalla sua parte, non passando dalle fixture. Se qualcuno
+    eseguisse comunque un `db reset --linked`, il rimedio è cancellare i quattro utenti dalla dashboard. §8.7 **non**
+    elencava questo controllo: aggiunto lo stesso giorno, insieme a questa decisione.
 - Per usare l'app a mano in locale, uno script separato che carica gli stessi dati, solo su richiesta.
 
 ### 8.6 Contorno
@@ -803,7 +825,9 @@ SMTP personalizzato e operatrici fuori dal team**, oppure accesso via email e re
 `secure_password_change` acceso (in locale è spento, `supabase/config.toml:227` [dalla revisione]); prova a mano della
 procedura «telefono perso» dalla dashboard nell'ordine di §4.7, compreso il caso in cui le colleghe sono state
 disattivate; **esistenza e prova di un ripristino da backup** (o PITR) sul piano Supabase in uso, perché le visite
-cancellate in massa da un telefono rubato si recuperano solo da lì (spec §14 domanda 5).
+cancellate in massa da un telefono rubato si recuperano solo da lì (spec §14 domanda 5); **nessun utente
+`@example.test` in `auth.users`** — i quattro di `seed.sql` restano di proposito (§8.5) e vi arriverebbero solo per un
+`db reset --linked`, inerti ma da cancellare.
 
 ---
 
