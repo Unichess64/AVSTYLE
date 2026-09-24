@@ -17,5 +17,17 @@ as $$
   )
 $$;
 
--- E, se anche il trigger di chiusura sessioni fallisce per lo stesso motivo:
--- alter table public.operator disable trigger zz_chiudi_sessioni;
+-- E, se anche i trigger di chiusura sessioni falliscono per lo stesso motivo.
+-- Sono TRE, non uno: un solo trigger con una clausola `when` su OLD e NEW non
+-- si può dichiarare insieme per INSERT, UPDATE e DELETE (design 3a §4.7), e il
+-- Task 4 li crea separati. Un rientro che ne nominasse uno solo, o che usasse
+-- il nome al singolare, solleverebbe `42704 trigger does not exist` e
+-- lascerebbe vivi tutti e tre — cioè lascerebbe `update operator` impossibile
+-- proprio mentre la procedura «telefono perso» di §4.7 chiede di riattivare le
+-- colleghe (passi 3 e 4). La spec pretende che il rientro neutralizzi anche i
+-- trigger: finché queste righe restano commentate, il reperto S4-4 è APERTO.
+-- Le righe sono commentate perché il Task 4 non ha ancora creato i trigger:
+-- oggi scommetterle darebbe 42704. Si scommentano insieme al Task 4.
+-- alter table public.operator disable trigger zz_chiudi_sessioni_ins;
+-- alter table public.operator disable trigger zz_chiudi_sessioni_upd;
+-- alter table public.operator disable trigger zz_chiudi_sessioni_del;

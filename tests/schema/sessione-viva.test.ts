@@ -45,14 +45,41 @@ describe('chiusura immediata', () => {
   it('smette di far leggere appena la sessione sparisce, senza aspettare la scadenza del token', async () => {
     const sessione = await sessioneDi(VERA_AUTH)
     await asOwner((c) => c.query('delete from auth.sessions where id = $1', [sessione.sessionId]))
-    // Con lo STESSO token di prima: asOperator riaccederebbe e la prova
-    // diventerebbe verde per il motivo sbagliato.
-    const righe = await asOperatorConSessione(VERA_AUTH, sessione.sessionId, async (c) => {
-      const r = await c.query('select id from client')
-      return r.rows
+    // Il `finally` è la convenzione che la revisione del piano ha imposto al
+    // Task 4 (suo reperto 13): con `dimenticaSessioni()` come ultima riga,
+    // un `expect` caduto lascerebbe in cache la sessione appena cancellata, e
+    // ogni prova successiva di questo file cadrebbe a cascata con un errore
+    // che non nomina la causa. Il sintomo finirebbe lontano dalla causa.
+    try {
+      // Con lo STESSO token di prima: asOperator riaccederebbe e la prova
+      // diventerebbe verde per il motivo sbagliato.
+      const righe = await asOperatorConSessione(VERA_AUTH, sessione.sessionId, async (c) => {
+        const r = await c.query('select id from client')
+        return r.rows
+      })
+      expect(righe).toEqual([])
+    } finally {
+      dimenticaSessioni()
+    }
+  })
+
+  // La prova discriminante che il commento della migrazione promette e che
+  // «tiene fuori anon» non poteva dare: il `sub` è quello di Vera, che È
+  // operatrice attiva, quindi il PRIMO `exists` è VERO e il solo motivo per
+  // cui la funzione torna falsa è il claim `session_id` ASSENTE. È la forma di
+  // `service_role` e di qualunque token che non venga da un accesso. Togliendo
+  // il secondo `exists`, questa arrossisce; «tiene fuori anon» no.
+  it('tiene fuori un token con il sub di un operatrice ma senza il claim session_id', async () => {
+    const attiva = await asOwner(async (c) => {
+      await c.query('begin')
+      await c.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: VERA_AUTH, role: 'authenticated' }),
+      ])
+      const r = await c.query<{ a: boolean }>('select app.is_active_operator() as a')
+      await c.query('rollback')
+      return r.rows[0].a
     })
-    expect(righe).toEqual([])
-    dimenticaSessioni()
+    expect(attiva).toBe(false)
   })
 
   // Prescritta dalla sonda 2 del Passo 7: senza `and s.user_id = auth.uid()`
@@ -61,6 +88,21 @@ describe('chiusura immediata', () => {
   // secondo `exists` la trova, e solo il confronto con auth.uid() la rifiuta.
   it('non lascia passare un token di Vera con il session_id di un altra', async () => {
     const annalisa = await sessioneDi(ANNALISA_AUTH)
+    // La precondizione, ASSERITA e non solo raccontata: questa prova misura la
+    // guardia `s.user_id = auth.uid()` soltanto se la sessione di Annalisa è
+    // viva in questo istante. Se è morta, il rifiuto arriva dal secondo
+    // `exists` e la guardia non viene esercitata. Misurato dalla revisione:
+    // togliendo la guardia E spegnendo la precondizione, la suite intera dava
+    // ZERO rosse — il presidio dell'unica difesa contro un token che cavalca
+    // la sessione di un'altra operatrice andava completamente muto.
+    const viva = await asOwner(async (c) => {
+      const r = await c.query<{ n: string }>(
+        'select count(*) as n from auth.sessions where id = $1 and user_id = $2',
+        [annalisa.sessionId, ANNALISA_AUTH],
+      )
+      return Number(r.rows[0].n)
+    })
+    expect(viva).toBe(1)
     const righe = await asOperatorConSessione(VERA_AUTH, annalisa.sessionId, async (c) => {
       const r = await c.query('select id from client')
       return r.rows
@@ -80,6 +122,14 @@ describe('chiusura immediata', () => {
     expect(righe.length).toBeGreaterThan(0)
   })
 
+  // ⚠︎ Questa prova NON misura il controllo della sessione, e il suo nome lo
+  // lascia credere. Misurato dalla revisione: senza `sub` nei claim
+  // `auth.uid()` è NULL, quindi il PRIMO `exists` è già falso e il secondo non
+  // viene mai esercitato — togliendo il controllo della sessione questa prova
+  // resta verde. Resta perché il fatto che misura è comunque vero e vale la
+  // pena presidiarlo (anon non passa), ma la garanzia del commento della
+  // migrazione — «un token senza session_id dà falso, mai errore» — è la prova
+  // qui sotto, non questa.
   it('tiene fuori anon, che un session_id non ce l ha proprio', async () => {
     // La transazione esplicita serve: asOwner non ne apre una, e un
     // set_config(..., true) fuori da un blocco vale solo per la propria

@@ -1,7 +1,12 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 11 — chiude in §8.5 la sola decisione che la revisione 10 lasciava al piano: i quattro utenti
+**Revisione:** 12 — allinea §4.7 a ciò che l'esecuzione del Task 3 del piano 3a-1 ha **misurato** il 24 settembre
+2026: le politiche di `public` sono **15**, non 13 (il Task 1 ne ha aggiunte due, su `invio` e `visita_cancellata`);
+la politica su `realtime.messages` **non è creabile** e il rimando va tolto; la funzione usa
+`current_setting('request.jwt.claims', true)` con **doppio** `nullif` invece di `auth.jwt()`; e il reperto **S4-4
+torna aperto**, perché il rientro consegnato non neutralizza ancora i trigger. Nient'altro è cambiato;
+**revisione 11** — chiude in §8.5 la sola decisione che la revisione 10 lasciava al piano: i quattro utenti
 `@example.test` di `seed.sql` **restano**, con le ragioni misurate e il rischio residuo dichiarato (dall'esecuzione del
 Task 2 del piano 3a-1, 24 settembre 2026). Nient'altro è cambiato; **revisione 10** — corregge i reperti del controllo
 dei 5 casi (appendice I), che non ha trovato bloccanti;
@@ -136,8 +141,10 @@ l'app prima della fine del 3c.
 7. Colori nel database: Annalisa `#7B3F61`, Alessandra `#2F6F6B` (`0001_access_control.sql:55-56`).
 8. `pg_trgm` disponibile ma non installato; `unaccent`, `btree_gist` e `pgcrypto` nello schema `extensions` [dalla
    revisione].
-9. `app.is_active_operator()` controlla solo `operator` (`0001:27-39`); la usano **13 politiche** in `public`, nella
-   forma nuda senza `(select …)` [dalla revisione, catalogo].
+9. `app.is_active_operator()` controlla solo `operator` (`0001:27-39`); la usano **15 politiche** in `public`, nella
+   forma nuda senza `(select …)` [dalla revisione, catalogo]. ⚠︎ Erano 13 quando questo fatto è stato scritto; il
+   Task 1 del piano 3a-1 ne ha aggiunte due, `invio_lettura` e `visita_cancellata_lettura`, già nella forma con il
+   `select`. Ricontate sul catalogo il 24/09/2026: **15**, e in `realtime` **zero**.
 10. Pubblicazione `supabase_realtime` vuota; `realtime.messages` partizionata per giorno, sicurezza per riga attiva,
     zero politiche; `realtime.send` è `security invoker` e **inghiotte ogni errore** [dalla revisione, tre revisori].
 11. `statement_timeout = 8s` per `authenticated`, `lock_timeout = 8s` per `authenticator`, `deadlock_timeout = 1s`
@@ -440,9 +447,13 @@ chiave primaria del vecchio record, e **non applica le politiche ai DELETE** [da
 - La funzione del trigger è **`security definer`, proprietaria `postgres`** (che ha `bypassrls`), `search_path = ''`:
   altrimenti l'inserimento in `realtime.messages` gira come `authenticated`, viene rifiutato e l'errore sparisce nel
   `RAISE WARNING` di `realtime.send`.
-- **Una sola politica** su `realtime.messages`: `for select to authenticated using ((select app.is_active_operator())
-  and extension = 'broadcast' and (select realtime.topic()) = 'agenda')`. **Nessuna** politica INSERT, UPDATE o
-  DELETE: una politica INSERT autorizzerebbe le trasmissioni dai telefoni [dalla revisione, documentazione Supabase].
+- ⚠︎ **Superato alla revisione 12.** Diceva: «**Una sola politica** su `realtime.messages`: `for select to
+  authenticated using ((select app.is_active_operator()) and extension = 'broadcast' and (select realtime.topic()) =
+  'agenda')`; **nessuna** politica INSERT, UPDATE o DELETE, perché una politica INSERT autorizzerebbe le trasmissioni
+  dai telefoni». **Quella politica non è creabile**: `create policy` su `realtime.messages` fallisce anche a mano,
+  perché il ruolo delle migrazioni non possiede la tabella (misurato il 23/09/2026). Il piano 3a-1 ha riscritto il
+  Task 8 attorno a una tabella **`annuncio`** nostra, con le sue politiche, e la sicurezza del canale sta lì. Al
+  24/09/2026 in `realtime` non c'è **nessuna** politica: chi cerca quella descritta qui sopra non la troverà.
 - Ogni telefono si iscrive al canale **privato** `agenda` e ricarica **il giorno intero** se è fra quelli nominati.
 - **Ripieghi:** ricarica alla riconnessione del canale, al ritorno in primo piano (`visibilitychange`, `pageshow`),
   alla mezzanotte di Perugia e **ogni 60 s** [proposta] in primo piano; al ritorno in primo piano «oggi» si ricalcola.
@@ -466,8 +477,20 @@ messaggi si perdono in silenzio: la prova di §8.2 verifica la **ricezione**.
 - **Chiusura immediata (D3-17).** `app.is_active_operator()` è vera solo se esiste anche la sessione del token:
   `exists (select 1 from auth.sessions s where s.id = nullif(auth.jwt()->>'session_id','')::uuid and s.user_id =
   auth.uid())`. Un token senza `session_id` (`anon`, `service_role`) dà falso, mai errore [dalla revisione]. La
-  migrazione **ridefinisce tutte le 13 politiche** con `(select app.is_active_operator())`, e l'audit di catalogo
-  esige l'**uguaglianza esatta** dell'espressione resa da `pg_get_expr`, estesa alla politica di `realtime.messages`.
+  migrazione **ridefinisce tutte le 15 politiche** con `(select app.is_active_operator())`, e l'audit di catalogo
+  esige l'**uguaglianza esatta** dell'espressione resa da `pg_get_expr`. ⚠︎ Corretto alla revisione 12: erano **13**
+  quando questa riga è stata scritta, e la frase «estesa alla politica di `realtime.messages`» **è superata** — quella
+  politica non è creabile nemmeno a mano, perché il ruolo delle migrazioni non possiede la tabella (misurato il
+  23/09/2026), e il piano 3a-1 ha riscritto il Task 8 attorno a una tabella `annuncio` nostra. Al 24/09/2026 in
+  `realtime` non c'è nessuna politica. ⚠︎ **L'uguaglianza esatta non è ancora stata consegnata**: il Task 3 ha scritto
+  un audit che usa `like` su sottostringa, quindi `(select …) or true` lo passa — cioè il reperto **S4-6 è aperto**,
+  e il piano lo assegna al Task 9.
+- **La forma consegnata**, che non è quella scritta qui sopra: `nullif(nullif(current_setting('request.jwt.claims',
+  true), '')::jsonb ->> 'session_id', '')::uuid`, non `auth.jwt()->>'session_id'`. I **due** `nullif` servono e sono
+  presidiati da due prove: quello interno perché una GUC impostata con `set_config(..., true)` non torna a NULL ma a
+  `''`, e `''::jsonb` solleva `22P02` **dentro ogni politica**; quello esterno per un claim `session_id` presente e
+  vuoto. Resta scoperto un `session_id` valido come JSON ma non come uuid (`"abc"`), che solleva `22P02`: misurato,
+  raggiungibile solo da chi può scrivere i claim.
 - **Pulsante del 3c** («Chiudi tutte le sessioni»): funzione `(p_operator_id uuid)` che risolve `auth_user_id` da
   `operator`, **rifiuta l'operatrice di chi la chiama** (per chiudere le proprie sessioni c'è `signOut` con ambito
   globale) e ogni bersaglio non operatrice; `security definer`, proprietaria `postgres`, `search_path = ''`, EXECUTE
@@ -1023,7 +1046,7 @@ scadenza); seconda cancellazione dello stesso `id`; permessi, schema e alimentaz
 lettura delle cancellate e degli appuntamenti in un'istruzione successiva al blocco; `da_confermare` attribuito alle
 funzioni (ora del server, con la finestra dichiarata); «coincide» non definito (superato dal codice di richiesta);
 avvisi già confermati nel trascinamento; righe invariate che alzavano le versioni; caso INSERT su `operator`;
-`(select …)` sulle 13 politiche esistenti; forme della querystring non coperte dalla prova statica; log di Postgres e
+`(select …)` sulle 15 politiche esistenti (13 quando la riga fu scritta); forme della querystring non coperte dalla prova statica; log di Postgres e
 codice fuori dalle Server Actions; SELECT su `auth.sessions` fra le verifiche prima del rilascio; ordine alfabetico
 dei trigger che non vale per un trigger per istruzione; commento di `guard_operator_lockout` che dopo D3-17 non sarà
 più esatto (innocuo).
@@ -1057,7 +1080,7 @@ Nessuno ha modificato file o scritto sul database.
 | R4C-5 | La funzione gemella permetteva il blocco di sé stessa; recupero della password dalla posta del telefono perso | coerenza, sicurezza | §4.7: la gemella rifiuta l'operatrice di chi chiama; premessa sull'email in D3-20 e §8.7 |
 | S4-2 | Accesso via link o codice email da un telefono con la posta aperta | sicurezza | premessa dichiarata, §4.7 e §8.7 |
 | S4-3 | Scollegamento e ricollegamento chiudevano le sessioni ma non cambiavano la password | sicurezza | superato: nessuna password automatica; procedura scritta |
-| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura |
+| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura. ⚠︎ **RIAPERTO alla revisione 12:** il rientro consegnato dal Task 3 sta fuori da `migrations/` e dichiara la riapertura, ma la neutralizzazione dei **tre** trigger è ancora **commentata** — non poteva essere altrimenti, perché il Task 4 non li ha creati. Si chiude scommentando quelle righe al Task 4 |
 | R4C-12 | §11 della rev. 4 dichiarava esauriti i reperti sulle decisioni: falso | coerenza | §11 riscritta |
 
 ### D.3 Minori — reggono

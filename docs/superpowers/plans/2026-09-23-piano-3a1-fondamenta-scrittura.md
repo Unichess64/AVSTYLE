@@ -1213,13 +1213,19 @@ as $$
 $$;
 
 -- E, se anche il trigger di chiusura sessioni fallisce per lo stesso motivo:
--- alter table public.operator disable trigger zz_chiudi_sessioni;
+-- Sono TRE trigger, non uno (il Task 4 li crea `_ins`, `_upd`, `_del`): un nome
+-- al singolare solleva 42704 e non neutralizza niente.
+-- alter table public.operator disable trigger zz_chiudi_sessioni_ins;
+-- alter table public.operator disable trigger zz_chiudi_sessioni_upd;
+-- alter table public.operator disable trigger zz_chiudi_sessioni_del;
 ```
 
 - [x] **Passo 5: applica ed esegui le prove**
 
 Run: `npx supabase db reset && npx vitest run tests/schema/sessione-viva.test.ts`
-Atteso: 8 verdi.
+Atteso: **12 verdi**, non 8 — ⚠︎ corretto dall'esecuzione del Task 3: al blocco del Passo 1 si sono aggiunte
+quattro prove (quella prescritta dalla sonda 2 e la sua gemella, quella sul `session_id` uguale alla stringa vuota,
+e quella su un token con il `sub` vero ma **senza** il claim `session_id`). Il blocco di codice qui sopra ne mostra 8.
 
 - [x] **Passo 6: esegui TUTTA la suite e adatta le prove che cadono**
 
@@ -1303,7 +1309,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consuma: `app.is_active_operator()` (Task 3), `sessioneDi`, `rinnovoRiesce`, `dimenticaSessioni` (Task 2).
 - Produce: `public.chiudi_sessioni(p_operator_id uuid) returns integer` (quante sessioni ha chiuso);
-  trigger `zz_chiudi_sessioni` su `operator`.
+  trigger `zz_chiudi_sessioni_ins`, `zz_chiudi_sessioni_upd` e `zz_chiudi_sessioni_del` su `operator` (tre, non uno).
 
 **I cinque casi** (design 3a §4.7): `is_active` da vero a falso; da falso a vero; `auth_user_id` che cambia (vecchio
 **e** nuovo account); inserimento di una riga con `auth_user_id` non nullo; cancellazione della riga. Un cambio di
@@ -1684,6 +1690,20 @@ dello stesso file userà un `session_id` morto e passerà per la ragione sbaglia
 `tests/schema/access-control.test.ts:53`, `tests/schema/account-directory.test.ts:45`,
 `tests/schema/availability-window.test.ts:318`, `tests/schema/operator-guard.test.ts:16` e `:94-95`.
 Esegui `npm test` **prima** di proseguire e scrivi nel resoconto quali hai toccato e perché.
+
+⚠︎⚠︎ **DUE PROVE IN PIÙ, e sono la trappola peggiore di questo passo.** La revisione del Task 3 ha installato questi
+trigger dal vivo e lanciato la suite: **2 rosse**, ed è la coppia di gemelle positive che il Task 3 ha appena
+consegnato —
+`access-control.test.ts > lets that same operator read once she is active again, with the same harness` e
+`account-directory.test.ts > returns the accounts to that same operator once she is active again`.
+Il meccanismo: la prova precedente disattiva Alessandra con `asOwner`, che **committa**; il `beforeEach` successivo
+chiama `resetData()`, il cui `update … is_active = true` è ora `false → true`, il trigger scatta e **cancella le
+sessioni di Alessandra**; `resetData()` **non** chiama `dimenticaSessioni()`, quindi la cache serve una sessione morta
+e la gemella legge zero righe.
+Quelle due rosse sono **FALSE**: colpa dell'imbracatura, non del codice. La riparazione naturale — indebolire o
+togliere la gemella — rimetterebbe le due prove negative *«shows nothing to a deactivated operator»* e *«returns
+nothing to a deactivated operator»* nello stato decorativo che il Passo 6 del Task 3 esiste per chiudere.
+**Il rimedio è una riga: `dimenticaSessioni()` dentro `resetData()`**, e va messo **prima** di creare i trigger.
 
 - [ ] **Passo 5: sonde di mutazione**
 
@@ -5491,7 +5511,13 @@ la revisione del piano ha imposto al Task 4 (suo reperto 13). Verificato: con la
 3. **`pgrep -f vitest` è troppo largo.** Ha fermato l'esecuzione tre volte su processi di un **altro progetto** della
    stessa macchina (`chessbooking`), che ha il suo database. La trappola è «due suite sullo **stesso** database»:
    il controllo giusto è `pgrep -fl vitest | grep salon-scheduler`.
-4. **Vitest esegue i file in parallelo** (la somma dei tempi dei file supera la durata della passata). Quindi
+4. ⚠︎ **FALSA, smentita per misura dalla revisione del Task 3 il 24/09/2026.** Diceva: «Vitest esegue i file in
+   parallelo (la somma dei tempi dei file supera la durata della passata)». `vitest.config.ts:6-7` ha
+   `pool: 'threads'` con `singleThread: true`: i file girano **in serie**, e misurando `startTime`/`endTime` per file
+   dal reporter JSON si contano **zero** coppie sovrapposte (somma delle durate 11 361 ms contro un arco di
+   11 600 ms). La conseguenza pratica: il divieto qui sotto poggia su una ragione inesistente, e il
+   `expect(await vive(ANNALISA_AUTH)).toBe(1)` che il Task 4 prescrive è **lecito**. Chi legge non riscriva prove
+   valide per obbedire a questa regola. Il testo originale, per memoria: quindi
    **nessuna prova può contare righe globali in `auth.sessions`**: altri file accedono con gli stessi account e il
    conteggio sarebbe verde o rosso a seconda di chi gira nello stesso istante. La prova sulla concorrenza asserisce il
    `sessionId` condiviso, non un conteggio.
@@ -5532,3 +5558,92 @@ invece abbondante, perché oggi **nessuno rinnova**.
   essa stessa vecchia (parla di 13 file su 14 e 81 prove su 160; oggi `tests/schema` ha **16 file e 190 prove**, misurate con `npx vitest run tests/schema` — non con un `grep` su `it(`, che ne conta 164 perché salta le annidate).
   Non è marcato verificato.
 - Nessun file di rientro, nessuna anticipazione del Task 3.
+
+## Appendice — Esecuzione del Task 3 e revisione (24 settembre 2026)
+
+Scritta da chi ha eseguito il Task 3, dopo due revisioni indipendenti avversariali in parallelo — una **empirica**
+(proprietaria esclusiva del database e di Vitest) e una **a secco** (sola lettura, che consegna ipotesi falsificabili
+con il comando che le proverebbe). Sostituisce il resoconto di chat: la chat del Task 4 legge questa.
+
+**Consegnato in due commit:** la consegna (`0014_sessione_viva.sql`, `sessione-viva.test.ts`,
+`rientro/0014_rientro_sessione_viva.sql`, sei gemelle in file esistenti, due prove irrobustite) e la **remediation**
+dopo la revisione. Il primo messaggio è stato **riscritto con `--amend`**, non annotato: conteneva numeri falsi, il
+commit non era pushato ed era seguito da un solo commit locale. La convenzione «nota e non amend» del Task 2 vale
+quando i SHA sono già riferiti altrove; qui no, e una nota non viaggia con un `git push` normale.
+
+**Gate finale:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **21 file, 304 prove verdi**;
+`npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+
+### Il censimento del Passo 6 va fatto con una spia, non con una regex
+
+**È il reperto di metodo più importante di questo task.** Chi ha eseguito ha censito le prove negative spezzando i
+file di prova per `it(` e cercando `asOperator` nel testo del blocco: ha trovato **18** prove che restano verdi con
+una sessione morta in cache. La revisora empirica ha strumentato `asOperator` con una **spia sul nome della prova** e
+ci ha portato la sessione morta: **98 chiamanti, 27 verdi silenti**, scomposti in **18 negative della sicurezza per
+riga + 9 indipendenti**. La regex perdeva ogni prova che chiama `asOperator` **attraverso un aiuto** — `finestra()`,
+`cellsOf()`, `slotCount()` — e con essa **tre file interi**: `availability.test.ts`, `occupancy.test.ts`,
+`orphan-visit.test.ts`.
+
+Peggio: per correggere due numeri falsi del primo messaggio di commit era stata scritta una `git note` che ne
+conteneva **altri due**, perché rileggeva la misura sbagliata invece di rifarla. La misura si prende **alla fonte che
+conta**: qui la fonte è il comportamento in esecuzione, non il testo del file.
+
+### Presìdi che erano muti alla consegna, e come sono stati chiusi
+
+| # | Presidio muto | Danno misurato | Rimedio, e la sonda che lo prova |
+|---|---|---|---|
+| 1 | *«tiene fuori anon, che un session_id non ce l ha proprio»* | I claim sono `{role:'anon'}` **senza `sub`**, quindi `auth.uid()` è NULL e il **primo** `exists` è già falso: togliendo il controllo della sessione la prova **resta verde**. La garanzia che il commento della migrazione promette non era misurata da nessuno | Aggiunta *«tiene fuori un token con il sub di un operatrice ma senza il claim session_id»*: il `sub` è di Vera, il primo `exists` è **vero**, e il solo motivo del falso è il claim assente. Sonda: via il secondo `exists` → le rosse passano da **5 a 6**, e la nuova è fra quelle |
+| 2 | *«non lascia passare un token di Vera con il session_id di un altra»* | Vale solo se la sessione di Annalisa è viva, e **niente lo verificava**. Misurato: togliendo la guardia `s.user_id = auth.uid()` **e** spegnendo la precondizione, la suite intera dà **ZERO rosse** — il presidio dell'unica difesa contro un token che cavalca la sessione di un'altra operatrice andava completamente muto | La precondizione è **asserita**: `expect(viva).toBe(1)` prima della misura. Sonda: guardia via **e** precondizione spenta → **1 rossa**, sull'asserzione della precondizione. Guasto rumoroso invece che muto |
+| 3 | `dimenticaSessioni()` come ultima riga, fuori da un `finally` | Su una passata già rossa la cache resta con una sessione cancellata e trascina la prova successiva | `try`/`finally`. Sonda: rompendo l'asserzione, **1 rossa** con il `finally` e **2** senza |
+| 4 | Il rientro neutralizzava `zz_chiudi_sessioni`, **singolare** | Il Task 4 crea **tre** trigger (`_ins`, `_upd`, `_del`): quella riga, scommentata, darebbe `42704` e lascerebbe vivi tutti e tre — cioè lascerebbe `update operator` impossibile proprio mentre la procedura «telefono perso» di §4.7 chiede di riattivare le colleghe | I tre nomi veri, con il perché. Corretta anche la stessa incoerenza **nel piano**, che l'aveva in due punti (il blocco del Passo 4 e la riga 1306). ⚠︎ **Il reperto S4-4 della spec resta APERTO** finché le righe non si scommentano, al Task 4 |
+
+### Quello che cade al Task 4, misurato dal vivo
+
+La revisora empirica ha installato i trigger del Task 4 e lanciato la suite intera: **2 rosse**, ed è la coppia di
+gemelle che questo task ha appena consegnato. Il meccanismo e il rimedio (`dimenticaSessioni()` dentro `resetData()`)
+sono scritti nel **Passo 4 del Task 4**, dove chi esegue li leggerà. Sono rosse **false**, e la riparazione naturale —
+togliere la gemella — rimetterebbe due prove negative nello stato decorativo che il Passo 6 esiste per chiudere.
+
+### Una trappola di processo del Task 2 è FALSA
+
+`vitest.config.ts:6-7` ha `pool: 'threads'` con `singleThread: true`: i file girano **in serie**, non in parallelo
+(zero coppie sovrapposte, misurate dai tempi del reporter JSON). La trappola 4 dell'appendice del Task 2 è stata
+corretta in sede. Conseguenza per il Task 4: il conteggio globale su `auth.sessions` che prescrive è **lecito**.
+
+### Reperti aperti, con il danno misurato
+
+1. **Sette prove negative senza gemella**, nei tre file che la regex aveva perso (`availability`, `occupancy`,
+   `orphan-visit`). Danno oggi: **zero** — ogni file che ne contiene una ha almeno un'altra prova che arrossisce, quindi
+   l'imbracatura rotta viene scoperta **a grana di file, per accidente**, non a grana di prova per costruzione.
+2. **L'audit della forma delle politiche è cieco a `(select …) or true`**: usa `like` su sottostringa, non
+   l'uguaglianza esatta che la spec §4.7 pretende (reperto S4-6). Misurato su due politiche: spalancando
+   `client_access` l'audit resta verde e arrossiscono 6 prove di comportamento; spalancando `salon_closure_access`
+   arrossisce **1** sola prova, quella di `availability-window`. Nessuna delle due resta scoperta, ma l'audit non è il
+   presidio che dichiara. **Il piano lo assegna al Task 9**, che però tocca solo `catalogue-audit.test.ts`: nessuno
+   rileggerà `sessione-viva.test.ts` per stringerlo. Non è stato fatto un censimento delle 15 politiche per sapere
+   quali non hanno copertura di comportamento: costa 15 mutazioni.
+3. **`refuses a direct insert on appointment_slot` è sovradeterminata**: col permesso concesso resta verde, perché il
+   `42501` arriva lo stesso dalla sicurezza per riga. ⚠︎ **Non era un reperto nuovo**: `occupancy.test.ts:166-168` lo
+   dice già da prima di questo piano. Chi ha eseguito aveva classificato quella prova fra le «indipendenti» senza
+   leggere il commento tre righe sopra. Nessuna annotazione aggiunta, perché ci sarebbe stata due volte.
+4. **`rinnovoRiesce()` ha zero chiamanti** in tutta la suite: azzerata a `false` dà 0 rosse, quindi non è
+   «equivalente», è **non esercitata**. Il Task 3 la rende *più* pericolosa: ora che `auth.sessions` è portante per la
+   sicurezza per riga, una seconda chiamata sulla stessa sessione ruota il refresh token senza salvarlo e può
+   **revocare la famiglia**. Si chiama **una volta sola per sessione**, e non si scrivono sonde che la chiamino due
+   volte. La sua protezione nasce al Task 4.
+5. **Un `session_id` valido come JSON ma non come uuid** (`"abc"`) solleva `22P02` dentro ogni politica: misurato.
+   Raggiungibile solo da chi può scrivere i claim (`service_role`, o l'imbracatura). Guasto rumoroso, nessun dato
+   esposto. Non difeso.
+6. **La clausola `realtime` della prova di forma è a vuoto**: ci sono 0 politiche in quello schema, e nessuna prova
+   arrossisce se domani l'immagine di base ne spedisce una.
+7. **`dimenticaSessioni()` invece NON è più senza sonda** (era il presidio 2 dell'appendice del Task 2): azzerata a
+   `{}` dà ora **1 rossa**, grazie alla gemella *«e lascia passare lo stesso token con il session_id che è davvero
+   suo»*. Chiuso per accidente, non di proposito.
+
+### Che cosa NON è stato fatto, per decisione dell'orchestratrice
+
+- I reperti aperti da 1 a 6 restano aperti, con il danno misurato accanto.
+- La **spec 3a passa a revisione 12**: corrette le tre occorrenze «13 politiche» in §4.7, tolto il rimando alla
+  politica di `realtime.messages` che non è creabile, registrata la forma `current_setting` con doppio `nullif` scelta
+  al posto di `auth.jwt()`, e rimesso S4-4 su «aperto».
+- Nessuna anticipazione del Task 4.
