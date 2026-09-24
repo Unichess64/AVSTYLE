@@ -25,9 +25,16 @@ $$;
 -- lascerebbe vivi tutti e tre — cioè lascerebbe `update operator` impossibile
 -- proprio mentre la procedura «telefono perso» di §4.7 chiede di riattivare le
 -- colleghe (passi 3 e 4). La spec pretende che il rientro neutralizzi anche i
--- trigger: finché queste righe restano commentate, il reperto S4-4 è APERTO.
--- Le righe sono commentate perché il Task 4 non ha ancora creato i trigger:
--- oggi scommetterle darebbe 42704. Si scommentano insieme al Task 4.
--- alter table public.operator disable trigger zz_chiudi_sessioni_ins;
--- alter table public.operator disable trigger zz_chiudi_sessioni_upd;
--- alter table public.operator disable trigger zz_chiudi_sessioni_del;
+-- trigger, e con queste tre righe VIVE il reperto S4-4 è CHIUSO: restavano
+-- commentate solo perché il Task 4 non aveva ancora creato i trigger, e
+-- scommentarle prima avrebbe dato 42704.
+--
+-- Verificate a mano il 24/09/2026, dopo un `db reset`, eseguendole una per una
+-- da uno script Node con `pg` (mai `psql`): tutte e tre rispondono ALTER TABLE
+-- e `pg_trigger.tgenabled` per i tre nomi passa da 'O' a 'D'. È l'unico modo di
+-- sapere che i nomi combaciano davvero: un nome sbagliato dà 42704 e lascia
+-- vivo il trigger, cioè lascia `update operator` impossibile proprio mentre la
+-- procedura «telefono perso» di §4.7 chiede di riattivare le colleghe.
+alter table public.operator disable trigger zz_chiudi_sessioni_ins;
+alter table public.operator disable trigger zz_chiudi_sessioni_upd;
+alter table public.operator disable trigger zz_chiudi_sessioni_del;

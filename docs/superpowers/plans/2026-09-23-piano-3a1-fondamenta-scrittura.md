@@ -1316,7 +1316,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 `color` o di `sort_order` **non** deve chiudere niente: `resetData()` riscrive `is_active` e `auth_user_id` con gli
 stessi valori a ogni prova, e senza il confronto `is distinct from` butterebbe fuori l'imbracatura a ogni `beforeEach`.
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/chiusura-sessioni.test.ts
@@ -1330,6 +1330,7 @@ import {
   VERA_AUTH,
   asOperator,
   asOwner,
+  asOperatorCommit,
   pgCode,
   resetData,
 } from '../helpers/db'
@@ -1464,9 +1465,13 @@ describe('il trigger chiude le sessioni', () => {
 })
 
 describe('public.chiudi_sessioni', () => {
+  // ⚠︎ CORRETTO il 24/09/2026 dall'esecuzione del Task 4: qui c'era
+  // `asOperator`, che chiude SEMPRE con un rollback. Misurato: `quante` valeva
+  // 1 ma `vive()`, che legge da un'altra connessione, trovava ancora 1 sessione
+  // — questa prova era l'unica rossa dopo il Passo 4.
   it('chiude le sessioni di un altra operatrice e dice quante ne ha chiuse', async () => {
     const sessione = await accedi('annalisa@example.test')
-    const quante = await asOperator(VERA_AUTH, async (c) => {
+    const quante = await asOperatorCommit(VERA_AUTH, async (c) => {
       const r = await c.query<{ n: number }>('select chiudi_sessioni($1) as n', [ANNALISA])
       return r.rows[0].n
     })
@@ -1536,7 +1541,12 @@ describe('public.chiudi_sessioni', () => {
       return r.rows[0].p
     })
     await accedi('annalisa@example.test')
-    await asOperator(VERA_AUTH, (c) => c.query('select chiudi_sessioni($1)', [ANNALISA]))
+    // ⚠︎ CORRETTO il 24/09/2026: anche qui c'era `asOperator`, e qui il danno
+    // era PEGGIORE — la prova era MUTA. Misurato: mettendo dentro
+    // `chiudi_sessioni` un `update auth.users set encrypted_password` sul
+    // bersaglio, la prova restava VERDE, perché il rollback annullava anche
+    // quello. Con il commit la stessa mutazione la fa arrossire.
+    await asOperatorCommit(VERA_AUTH, (c) => c.query('select chiudi_sessioni($1)', [ANNALISA]))
     const dopo = await asOwner(async (c) => {
       const r = await c.query<{ p: string }>('select encrypted_password as p from auth.users where id = $1', [
         ANNALISA_AUTH,
@@ -1548,13 +1558,13 @@ describe('public.chiudi_sessioni', () => {
 })
 ```
 
-- [ ] **Passo 2: esegui e verifica che falliscano**
+- [x] **Passo 2: esegui e verifica che falliscano**
 
 Run: `npx vitest run tests/schema/chiusura-sessioni.test.ts`
 Atteso: rosse tutte quelle che chiedono `0` sessioni e `42883 function chiudi_sessioni(uuid) does not exist`; verdi le
 due *«NON chiude niente…»*, che sono i controlli positivi.
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0015_chiusura_sessioni.sql
@@ -1678,7 +1688,7 @@ from public, anon;
 grant execute on function public.chiudi_sessioni(uuid) to authenticated;
 ```
 
-- [ ] **Passo 4: applica ed esegui**
+- [x] **Passo 4: applica ed esegui**
 
 Run: `npx supabase db reset && npx vitest run tests/schema/chiusura-sessioni.test.ts`
 Atteso: 13 verdi.
@@ -1705,7 +1715,7 @@ togliere la gemella — rimetterebbe le due prove negative *«shows nothing to a
 nothing to a deactivated operator»* nello stato decorativo che il Passo 6 del Task 3 esiste per chiudere.
 **Il rimedio è una riga: `dimenticaSessioni()` dentro `resetData()`**, e va messo **prima** di creare i trigger.
 
-- [ ] **Passo 5: sonde di mutazione**
+- [x] **Passo 5: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -1717,11 +1727,16 @@ nothing to a deactivated operator»* nello stato decorativo che il Passo 6 del T
 | 6 | in `chiudi_sessioni`, togli il controllo `v_bersaglio is not distinct from v_io` | *«rifiuta l operatrice di chi la chiama…»* |
 | 7 | in `chiudi_sessioni`, togli la guardia `app.is_active_operator()` | *«non fa niente se la chiama un account che non è operatrice attiva»* |
 
-- [ ] **Passo 6: gate e commit**
+- [x] **Passo 6: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
 npx supabase db reset && npm test && npm run test:fuso && npx tsc --noEmit
+# ⚠︎ CORRETTO il 24/09/2026: questi due file NON bastano. Il task tocca anche
+# tests/helpers/db.ts (dimenticaSessioni dentro resetData),
+# supabase/rientro/0014_rientro_sessione_viva.sql (le tre righe scommentate,
+# reperto S4-4) e la spec, che passa a revisione 13. Si nominano uno per uno:
+# un `git add` largo porta dentro modifiche non dichiarate.
 git add supabase/migrations/0015_chiusura_sessioni.sql tests/schema/chiusura-sessioni.test.ts
 git commit -m "feat(3a-1): le sessioni si chiudono da sole in tutti e cinque i casi
 
@@ -5477,8 +5492,9 @@ la revisione del piano ha imposto al Task 4 (suo reperto 13). Verificato: con la
 2. **`dimenticaSessioni()` ridotto a `{}` → 0 rosse**, e lo chiamano ~30 punti del piano. Resta scoperto: al Task 4 il
    guasto diventa rumoroso (`P0004`), due task dopo la causa.
 3. **`rinnovoRiesce()` che ritorna sempre `false` → 0 rosse.** La protezione esiste solo al **Task 4**, che ha due
-   `expect(await rinnovoRiesce(sessione)).toBe(true)`: sono le gemelle positive che rendono capaci di fallire gli otto
-   `toBe(false)`. **Se qualcuno tagliasse quelle due, otto prove negative diventerebbero decorative.** Inoltre
+   `expect(await rinnovoRiesce(sessione)).toBe(true)`: sono le gemelle positive che rendono capaci di fallire i **sei**
+   `toBe(false)` — ⚠︎ **«otto» era falso, contato sul file consegnato il 24/09/2026: le chiamate sono OTTO in tutto,
+   sei `toBe(false)` e due `toBe(true)`.** **Se qualcuno tagliasse quelle due, sei prove negative diventerebbero decorative.** Inoltre
    `rinnovoRiesce` **ruota** il refresh token e **non salva** quello nuovo (rotazione attiva, `config.toml:170-173`):
    si chiama **una volta sola** per sessione, altrimenti può dare `false` su una sessione viva e persino revocarne la
    famiglia — la sonda ucciderebbe ciò che misura.

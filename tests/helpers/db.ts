@@ -1,5 +1,5 @@
 import pg from 'pg'
-import { sessioneDi } from './sessioni'
+import { dimenticaSessioni, sessioneDi } from './sessioni'
 
 // A `date` column (OID 1082) is parsed by node-postgres into a JS Date at
 // LOCAL midnight; converting it back with toISOString() returns the PREVIOUS
@@ -175,6 +175,19 @@ export async function asOwner<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
  *
  * `salon_settings` is also excluded: it holds exactly one seeded row that a
  * later task asserts on, and truncating it would empty it.
+ *
+ * ⚠︎ E in coda dimentica le sessioni. Dal Task 4 un `update operator` che
+ * cambia davvero `is_active` o `auth_user_id` CANCELLA le sessioni di
+ * quell'account: il ripristino qui sopra riporta a `true` chi una prova aveva
+ * disattivato — un `false → true` vero — e il trigger di 0015 le chiude. Senza
+ * questa riga la cache di `sessioneDi` continuerebbe a servire un `session_id`
+ * che non è più in `auth.sessions`, e `asOperator` NON se ne accorge di
+ * proposito: ogni prova della passata successiva leggerebbe zero righe.
+ * Misurato dalla revisione del Task 3, installando i trigger dal vivo: 2 rosse,
+ * ed erano le due gemelle POSITIVE `access-control > lets that same operator
+ * read once she is active again, with the same harness` e `account-directory >
+ * returns the accounts to that same operator once she is active again` — cioè
+ * proprio i presidi che tengono non decorative le due prove negative accanto.
  */
 export async function resetData(): Promise<void> {
   esigiDatabaseLocale()
@@ -229,6 +242,7 @@ export async function resetData(): Promise<void> {
       end $$;
     `)
   })
+  dimenticaSessioni()
 }
 
 /** The error code Postgres reports, e.g. '23505' for a unique violation. */

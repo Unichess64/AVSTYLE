@@ -1,7 +1,11 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 12 — allinea §4.7 a ciò che l'esecuzione del Task 3 del piano 3a-1 ha **misurato** il 24 settembre
+**Revisione:** 13 — registra in §4.7 ciò che l'esecuzione del **Task 4** del piano 3a-1 ha consegnato e misurato il
+24 settembre 2026: i **tre** trigger di chiusura e la funzione `public.chiudi_sessioni(uuid)` esistono, e il rientro
+`supabase/rientro/0014_rientro_sessione_viva.sql` li neutralizza con tre righe **non più commentate**, verificate a
+mano (tutte e tre rispondono `ALTER TABLE`, `pg_trigger.tgenabled` passa da `'O'` a `'D'`) — quindi il reperto
+**S4-4 è CHIUSO**. Nient'altro è cambiato; **revisione 12** — allinea §4.7 a ciò che l'esecuzione del Task 3 del piano 3a-1 ha **misurato** il 24 settembre
 2026: le politiche di `public` sono **15**, non 13 (il Task 1 ne ha aggiunte due, su `invio` e `visita_cancellata`);
 la politica su `realtime.messages` **non è creabile** e il rimando va tolto; la funzione usa
 `current_setting('request.jwt.claims', true)` con **doppio** `nullif` invece di `auth.jwt()`; e il reperto **S4-4
@@ -466,6 +470,12 @@ messaggi si perdono in silenzio: la prova di §8.2 verifica la **ricezione**.
 
 ### 4.7 Sessioni (D3-11, D3-14, D3-17, D3-20)
 
+- ✅ **Consegnata dal Task 4 del piano 3a-1 il 24/09/2026**, in `supabase/migrations/0015_chiusura_sessioni.sql`:
+  `app.chiudi_sessioni_di(uuid)`, `app.chiudi_sessioni_operatrice()`, i **tre** trigger `zz_chiudi_sessioni_ins`,
+  `zz_chiudi_sessioni_upd` (con `of is_active, auth_user_id`) e `zz_chiudi_sessioni_del`, e
+  `public.chiudi_sessioni(uuid)`. Il confronto `is distinct from` sta **nel corpo** della funzione, non in una
+  clausola `when`: è la strada che §4.7 lasciava al piano fra le due. Presidiata da
+  `tests/schema/chiusura-sessioni.test.ts`, 13 prove, e da nove sonde di mutazione eseguite.
 - **Chiusura automatica.** Un trigger **AFTER** `security definer` (proprietaria `postgres`, `search_path = ''`) su
   `operator` che agisce solo se `is_active` o `auth_user_id` **cambiano davvero** (`is distinct from`): un cambio di
   `color` o di `sort_order` non chiude nulla. Un solo trigger con una clausola `when` su `OLD` e `NEW` non si può
@@ -516,7 +526,9 @@ messaggi si perdono in silenzio: la prova di §8.2 verifica la **ricezione**.
   rumoroso, nessun dato esposto) e fallirebbero anche i trigger di chiusura. Rimedi: prova di catalogo in CI su quei
   privilegi e sulle colonne usate; una **migrazione di rientro** tenuta **fuori** da `supabase/migrations/` (per esempio
   `supabase/rientro/`), che toglie il controllo della sessione **e** neutralizza i trigger di chiusura, dichiarando che
-  riapre la finestra di 60 minuti chiusa da D3-17; verifica sul progetto ospitato (§8.7).
+  riapre la finestra di 60 minuti chiusa da D3-17; verifica sul progetto ospitato (§8.7). ✅ **Completo dal
+  24/09/2026** (Task 4): le tre `alter table public.operator disable trigger zz_chiudi_sessioni_{ins,upd,del}` non
+  sono più commentate e sono state provate in esecuzione — reperto **S4-4 chiuso**.
 - **Limite dichiarato (permessi identici, D10).** Chi ha in mano il telefono di un'operatrice attiva può disattivare le
   colleghe, e D3-14 e D3-17 chiudono subito le loro sessioni: **il salone resta fuori dall'app** finché qualcuno non
   segue la procedura dalla dashboard. La guardia di 0009 impedisce solo che le operatrici attive diventino zero; non
@@ -1080,7 +1092,7 @@ Nessuno ha modificato file o scritto sul database.
 | R4C-5 | La funzione gemella permetteva il blocco di sé stessa; recupero della password dalla posta del telefono perso | coerenza, sicurezza | §4.7: la gemella rifiuta l'operatrice di chi chiama; premessa sull'email in D3-20 e §8.7 |
 | S4-2 | Accesso via link o codice email da un telefono con la posta aperta | sicurezza | premessa dichiarata, §4.7 e §8.7 |
 | S4-3 | Scollegamento e ricollegamento chiudevano le sessioni ma non cambiavano la password | sicurezza | superato: nessuna password automatica; procedura scritta |
-| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura. ⚠︎ **RIAPERTO alla revisione 12:** il rientro consegnato dal Task 3 sta fuori da `migrations/` e dichiara la riapertura, ma la neutralizzazione dei **tre** trigger è ancora **commentata** — non poteva essere altrimenti, perché il Task 4 non li ha creati. Si chiude scommentando quelle righe al Task 4 |
+| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura. Riaperto alla revisione 12 perché la neutralizzazione dei **tre** trigger era ancora commentata — non poteva essere altrimenti, perché il Task 4 non li aveva creati. ✅ **CHIUSO alla revisione 13:** il Task 4 ha creato `zz_chiudi_sessioni_ins`, `_upd` e `_del`, e le tre righe del rientro sono scommentate e **verificate in esecuzione** il 24/09/2026 (script Node con `pg`, mai `psql`): tre `ALTER TABLE`, `tgenabled` da `'O'` a `'D'` |
 | R4C-12 | §11 della rev. 4 dichiarava esauriti i reperti sulle decisioni: falso | coerenza | §11 riscritta |
 
 ### D.3 Minori — reggono
