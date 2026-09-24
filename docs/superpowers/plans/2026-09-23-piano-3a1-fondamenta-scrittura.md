@@ -483,7 +483,9 @@ Scrivi nel resoconto, per ogni riga, il numero di prove rosse **misurato**, non 
 argomentata: due delle righe qui sopra le confondevano, e in un caso la mutazione «equivalente» fermava ogni
 cancellazione di visita del database. Prima di dichiarare equivalente una mutazione, chiediti che cosa farebbe
 davvero in produzione; se fa qualcosa, la prova che manca è la prova, non la dichiarazione. La stessa formula
-ricompare alla sonda 5 del Task 7 e alla sonda 5 del Task 11: lì **non** è stata riverificata.
+ricompariva alla sonda 5 del Task 7 e alla sonda 5 del Task 11, **riverificate il 24/09/2026**: quella del Task 7
+regge (misurata su banco: in `read committed` le due varianti coincidono, ed è presidiata dal Task 9), quella del
+Task 11 no — la sua clausola di scampo è stata riscritta.
 
 - [x] **Passo 7: gate e commit**
 
@@ -3448,7 +3450,7 @@ obbligo tecnico (misurato).
 | 2 | `volatile` → `stable` | la (b) |
 | 3 | togli il primo ricontrollo dell'account | *«non risponde a un account la cui sessione è chiusa»* |
 | 4 | togli il secondo ricontrollo | aggiungi la prova: sessione chiusa **fra** la registrazione e la lettura (chiudila da una terza connessione) |
-| 5 | in `app.apri_invio_come_annullato`, `on conflict do nothing` → un blocco `exception when unique_violation` | nessuna prova arrossisce con questi dati: la differenza si vede solo in `repeatable read`; **dichiarala** e presidiala con la prova di catalogo di Task 9 sull'isolamento |
+| 5 | in `app.apri_invio_come_annullato`, `on conflict do nothing` → un blocco `exception when unique_violation` | nessuna prova arrossisce con questi dati, e **la dichiarazione regge** — riverificata il 24/09/2026 su banco usa-e-getta (la funzione non esiste ancora): in `read committed`, il livello che questo piano fissa, le due varianti danno lo **stesso** risultato, `'in_corso'`. ⚠︎ Ma quando la differenza si vede non è sottile: in `repeatable read` la variante `on conflict` **aborta con `40001`**, mentre quella con `exception` **restituisce `null` in silenzio** — la fotografia presa prima dell'attesa non vede la riga dell'altra transazione, e il chiamante riceve un valore che il contratto di §4.4 non prevede. Quindi **dichiarala**, ma sapendo che a tenerla in piedi è la prova di catalogo del Task 9 sull'isolamento: senza quella, questa riga è una scommessa |
 | 6 | riga 4 → riga 1 quando la visita è assente e cancellata | *«riga 4: la visita è stata cancellata dopo il salvataggio»* |
 
 - [ ] **Passo 6: gate e commit**
@@ -4895,7 +4897,7 @@ describe('presidi che il design chiede e che i task precedenti non coprono', () 
 | 2 | in `app.chiudi_invio`, togli le due `delete` della pulizia | *«la pulizia a 30 giorni…»* |
 | 3 | in `salva_visita`, togli `set constraints … deferred` dalla testa | *«il vincolo dell occupazione torna differito…»*, che con lo scambio fra due appuntamenti della stessa operatrice dà `23505` (misurato) |
 | 4 | in `controlla_invio`, fai cadere il ramo della riga 5 sulla riga 1 | *«Controlla riga 5…»* |
-| 5 | in `salva_visita`, togli il ramo `23503` (cioè crea la visita senza la chiave esterna) | *«23503: la cliente cancellata fra due invii…»* — se non è mutabile, dichiarala equivalente |
+| 5 | in `salva_visita`, togli il ramo `23503` (cioè crea la visita senza la chiave esterna) | *«23503: la cliente cancellata fra due invii…»*. ⚠︎ **Corretta il 24/09/2026: «se non è mutabile, dichiarala equivalente» non vale.** Una mutazione che non si riesce a costruire è una **misura mancante**, non un'equivalenza: se non è costruibile si scrive «non misurata» e si dice perché. Misurato intanto che la condizione intercettata da quel ramo è raggiungibile davvero — `insert into visit` con una cliente inesistente dà `23503 … violates foreign key constraint` — quindi il ramo non è codice morto |
 
 - [ ] **Passo 4: gate e commit**
 
@@ -5216,9 +5218,8 @@ il file era non tracciato), `db reset`, prove di nuovo verdi. Tutte e tredici ha
 
 ### Due righe della tabella del Passo 6 erano sbagliate — corrette il 24 settembre 2026
 
-Corrette in sede, dentro la tabella del Passo 6, con la misura accanto. Qui resta il perché, per chi esegue il
-Task 7 e il Task 11 e trova ancora la formula «la mutazione è equivalente e va dichiarata, non inseguita» — in quei
-due task **non è stata riverificata**:
+Corrette in sede, dentro la tabella del Passo 6, con la misura accanto — insieme alla riga 7, e alle due sonde 5 del
+Task 7 e del Task 11, dove la stessa formula ricompariva. Qui resta il perché:
 
 - **Riga 5 dichiara equivalente `after delete` → `before delete`. È falso**, e misurato falso due volte (da chi
   esegue e da una revisora, su un banco usa-e-getta): la funzione finisce con `return null`, e in un trigger
