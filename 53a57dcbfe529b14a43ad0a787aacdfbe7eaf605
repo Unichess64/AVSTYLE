@@ -1,0 +1,15 @@
+Correzione del 24/09/2026, dalla revisione del Task 2.
+
+Questo messaggio dice «la suite fa 24 accessi per passata, uno per file di
+prova». Il totale 24 è giusto — contato anche in auth.audit_log_entries — ma la
+spiegazione no: gli accessi crescono con ACCOUNT × FILE, non con i file. Sono 16
+di Vera, 5 dell'estranea, 2 di Alessandra e 1 di Annalisa; i file che passano da
+asOperator sono 15, e access-control.test.ts da solo ne fa quattro. Il
+sedicesimo di Vera esiste perché la prima prova di sessioni-imbracatura.test.ts
+chiama accedi() direttamente, scavalcando la cache. Dal Task 4 il numero cresce
+per PROVA, perché quel file azzera le sessioni in ogni beforeEach.
+
+Il messaggio non è stato riscritto con un amend: questo commit sta cinque commit
+indietro, e cambiarlo avrebbe cambiato i SHA di tutti e cinque, invalidando i
+riferimenti 53a57dc / 827c2f4 / 5a00668 / 557793e che l'appendice del Task 2 usa
+come indice. La stessa correzione sta anche in quell'appendice.
