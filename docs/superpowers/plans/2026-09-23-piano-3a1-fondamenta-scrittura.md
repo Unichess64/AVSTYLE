@@ -471,13 +471,19 @@ Esegui una mutazione per volta, verifica che la prova nominata diventi **rossa**
 | 1 | in `app.versione`, togli `at time zone 'UTC'` | *«conserva i microsecondi e non dipende dal fuso della sessione»* |
 | 2 | in `app.versione`, `.US` → `.MS` | la stessa |
 | 3 | in `app.apri_invio`, `if v_inserite = 1` → `if v_inserite = 0` | *«apre un codice nuovo restituendo null…»* |
-| 4 | in `app.chiudi_invio`, togli `and esito = 'in_corso'` | *«registra l esito e lo restituisce…»* resta verde; aggiungi qui una prova solo se una mutazione non ha vittime: allora la mutazione è equivalente e va **dichiarata**, non inseguita |
-| 5 | nel trigger, `after delete` → `before delete` | nessuna: è equivalente qui, **dichiarala** |
+| 4 | in `app.chiudi_invio`, togli `and esito = 'in_corso'` | *«rifiuta di chiudere un invio che non è più in corso e non ne riscrive l esito»*. ⚠︎ **Corretta il 24/09/2026:** la stesura originale dava questa mutazione per senza vittime e invitava a dichiararla. Era senza vittime, ma **non perché fosse equivalente: perché nessuno aveva provato a ucciderla**, e costava una prova. Misurato: `chiudi_invio('salvata')` su un codice portato a `'annullato'` risponde `P0003`; senza il predicato scrive `'salvata'` sopra `'annullato'` e smonta dall'interno la riga 1 di spec §4.4 |
+| 5 | nel trigger, `after delete` → `before delete` | *«sopporta la stessa visita cancellata due volte»* (`23505 duplicate key … visit_pkey`) e, **fuori da questo file**, `tests/schema/orphan-visit.test.ts`. ⚠︎ **Corretta il 24/09/2026:** la stesura originale la dava per equivalente. **Non lo è**, misurato due volte e su banchi separati: la funzione finisce con `return null`, e in un trigger `BEFORE … FOR EACH ROW` `return null` **annulla l'operazione** — `rowCount = 0`, la riga sopravvive. Con `before` nessuna visita verrebbe più cancellata: si fermerebbero la pulizia delle orfane di `0008`, la cascata dalla cliente di `0004` e domani «Elimina visita», e la visita risulterebbe comunque registrata fra le cancellate |
 | 6 | togli `grant select … to authenticated` | *«lascia leggere il registro a un operatrice attiva»* |
 | 7 | aggiungi `grant insert on table invio to authenticated` | *«non lascia scrivere il registro…»* |
 | 8 | togli il trigger `zz_registra_visita_cancellata` | le tre prove di registrazione |
 
 Scrivi nel resoconto, per ogni riga, il numero di prove rosse **misurato**, non atteso.
+
+⚠︎ **«Senza vittime» non vuol dire «equivalente».** La prima è una misura, la seconda è una tesi che va
+argomentata: due delle righe qui sopra le confondevano, e in un caso la mutazione «equivalente» fermava ogni
+cancellazione di visita del database. Prima di dichiarare equivalente una mutazione, chiediti che cosa farebbe
+davvero in produzione; se fa qualcosa, la prova che manca è la prova, non la dichiarazione. La stessa formula
+ricompare alla sonda 5 del Task 7 e alla sonda 5 del Task 11: lì **non** è stata riverificata.
 
 - [x] **Passo 7: gate e commit**
 
@@ -5208,10 +5214,11 @@ commenti corretti). Nessun altro file, nessun task successivo anticipato.
 Ogni sonda: mutazione applicata al file, `db reset`, prove, **ripristino da copia di scorta** (non da `git checkout`:
 il file era non tracciato), `db reset`, prove di nuovo verdi. Tutte e tredici hanno ripristinato pulito.
 
-### Due righe della tabella del Passo 6 sono sbagliate, e restano nel piano
+### Due righe della tabella del Passo 6 erano sbagliate — corrette il 24 settembre 2026
 
-Chi esegue il Task 7 e il Task 11 legga questo prima di usare la formula «la mutazione è equivalente e va dichiarata,
-non inseguita»:
+Corrette in sede, dentro la tabella del Passo 6, con la misura accanto. Qui resta il perché, per chi esegue il
+Task 7 e il Task 11 e trova ancora la formula «la mutazione è equivalente e va dichiarata, non inseguita» — in quei
+due task **non è stata riverificata**:
 
 - **Riga 5 dichiara equivalente `after delete` → `before delete`. È falso**, e misurato falso due volte (da chi
   esegue e da una revisora, su un banco usa-e-getta): la funzione finisce con `return null`, e in un trigger
@@ -5297,8 +5304,10 @@ e non erano i contenitori (`docker ps`: tutti `healthy`). **Il gate si esegue in
 
 ### Che cosa NON è stato fatto, per decisione dell'orchestratrice
 
-- Le righe 4 e 5 della tabella del Passo 6 **non sono state riscritte**: restano sbagliate nel piano, e questa
-  appendice è l'unico posto dove la correzione è scritta.
+- La **riga 7** della tabella del Passo 6 resta com'è: si aspetta una vittima che non c'è (il gemello speculare
+  sull'`INSERT`, qui sopra). Le righe 4 e 5 sono state corrette il 24/09; la 7 no.
+- Le **sonde nuove 9-13 non sono state aggiunte** alla tabella del Passo 6: stanno solo nella tabella di questa
+  appendice.
 - La **spec §4.4 non è stata toccata** (revisione 10, la rileggono altri task).
 - `invio` **non porta** l'operatrice che ha scritto il codice: la regola «stesso codice, stessa operatrice» resta sul
   telefono, come dice la spec. Se il Task 7 la volesse nel database, costa una migrazione in più.
