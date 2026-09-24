@@ -19,8 +19,16 @@
 --
 -- Nessuna delle due si scrive da PostgREST: ad `authenticated` resta la sola
 -- SELECT, e le scritture passano dalle funzioni `security definer` qui sotto.
--- Lo schema `app` non è esposto da PostgREST, quindi quelle funzioni sono
--- raggiungibili solo dall'interno di altre funzioni.
+-- Lo schema `app` non è esposto da PostgREST (`supabase/config.toml`,
+-- `schemas = ["public", "graphql_public"]`), quindi quelle funzioni non sono
+-- raggiungibili DA PostgREST. Non dire «solo dall'interno di altre funzioni»:
+-- è falso, e misurato falso — `authenticated` ha EXECUTE su `apri_invio` e
+-- `chiudi_invio`, e una sessione che arrivasse allo schema `app` per altra
+-- via aprirebbe e brucerebbe codici, `security definer` scavalcando la
+-- sicurezza per riga. Il presidio vero è quella riga di `config.toml`, che
+-- oggi NESSUNA prova pianta: se qualcuno vi aggiunge `"app"`, qui non si
+-- rompe niente. La frase forte diventerebbe vera solo aggiungendo
+-- `app.is_active_operator()` in testa alle due funzioni.
 
 create table invio (
   codice     uuid primary key,
@@ -52,12 +60,28 @@ create policy visita_cancellata_lettura on visita_cancellata
 
 -- La regola predefinita dei permessi di Supabase concede TUTTO ad anon e ad
 -- authenticated su ogni tabella nuova di public, TRUNCATE e MAINTAIN compresi.
+--
+-- Ad anon si toglie anche la SELECT, DIVERSAMENTE da `00051_privilege_baseline`,
+-- che per le altre tabelle la tiene apposta perché diverse prove vi asseriscono
+-- «zero righe» e non `42501`. Qui nessuna prova legge queste due tabelle da
+-- anon, quindi la forma più stretta non costa niente — ma l'audit del Task 9
+-- dovrà codificare due forme di permessi, non una.
 revoke all on table invio, visita_cancellata from public, anon, authenticated;
 grant select on table invio, visita_cancellata to authenticated;
 
 -- La versione di una riga viaggia come TESTO, in UTC e con i microsecondi:
 -- un `timestamptz` che passa da un `Date` di JavaScript perde i microsecondi e
 -- ogni salvataggio diventerebbe un falso «modificata altrove» (spec §10.2).
+--
+-- `immutable` è più forte del vero: `to_char(timestamp, text)` è `stable`
+-- (misurato nel catalogo, `provolatile = 's'`), e PostgreSQL non lo controlla.
+-- Regge perché questa maschera è tutta numerica — nessun campo dipende da
+-- `lc_time`, e `at time zone 'UTC'` toglie di mezzo il fuso della sessione:
+-- misurato invariante anche con `DateStyle` German/SQL/Postgres. Chi cambia la
+-- maschera perde quella garanzia in silenzio; e l'etichetta rende la funzione
+-- eleggibile per un indice su espressione, dove il silenzio diventa un dato
+-- sbagliato. Nessuno qui ha bisogno di `immutable`: se la maschera cambia,
+-- degradarla a `stable`.
 create function app.versione(p_quando timestamptz) returns text
 language sql
 immutable
@@ -127,6 +151,12 @@ begin
       limit 100
    );
 
+  -- ⚠︎ Le due misure citate qui sotto — il conteggio del trigger e il 55P03 —
+  -- vengono da giri di revisione del PIANO e NON sono rifacibili a questo
+  -- commit: né `public.annuncio` né `public.salva_visita` esistono ancora
+  -- (Task 8 e Task 5). Si rimisurano lì, non si danno per acquisite. Per la
+  -- scelta di sede non cambia nulla — 1 resta meno di 2 comunque.
+  --
   -- Gli annunci servono per pochi secondi: un'ora è già larga. Sta qui e non
   -- nel loro trigger perché il trigger gira UNA VOLTA PER ISTRUZIONE, cioè
   -- da 2 a 5 volte per salvataggio, e di più al crescere degli appuntamenti
@@ -149,6 +179,15 @@ $$;
 -- Ogni strada che cancella una visita passa di qui: la cancellazione diretta,
 -- la visita rimasta orfana (zz_delete_orphan_visit, 0008) e la cascata dalla
 -- cliente (0004). Per questo il trigger sta su `visit` e non nelle funzioni.
+--
+-- `security definer` NON è decorativo: un'operatrice può cancellare una visita
+-- (politica `for all` su `visit`, 0004) ma su `visita_cancellata` ha la sola
+-- SELECT. Senza i poteri del proprietario ogni cancellazione fatta dall'app
+-- fallirebbe con `42501 permission denied`. ⚠︎ `create or replace function`
+-- AZZERA ogni attributo non ripetuto: chi riscrive questa funzione — il Task 8
+-- lo fa su `chiudi_invio` — ripete `security definer` e `set search_path = ''`
+-- per esteso. La prova che se ne accorge è quella che cancella da
+-- `asOperator`, non da `asOwner`.
 create function app.registra_visita_cancellata() returns trigger
 language plpgsql
 security definer
@@ -161,6 +200,13 @@ begin
 end
 $$;
 
+-- AFTER è obbligatorio, non stilistico: questa funzione finisce con
+-- `return null`, e in un trigger BEFORE ... FOR EACH ROW `return null` ANNULLA
+-- l'operazione. Con BEFORE nessuna visita verrebbe più cancellata — si
+-- fermerebbero la pulizia delle orfane di 0008, la cascata dalla cliente di
+-- 0004 e domani «Elimina visita» — e la riga finirebbe comunque fra le
+-- cancellate. Misurato su un banco usa-e-getta: `rowCount = 0`, la riga
+-- sopravvive.
 create trigger zz_registra_visita_cancellata
 after delete on visit
 for each row execute function app.registra_visita_cancellata();

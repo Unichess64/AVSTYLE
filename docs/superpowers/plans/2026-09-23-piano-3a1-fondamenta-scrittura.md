@@ -88,7 +88,7 @@ delle visite cancellate non si distingue «cancellata da un'altra parte» da «m
   `app.apri_invio(uuid) returns text` (restituisce `null` se il codice è nuovo, altrimenti l'esito già registrato);
   `app.chiudi_invio(uuid, text) returns void`.
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/invii.test.ts
@@ -263,12 +263,12 @@ describe('registro delle visite cancellate', () => {
 })
 ```
 
-- [ ] **Passo 2: esegui le prove e verifica che falliscano**
+- [x] **Passo 2: esegui le prove e verifica che falliscano**
 
 Run: `npx vitest run tests/schema/invii.test.ts`
 Atteso: rosse con `42P01 relation "invio" does not exist` (e `42883` su `app.versione`).
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0013_invii_e_cancellate.sql
@@ -452,17 +452,17 @@ grant execute on function
 to authenticated;
 ```
 
-- [ ] **Passo 4: applica la migrazione e verifica che il CLI non ne salti nessuna**
+- [x] **Passo 4: applica la migrazione e verifica che il CLI non ne salti nessuna**
 
 Run: `npx supabase db reset`
 Atteso: `Applying migration 0013_invii_e_cancellate.sql...` e **nessuna** riga `Skipping migration`.
 
-- [ ] **Passo 5: esegui le prove e verifica che passino**
+- [x] **Passo 5: esegui le prove e verifica che passino**
 
 Run: `npx vitest run tests/schema/invii.test.ts`
 Atteso: verdi, 12 prove.
 
-- [ ] **Passo 6: sonde di mutazione**
+- [x] **Passo 6: sonde di mutazione**
 
 Esegui una mutazione per volta, verifica che la prova nominata diventi **rossa**, poi **ripristina il file**.
 
@@ -479,7 +479,7 @@ Esegui una mutazione per volta, verifica che la prova nominata diventi **rossa**
 
 Scrivi nel resoconto, per ogni riga, il numero di prove rosse **misurato**, non atteso.
 
-- [ ] **Passo 7: gate e commit**
+- [x] **Passo 7: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
@@ -5172,3 +5172,134 @@ essi». Le correzioni di **questo** giro — il numero nei tre punti, la sonda 7
 non sono state riviste da nessuno: sono testo e commenti, nessuna cambia il comportamento di una funzione, e la sola
 che tocca il codice (il messaggio del secondo `raise`) non è asserita da nessuna prova. È il limite dichiarato di
 questo piano al momento del commit.
+
+---
+
+## Appendice — Esecuzione del Task 1 e revisione (24 settembre 2026)
+
+Scritta da chi ha eseguito il Task 1, dopo due revisioni indipendenti. Sostituisce il resoconto di chat: la chat del
+Task 2 legge questa.
+
+**Consegnato:** `supabase/migrations/0013_invii_e_cancellate.sql` e `tests/schema/invii.test.ts`. Primo commit
+`b5ed3a9` (trascrizione fedele del piano, 12 prove); secondo commit con le correzioni della revisione (14 prove, sei
+commenti corretti). Nessun altro file, nessun task successivo anticipato.
+
+**Gate, misurato in serie a suite ferma:** `npx supabase db reset` senza nessuna riga `Skipping migration`;
+`npm test` → 19 file, **270 prove verdi** in 8,48 s; `npm run test:fuso` → 96 verdi; `npx tsc --noEmit` → uscita 0.
+
+### Le tredici sonde di mutazione, con il numero di prove rosse MISURATO
+
+| # | Mutazione | Rosse | Prova arrossita |
+|---|---|---|---|
+| 1 | `app.versione`, via `at time zone 'UTC'` | 1 | *conserva i microsecondi…* |
+| 2 | `app.versione`, `.US` → `.MS` | 1 | *conserva i microsecondi…* |
+| 3 | `apri_invio`, `v_inserite = 1` → `= 0` | 2 | *apre un codice nuovo…* e *registra l esito…* |
+| 4 | `chiudi_invio`, via `and esito = 'in_corso'` | **0 → 1** | dopo la revisione: *rifiuta di chiudere un invio che non è più in corso…* |
+| 5 | trigger, `after delete` → `before delete` | 1 | *sopporta la stessa visita cancellata due volte* |
+| 6 | via `grant select … to authenticated` | 1 | *lascia leggere il registro a un operatrice attiva* |
+| 7 | aggiungi `grant insert on table invio` | **0** | nessuna — vedi «gemello speculare» qui sotto |
+| 8 | via il trigger `zz_registra_visita_cancellata` | 4 | le tre di registrazione più *sopporta … due volte* |
+| 9 | trigger, `security definer` → `security invoker` | 1 | *registra la cancellazione fatta da un operatrice…* (`42501 permission denied for table visita_cancellata`) |
+| 10 | `drop policy visita_cancellata_lettura` | 1 | *registra la cancellazione fatta da un operatrice…* |
+| 11 | `chiudi_invio`, via `if v_toccate <> 1 then raise` | 1 | *rifiuta di chiudere un invio che non è più in corso…* |
+| 12 | trigger, `do update set cancellata_il` → `do nothing` | 1 | *sopporta la stessa visita cancellata due volte* |
+| 13 | via `and esito = 'in_corso'` (ripetuta dopo la prova nuova) | 1 | *rifiuta di chiudere un invio che non è più in corso…* |
+
+Ogni sonda: mutazione applicata al file, `db reset`, prove, **ripristino da copia di scorta** (non da `git checkout`:
+il file era non tracciato), `db reset`, prove di nuovo verdi. Tutte e tredici hanno ripristinato pulito.
+
+### Due righe della tabella del Passo 6 sono sbagliate, e restano nel piano
+
+Chi esegue il Task 7 e il Task 11 legga questo prima di usare la formula «la mutazione è equivalente e va dichiarata,
+non inseguita»:
+
+- **Riga 5 dichiara equivalente `after delete` → `before delete`. È falso**, e misurato falso due volte (da chi
+  esegue e da una revisora, su un banco usa-e-getta): la funzione finisce con `return null`, e in un trigger
+  `BEFORE … FOR EACH ROW` `return null` **annulla l'operazione** — `rowCount = 0`, la riga sopravvive. Con quella
+  mutazione nessuna visita verrebbe più cancellata. Arrossiscono *«sopporta la stessa visita cancellata due volte»*
+  (`23505 duplicate key … visit_pkey`) e, fuori dal file, `tests/schema/orphan-visit.test.ts`.
+- **Riga 4 dichiara senza vittime `via and esito = 'in_corso'`. Era vero, ma non perché la mutazione fosse
+  equivalente: perché nessuno aveva provato a ucciderla.** Costava una prova, ora c'è (sonde 4, 11 e 13).
+
+La lezione: «senza vittime» e «equivalente» non sono la stessa cosa. La prima è una misura, la seconda è una tesi che
+va argomentata. Il piano le confonde in tre punti.
+
+### Il gemello speculare, ristretto alla sua misura vera
+
+La sonda 7 non fa vittime perché con la sicurezza per riga accesa e **nessuna politica di scrittura** l'`INSERT` è
+respinto con `42501` — lo **stesso codice** del rifiuto per permesso mancante — anche quando il permesso c'è
+(`has_table_privilege` → `true`, misurato). La prova guarda solo il codice, quindi non distingue quale lucchetto ha
+agito.
+
+Vale **solo per l'`INSERT`**. Misurato che `grant update` e `grant delete`, da soli, **fanno arrossire** le prove dei
+permessi diretti: con RLS accesa `UPDATE` e `DELETE` non sollevano niente, filtrano zero righe in silenzio, e l'atteso
+`'42501'` diventa `'nessun errore'`. Quei due `revoke` sono presidiati. Per presidiare anche l'`INSERT` servirebbe
+leggere `has_table_privilege`, non il codice d'errore: **non fatto**, danno nullo (la RLS ferma comunque la scrittura).
+
+### Il reperto che ha bloccato, e come è stato chiuso
+
+`security definer` sul trigger delle cancellate non era presidiato da **nessuna** delle 19 prove, perché tutte e
+cinque le prove delle cancellazioni giravano da `asOwner`, cioè dal proprietario, che quei poteri li ha già. Percorso
+di danno reale: il **Task 8 riscrive `chiudi_invio` con `create or replace function`**, che azzera ogni attributo non
+ripetuto; se nello stesso giro si perdesse il `definer` del trigger, ogni «Elimina visita», ogni «Togli» sull'ultimo
+servizio e ogni cancellazione di cliente fallirebbero con `42501` per le operatrici vere **con la suite tutta verde**.
+Aggravante: `catalogue-audit.test.ts` filtra `where p.prosecdef`, quindi una funzione che perde insieme `definer` e
+`search_path` esce dall'audit.
+
+Chiuso da una prova sola — *«registra la cancellazione fatta da un operatrice, non solo dal proprietario»* — che
+cancella da `asOperator(VERA_AUTH)` e rilegge dentro la stessa transazione. La stessa prova è anche la prima che
+esercita `grant select on visita_cancellata` e la sua politica di lettura (sonde 9 e 10).
+
+### Presìdi ancora dichiarati e non presidiati (danno misurato, nessuno bloccante)
+
+1. **Le due pulizie a 30 giorni** (`0013:117-128`): nessuna prova invecchia una riga. Il Task 11 le prevede già.
+2. **`revoke insert … from authenticated` su `invio`**: vedi il gemello speculare qui sopra.
+3. **`revoke execute … from public, anon` sulle quattro funzioni**: nessun audit di ACL di **funzione** esiste; quello
+   di catalogo audita le tabelle. Non raggiungibile (`app` fuori da PostgREST).
+4. **`schemas = ["public","graphql_public"]` in `supabase/config.toml`**: è l'**unico** vero presidio dietro
+   l'irraggiungibilità delle funzioni `app`, e nessuna prova lo pianta. Misurato che un account estraneo con sessione
+   `authenticated` eseguirebbe `app.apri_invio` e brucerebbe il codice di un'altra, se lo schema fosse esposto.
+   Da portare al Task 9.
+5. **Il filtro `where p.prosecdef`** in `catalogue-audit.test.ts:73`: da sostituire con un elenco nominativo delle
+   funzioni che **devono** essere `security definer`. Da portare al Task 9.
+6. **Il contenuto dell'elenco dei nove esiti** (`0013:30-33`): la prova sul `23514` arrossirebbe con qualunque elenco.
+   Verificato a mano contro la spec e contro tutte le chiamate `chiudi_invio` del piano: i nove valori sono esatti e
+   completi.
+
+### Che cosa la spec §4.4 promette e questo codice non mantiene
+
+- «**una sola funzione di servizio** `security definer`»: sono tre, più una al Task 7. Il codice ha ragione — apertura
+  e chiusura hanno contratti diversi, e il trigger deve stare su `visit`. Da correggere è la spec.
+- «**eseguibile solo dall'interno** delle funzioni di scrittura»: non implementabile come scritta, perché il piano
+  scrive `controlla_invio` `security invoker` e quindi il `grant execute … to authenticated` è necessario. La forma
+  vera è quella debole che la spec usa altrove: «nessuno può, **via PostgREST**». Il commento di `0013` è già stato
+  corretto in questa forma; la spec no.
+- «**prima istruzione dopo `set constraints`**»: è una convenzione sul chiamante. `0013` non può imporla e non la
+  impone; il presidio è la prova di concorrenza del Task 7, che deve **durare**.
+- Riga 5, «ogni cancellazione passa dalla tabella»: regge, con due falle dichiarate — `TRUNCATE` non fa scattare i
+  trigger di riga (non raggiungibile dall'app, `00051` lo revoca) e la spazzata di conservazione di §11.3/§11.4
+  lascia in `visita_cancellata` un residuo fino a 30 giorni dopo la cancellazione di una cliente. Il dato è un id
+  che non si ricollega più a nessuno: anonimo, non pseudonimo. Da annotare nella spec.
+
+### Confermato per misura, non per lettura
+
+L'attesa sulla chiave primaria di §4.4 è stata riprodotta da una revisora su un banco separato: la seconda sessione ha
+aspettato **922 ms**, cioè fino alla fine del commit della prima, i **619 ms** del suo trigger differito compresi, e
+poi ha letto l'esito vero; col `rollback` della prima, il codice resta libero e la seconda lo brucia. È la sola
+proprietà da cui dipende tutta la §4.4, ed è vera.
+
+### Nota di processo
+
+Durante il gate ho lanciato una seconda `npm test` mentre la prima girava ancora in sfondo. Due suite sullo stesso
+database si sono svuotate e riseminate le tabelle a vicenda: 110 e 114 prove rosse con `duplicate key` e chiavi
+esterne violate dentro `seedFixture`, e una suite ferma oltre dieci minuti senza completare un file. Non era il codice
+e non erano i contenitori (`docker ps`: tutti `healthy`). **Il gate si esegue in serie, con niente altro in corso.**
+
+### Che cosa NON è stato fatto, per decisione dell'orchestratrice
+
+- Le righe 4 e 5 della tabella del Passo 6 **non sono state riscritte**: restano sbagliate nel piano, e questa
+  appendice è l'unico posto dove la correzione è scritta.
+- La **spec §4.4 non è stata toccata** (revisione 10, la rileggono altri task).
+- `invio` **non porta** l'operatrice che ha scritto il codice: la regola «stesso codice, stessa operatrice» resta sul
+  telefono, come dice la spec. Se il Task 7 la volesse nel database, costa una migrazione in più.
+- Nessun file di rientro per `0013`.

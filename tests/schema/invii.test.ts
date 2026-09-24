@@ -69,6 +69,34 @@ describe('registro degli invii', () => {
     expect(codice).toBe('23514')
   })
 
+  // La coppia `and esito = 'in_corso'` + `raise P0003` è ciò che rende la
+  // chiusura irripetibile: senza, una funzione di scrittura che chiude un
+  // codice già bruciato da «Controlla» non se ne accorgerebbe — l'update
+  // toccherebbe zero righe in silenzio, l'app direbbe «salvata» e il registro
+  // direbbe 'annullato'. Si asserisce l'errore E l'esito rimasto intatto,
+  // perché le due metà della guardia si perdono una alla volta.
+  it('rifiuta di chiudere un invio che non è più in corso e non ne riscrive l esito', async () => {
+    const esiti = await asOperator(VERA_AUTH, async (c) => {
+      await c.query('select app.apri_invio($1)', [COD])
+      await c.query('select app.chiudi_invio($1, $2)', [COD, 'annullato'])
+      // Savepoint come nella prova qui sotto: dopo un errore la transazione è
+      // abortita, e la rilettura darebbe 25P02.
+      await c.query('savepoint s')
+      let codice: string | undefined
+      try {
+        await c.query('select app.chiudi_invio($1, $2)', [COD, 'salvata'])
+        codice = 'nessun errore'
+        await c.query('release savepoint s')
+      } catch (e) {
+        codice = pgCode(e)
+        await c.query('rollback to savepoint s')
+      }
+      const r = await c.query<{ e: string }>('select esito as e from invio where codice = $1', [COD])
+      return [codice, r.rows[0].e]
+    })
+    expect(esiti).toEqual(['P0003', 'annullato'])
+  })
+
   it('non lascia scrivere il registro a un operatrice per via diretta', async () => {
     const esiti = await asOperator(VERA_AUTH, async (c) => {
       const out: (string | undefined)[] = []
@@ -143,8 +171,27 @@ describe('registro delle visite cancellate', () => {
   })
 
   it('sopporta la stessa visita cancellata due volte', async () => {
+    // L'istante si asserisce perché `do update set cancellata_il` e
+    // `do nothing` sono indistinguibili guardando il solo id. La differenza
+    // arriva alla pulizia a 30 giorni: con `do nothing` la riga porta ancora
+    // la data della PRIMA cancellazione, la pulizia la toglie, e «Controlla»
+    // finisce nella riga 5 di spec §4.4 — «non deve accadere» — invece che
+    // nella riga 4. Viaggia come TESTO da `app.versione`: un `Date` di
+    // JavaScript perde i microsecondi, e due cancellazioni a meno di un
+    // millisecondo di distanza sembrerebbero lo stesso istante.
+    const istante = () =>
+      asOwner(async (c) => {
+        const r = await c.query<{ q: string }>(
+          'select app.versione(cancellata_il) as q from visita_cancellata where id = $1',
+          [V1],
+        )
+        return r.rows[0].q
+      })
+
+    await asOwner((c) => c.query('delete from visit where id = $1', [V1]))
+    const prima = await istante()
+
     await asOwner(async (c) => {
-      await c.query('delete from visit where id = $1', [V1])
       await c.query('insert into visit (id, client_id, visit_date) values ($1, $2, $3::date)', [V1, CLIENT_MARIA, DAY_ONE])
       await c.query(
         `insert into appointment (id, visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
@@ -153,7 +200,29 @@ describe('registro delle visite cancellate', () => {
       )
       await c.query('delete from visit where id = $1', [V1])
     })
+    const dopo = await istante()
+
     expect(await cancellate()).toEqual([V1])
+    // Testo ISO in UTC a larghezza fissa: l'ordine alfabetico è l'ordine
+    // cronologico.
+    expect(dopo > prima).toBe(true)
+  })
+
+  // Le altre prove di questo gruppo cancellano da `asOwner`, che è
+  // proprietario e scavalca insieme i permessi e la sicurezza per riga: con o
+  // senza `security definer` sul trigger passerebbero identiche. Questa
+  // cancella dalla sessione di un'operatrice vera, che su `visita_cancellata`
+  // ha la sola SELECT — è l'unica che arrossisce se il trigger perde i poteri
+  // del proprietario, e l'unica che esercita il `grant select` e la politica
+  // di lettura. Legge dentro la stessa transazione perché `asOperator` la
+  // annulla uscendo.
+  it('registra la cancellazione fatta da un operatrice, non solo dal proprietario', async () => {
+    const righe = await asOperator(VERA_AUTH, async (c) => {
+      await c.query('delete from visit where id = $1', [V1])
+      const r = await c.query<{ id: string }>('select id from visita_cancellata order by id')
+      return r.rows.map((x) => x.id)
+    })
+    expect(righe).toEqual([V1])
   })
 
   it('non lascia scrivere le cancellate a un operatrice per via diretta', async () => {
