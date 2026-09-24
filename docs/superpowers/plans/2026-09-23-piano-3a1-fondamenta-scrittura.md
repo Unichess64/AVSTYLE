@@ -5514,10 +5514,14 @@ invece abbondante, perché oggi **nessuno rinnova**.
 ### Che cosa NON è stato fatto, per decisione dell'orchestratrice
 
 - I sei presìdi da 1 a 6 dell'elenco qui sopra restano aperti, con il danno misurato accanto.
-- **Il commento «Solo in locale» in `config.toml` non è stato corretto** (presidio 7), e la decisione di §8.5 non è
-  stata scritta nella spec (presidio 8).
-- **Il messaggio di `53a57dc` non è stato corretto** sulla glossa «uno per file di prova»: il totale 24 è giusto, la
-  spiegazione no.
+- La decisione di §8.5 **non è stata scritta nella spec** (presidio 8): resta l'unica di dominio, e la prende
+  l'orchestratrice.
+- Il commento «Solo in locale» in `config.toml` **è stato corretto** il 24/09/2026 (presidio 7): ora dice che la chiave
+  viaggia con `config push`, che serve un `config diff` prima, e che `db reset` non la applica.
+- La glossa «uno per file di prova» nel messaggio di `53a57dc` **è stata corretta con una `git note`**, non con un
+  amend: quel commit sta cinque commit indietro e riscriverlo avrebbe cambiato i SHA di tutti e cinque, invalidando i
+  riferimenti che questa appendice usa come indice. La nota sta in `refs/notes/commits` e si legge con
+  `git log --notes`; **non viaggia** con un `git push` normale.
 - **Il parser dell'array di date (OID 1182)**, che la riga 59 attribuisce a `db.ts`, non è stato consegnato: è del
   **Task 8** (lo dice la riga 5096) e nessuna prova di questo piano legge un `date[]`. Il deliverable resta aperto.
 - **`circa 24 su 81`** citato nel messaggio di `53a57dc` non è stato riprodotto: è una misura della spec §4.7, che è

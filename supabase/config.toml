@@ -203,8 +203,21 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-# Solo in locale: la suite accede una volta per file di prova, e l'isolamento
-# di Vitest non condivide la cache dei token.
+# Alzata per la suite delle prove, che fa 24 accessi per passata — uno per
+# COPPIA account/file, non uno per file — perché l'isolamento dei moduli di
+# Vitest non condivide la cache dei token. Il valore di default, 30, la fa
+# fallire a metà con un 429.
+#
+# ⚠ NON è una chiave «solo locale». `supabase config push` porta al progetto
+# collegato ogni proprietà che questo file DICHIARA, e in esecuzione non
+# interattiva procede per difetto: sull'ospitato questo alzerebbe il limite
+# anti-forza-bruta sugli accessi del salone da 30 a 300 tentativi ogni 5 minuti
+# per IP. Eseguire `supabase config diff` PRIMA di ogni `config push`.
+#
+# ⚠ `supabase db reset` non applica questa riga: RIAVVIA i contenitori senza
+# ricrearli, e le variabili d'ambiente si fissano alla creazione. Serve
+# `supabase stop && supabase start`. Nel CLI 2.117.0 la chiave arriva al GoTrue
+# come GOTRUE_RATE_LIMIT_OTP (una GOTRUE_RATE_LIMIT_SIGN_IN_SIGN_UPS non esiste).
 sign_in_sign_ups = 300
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
