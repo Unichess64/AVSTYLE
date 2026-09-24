@@ -474,7 +474,7 @@ Esegui una mutazione per volta, verifica che la prova nominata diventi **rossa**
 | 4 | in `app.chiudi_invio`, togli `and esito = 'in_corso'` | *«rifiuta di chiudere un invio che non è più in corso e non ne riscrive l esito»*. ⚠︎ **Corretta il 24/09/2026:** la stesura originale dava questa mutazione per senza vittime e invitava a dichiararla. Era senza vittime, ma **non perché fosse equivalente: perché nessuno aveva provato a ucciderla**, e costava una prova. Misurato: `chiudi_invio('salvata')` su un codice portato a `'annullato'` risponde `P0003`; senza il predicato scrive `'salvata'` sopra `'annullato'` e smonta dall'interno la riga 1 di spec §4.4 |
 | 5 | nel trigger, `after delete` → `before delete` | *«sopporta la stessa visita cancellata due volte»* (`23505 duplicate key … visit_pkey`) e, **fuori da questo file**, `tests/schema/orphan-visit.test.ts`. ⚠︎ **Corretta il 24/09/2026:** la stesura originale la dava per equivalente. **Non lo è**, misurato due volte e su banchi separati: la funzione finisce con `return null`, e in un trigger `BEFORE … FOR EACH ROW` `return null` **annulla l'operazione** — `rowCount = 0`, la riga sopravvive. Con `before` nessuna visita verrebbe più cancellata: si fermerebbero la pulizia delle orfane di `0008`, la cascata dalla cliente di `0004` e domani «Elimina visita», e la visita risulterebbe comunque registrata fra le cancellate |
 | 6 | togli `grant select … to authenticated` | *«lascia leggere il registro a un operatrice attiva»* |
-| 7 | aggiungi `grant insert on table invio to authenticated` | *«non lascia scrivere il registro…»* |
+| 7 | aggiungi `grant insert on table invio to authenticated` | **nessuna — ed è una falla del presidio, non un'equivalenza.** ⚠︎ **Corretta il 24/09/2026:** con la sicurezza per riga accesa e **nessuna politica di scrittura**, l'`INSERT` è respinto con `42501` — lo **stesso codice** del rifiuto per permesso mancante — anche quando il permesso c'è (`has_table_privilege` → `true`, misurato). La prova guarda solo il codice e non distingue quale dei due lucchetti ha agito; per presidiare la revoca servirebbe leggere `has_table_privilege`. Danno nullo: la RLS ferma comunque la scrittura. Vale **solo per l'`INSERT`** — misurato che `grant update` e `grant delete`, da soli, **fanno arrossire** questa prova, perché con la RLS accesa `UPDATE` e `DELETE` non sollevano niente: filtrano zero righe in silenzio e l'atteso `'42501'` diventa `'nessun errore'` |
 | 8 | togli il trigger `zz_registra_visita_cancellata` | le tre prove di registrazione |
 
 Scrivi nel resoconto, per ogni riga, il numero di prove rosse **misurato**, non atteso.
@@ -5238,8 +5238,10 @@ respinto con `42501` — lo **stesso codice** del rifiuto per permesso mancante 
 (`has_table_privilege` → `true`, misurato). La prova guarda solo il codice, quindi non distingue quale lucchetto ha
 agito.
 
-Vale **solo per l'`INSERT`**. Misurato che `grant update` e `grant delete`, da soli, **fanno arrossire** le prove dei
-permessi diretti: con RLS accesa `UPDATE` e `DELETE` non sollevano niente, filtrano zero righe in silenzio, e l'atteso
+Vale **solo per l'`INSERT`**. Misurato una volta da una revisora e **rimisurato da chi esegue** il 24/09/2026 su
+tutti e tre i verbi (`grant update` → `['42501','nessun errore','42501']`; `grant delete` →
+`['42501','42501','nessun errore']`, contro l'atteso `['42501','42501','42501']`): `grant update` e `grant delete`,
+da soli, **fanno arrossire** le prove dei permessi diretti: con RLS accesa `UPDATE` e `DELETE` non sollevano niente, filtrano zero righe in silenzio, e l'atteso
 `'42501'` diventa `'nessun errore'`. Quei due `revoke` sono presidiati. Per presidiare anche l'`INSERT` servirebbe
 leggere `has_table_privilege`, non il codice d'errore: **non fatto**, danno nullo (la RLS ferma comunque la scrittura).
 
@@ -5304,8 +5306,7 @@ e non erano i contenitori (`docker ps`: tutti `healthy`). **Il gate si esegue in
 
 ### Che cosa NON è stato fatto, per decisione dell'orchestratrice
 
-- La **riga 7** della tabella del Passo 6 resta com'è: si aspetta una vittima che non c'è (il gemello speculare
-  sull'`INSERT`, qui sopra). Le righe 4 e 5 sono state corrette il 24/09; la 7 no.
+- Le righe **4, 5 e 7** della tabella del Passo 6 sono state corrette in sede il 24/09/2026, con la misura accanto.
 - Le **sonde nuove 9-13 non sono state aggiunte** alla tabella del Passo 6: stanno solo nella tabella di questa
   appendice.
 - La **spec §4.4 non è stata toccata** (revisione 10, la rileggono altri task).
