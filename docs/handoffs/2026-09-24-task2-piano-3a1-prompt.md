@@ -11,14 +11,28 @@ AVStyle). Lavori in `/Users/nadiaottavi/Desktop/Git/salon-scheduler`, ramo `main
 ## Controllo d'ingresso — prima di qualunque cosa
 
 ```bash
-git -C /Users/nadiaottavi/Desktop/Git/salon-scheduler log --oneline -1
-git -C /Users/nadiaottavi/Desktop/Git/salon-scheduler status --short
+cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
+git merge-base --is-ancestor e655d131eba6fdc9a316e09977366aa1e76d7c61 HEAD \
+  && echo "storia lineare" || echo "STORIA RISCRITTA — questo prompt è invalido"
+git diff --stat e655d131eba6fdc9a316e09977366aa1e76d7c61..HEAD -- supabase tests src
+git status --short
+git branch --show-current
 ```
 
-Atteso: l'ultimo commit è `e655d13 docs(3a-1): riverificate le sonde 5 del Task 7 e del Task 11`, e l'albero non ha
-modifiche tranne `?? .superpowers/` e `?? docs/handoffs/`, che sono preesistenti e **non si toccano**.
+Atteso, una riga per comando:
 
-Se diverge, **fermati e dillo**: qualcuno ha lavorato dopo di me e questo prompt potrebbe essere vecchio.
+- il primo stampa **`storia lineare`**: il Task 1 è ancora nella storia di questo ramo;
+- il secondo non stampa **niente**: dopo la fine del Task 1 nessuno ha toccato `supabase/`, `tests/` o `src/`. Se
+  stampa qualcosa, qualcuno ha lavorato sul codice dopo di me e questo prompt è vecchio;
+- il terzo non stampa niente tranne `?? .superpowers/` e i due file più vecchi sotto `docs/handoffs/`, che sono
+  preesistenti e **non si toccano**;
+- il quarto stampa **`main`**.
+
+Il controllo non nomina l'ultimo commit apposta: il commit che introduce questo file sposterebbe HEAD e renderebbe
+il controllo impossibile da superare.
+
+Se una qualunque riga diverge, **fermati e dillo**: non eseguire il Passo 1 e non proporre alternative finché non
+ti rispondono.
 
 ## Che cosa leggere, prima di toccare qualunque cosa
 
