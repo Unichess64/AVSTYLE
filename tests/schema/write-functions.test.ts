@@ -204,6 +204,10 @@ describe('move_visit', () => {
   it('raises P0002, not a silent success, when the caller cannot see the visit', async () => {
     // OUTSIDER_AUTH is an authenticated account linked to no operator row,
     // so app.is_active_operator() is false and RLS hides V1 entirely.
+    // La sua gemella positiva è `is callable by the application role`, sopra:
+    // stessa funzione, stessa imbracatura, un'operatrice attiva. Senza di lei
+    // questo P0002 sarebbe sollevato anche da una sessione morta in cache, e
+    // la prova misurerebbe l'imbracatura rotta (misurato col Task 3).
     await expect(
       asOperator(OUTSIDER_AUTH, (c) => c.query('select move_visit($1, $2::date, $3)', [V1, DAY_ONE, 6])),
     ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
@@ -288,6 +292,23 @@ describe('swap_appointment_operators', () => {
     await expect(
       asOperator(OUTSIDER_AUTH, (c) => c.query('select swap_appointment_operators($1, $2)', [A1, A3])),
     ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
+  })
+
+  // La gemella positiva di quella sopra: stessa funzione, stessi appuntamenti,
+  // stessa imbracatura, un'operatrice attiva. Il P0002 di sopra nasce dal fatto
+  // che la sicurezza per riga nasconde A1 e A3, e lo solleverebbe anche una
+  // sessione morta in cache: senza questa prova, quel `rejects` resterebbe
+  // verde con l'imbracatura rotta (misurato col Task 3).
+  it('swaps them for an active operator, with the same harness', async () => {
+    const owners = await asOperator(VERA_AUTH, async (c) => {
+      await c.query('select swap_appointment_operators($1, $2)', [A1, A3])
+      const r = await c.query<{ id: string; o: string }>(
+        'select id, operator_id as o from appointment where id = any($1) order by id',
+        [[A1, A3]],
+      )
+      return r.rows.map((x) => x.o)
+    })
+    expect(owners).toEqual([ANNALISA, VERA])
   })
 })
 

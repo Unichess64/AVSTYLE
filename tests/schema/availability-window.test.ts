@@ -415,6 +415,33 @@ describe('availability_window', () => {
     expect(w.closures).toEqual([])
   })
 
+  // La gemella positiva di quella sopra: stessi semi, stessa finestra, stessa
+  // imbracatura, ma un account che È operatrice. I quattro `toEqual([])` di
+  // sopra sono soddisfatti anche da una sessione morta in cache, e allora
+  // misurerebbero l'imbracatura rotta invece delle politiche (misurato col
+  // Task 3 portando in `asOperator` una sessione che non esiste più).
+  it('e invece restituisce tutto a un operatrice attiva, con la stessa imbracatura', async () => {
+    await asOwner(async (c) => {
+      await c.query(
+        `insert into weekly_availability (operator_id, weekday, start_boundary, end_boundary)
+         values ($1, $2, 108, 156)`,
+        [VERA, GIOVEDI],
+      )
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [VERA, DAY_ONE, [[108, 156]]])
+      await c.query(
+        `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
+         values ($1::date, $1::date, null, null, 'Ferie')`,
+        [DAY_ONE],
+      )
+    })
+    await prenota(VISIT_UNO, DAY_ONE, VERA, SERVICE_REFILL, 120, 18)
+    const w = await finestra(DAY_ONE, DAY_ONE, [VERA])
+    expect(w.weekly).toHaveLength(1)
+    expect(w.exceptions).toHaveLength(1)
+    expect(w.occupancy).toHaveLength(1)
+    expect(w.closures).toHaveLength(1)
+  })
+
   // ⚠ discriminante: «chiama come anon e aspettati 42501» non distingue
   // «EXECUTE revocato» da «EXECUTE concesso e il corpo inciampa altrove».
   // has_function_privilege lo distingue, e vede anche una concessione a PUBLIC.
@@ -545,5 +572,31 @@ describe('availability_window', () => {
       expect(w.closures).toEqual([])
       expect(w.occupancy).toEqual([])
     }
+  })
+
+  // La gemella positiva di quella sopra: stessi semi, stessa imbracatura, ma
+  // due date VALIDE. Quei dodici `toEqual([])` sono soddisfatti anche da una
+  // sessione morta in cache — e allora la prova direbbe «fallisce chiusa»
+  // mentre in realtà non sta più misurando la data nulla (misurato col Task 3
+  // portando in `asOperator` una sessione che non esiste più: resta verde).
+  it('e con due date valide lo stesso seme dà un documento pieno', async () => {
+    await asOwner(async (c) => {
+      await c.query(
+        `insert into weekly_availability (operator_id, weekday, start_boundary, end_boundary)
+         values ($1, $2, 108, 156)`,
+        [VERA, GIOVEDI],
+      )
+      await c.query(
+        `insert into salon_closure (start_date, end_date, from_boundary, to_boundary, reason)
+         values ('2026-03-01', '2026-03-31', null, null, 'Ferie')`,
+      )
+      await c.query('select public.write_exception_day($1, $2::date, $3::int[])', [VERA, DAY_ONE, [[108, 156]]])
+    })
+    await prenota(VISIT_UNO, DAY_ONE, VERA, SERVICE_REFILL, 120, 18)
+    const w = await finestra(DAY_ONE, DAY_ONE, [VERA])
+    expect(w.weekly).toHaveLength(1)
+    expect(w.exceptions).toHaveLength(1)
+    expect(w.closures).toHaveLength(1)
+    expect(w.occupancy).toHaveLength(1)
   })
 })

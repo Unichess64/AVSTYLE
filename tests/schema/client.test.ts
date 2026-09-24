@@ -123,6 +123,16 @@ describe('access control on client', () => {
     expect(n).toBe(0)
   })
 
+  // La gemella positiva che rende capaci di fallire i due `toBe(0)` di questo
+  // describe: stessa forma, stessa imbracatura, un account che invece È
+  // operatrice. Misurato col Task 3 portando in `asOperator` una sessione
+  // morta: senza di lei il describe resta tutto VERDE con la sicurezza per
+  // riga che non lascia passare più nessuno.
+  it('shows client data to an active operator, with the same harness', async () => {
+    const n = await asOperator(VERA_AUTH, async (c) => (await c.query('select id from client')).rowCount)
+    expect(n).toBeGreaterThan(0)
+  })
+
   it('hides client data from an unauthenticated visitor', async () => {
     const n = await asAnon(async (c) => (await c.query('select id from client')).rowCount)
     expect(n).toBe(0)

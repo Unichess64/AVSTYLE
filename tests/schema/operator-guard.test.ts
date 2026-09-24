@@ -52,9 +52,14 @@ describe('lockout guard', () => {
   })
 
   it('allows deactivating an operator while others remain', async () => {
-    await expect(
-      asOperator(VERA_AUTH, (c) => c.query('update operator set is_active = false where id = $1', [ALESSANDRA])),
-    ).resolves.toBeDefined()
+    // `resolves.toBeDefined()` da solo è soddisfatto anche da un UPDATE che
+    // tocca ZERO righe — cioè da una chiamante che la sicurezza per riga non
+    // lascia più passare. Il conteggio lo distingue (misurato col Task 3
+    // portando in `asOperator` una sessione morta: senza, resta verde).
+    const quante = await asOperator(VERA_AUTH, async (c) =>
+      (await c.query('update operator set is_active = false where id = $1', [ALESSANDRA])).rowCount,
+    )
+    expect(quante).toBe(1)
   })
 
   it('refuses a multi-row update that would empty the roster', async () => {

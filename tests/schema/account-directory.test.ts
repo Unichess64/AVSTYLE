@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   ALESSANDRA,
+  ALESSANDRA_AUTH,
   OUTSIDER_AUTH,
   VERA_AUTH,
   asAnon,
@@ -23,11 +24,16 @@ describe('account directory', () => {
   })
 
   it('returns exactly id and email — never a password hash or a token', async () => {
-    const columns = await asOperator(VERA_AUTH, async (c) => {
+    // `r.fields` porta la forma della funzione anche quando le righe sono
+    // ZERO: senza il conteggio qui sotto questa prova resta verde pure se la
+    // chiamante non vede niente, e allora misura la firma invece dei dati
+    // (misurato col Task 3 portando in `asOperator` una sessione morta).
+    const { columns, quante } = await asOperator(VERA_AUTH, async (c) => {
       const r = await c.query('select * from list_auth_accounts() limit 1')
-      return r.fields.map((f) => f.name)
+      return { columns: r.fields.map((f) => f.name), quante: r.rowCount }
     })
     expect(columns).toEqual(['id', 'email'])
+    expect(quante).toBe(1)
   })
 
   // ⚠ discriminating: the guard that stops `security definer` handing
@@ -47,6 +53,17 @@ describe('account directory', () => {
       (await c.query('select id from list_auth_accounts()')).rowCount,
     )
     expect(n).toBe(0)
+  })
+
+  // La gemella positiva di quella sopra: stessa imbracatura, stesso account,
+  // stessa chiamata, con la riga ATTIVA. Un `toBe(0)` è soddisfatto anche da
+  // una sessione morta o da una voce trasposta in EMAIL_DI, e allora la prova
+  // di sopra misurerebbe l'imbracatura rotta invece di `is_active`.
+  it('returns the accounts to that same operator once she is active again', async () => {
+    const n = await asOperator(ALESSANDRA_AUTH, async (c) =>
+      (await c.query('select id from list_auth_accounts()')).rowCount,
+    )
+    expect(n).toBeGreaterThanOrEqual(4)
   })
 
   it('is not callable at all by an unauthenticated visitor', async () => {

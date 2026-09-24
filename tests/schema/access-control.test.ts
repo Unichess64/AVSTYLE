@@ -44,6 +44,11 @@ describe('access control', () => {
     expect(n).toBe(0)
   })
 
+  // La gemella positiva di questa è `lets an active, linked operator read the
+  // operators`, due prove sopra: stessa imbracatura, stessa query, un account
+  // che invece È operatrice. Senza di lei questo `toBe(0)` resterebbe verde
+  // anche con l'imbracatura rotta — misurato col Task 3 portando in
+  // `asOperator` una sessione morta.
   it('shows nothing to an authenticated account that is not an operator', async () => {
     const n = await asOperator(OUTSIDER_AUTH, async (c) => (await c.query('select id from operator')).rowCount)
     expect(n).toBe(0)
@@ -53,6 +58,16 @@ describe('access control', () => {
     await asOwner((c) => c.query('update operator set is_active = false where id = $1', [ALESSANDRA]))
     const n = await asOperator(ALESSANDRA_AUTH, async (c) => (await c.query('select id from operator')).rowCount)
     expect(n).toBe(0)
+  })
+
+  // La gemella positiva di quella sopra, e l'unica prova che esercita la
+  // sessione di ALESSANDRA: stessa imbracatura, stesso account, stessa query,
+  // con la riga ATTIVA. Il `toBe(0)` di sopra è soddisfatto anche da una
+  // sessione morta o trasposta, e allora misurerebbe l'imbracatura rotta
+  // invece di `is_active`.
+  it('lets that same operator read once she is active again, with the same harness', async () => {
+    const n = await asOperator(ALESSANDRA_AUTH, async (c) => (await c.query('select id from operator')).rowCount)
+    expect(n).toBe(3)
   })
 
   it('does not recurse on the operator policy itself', async () => {

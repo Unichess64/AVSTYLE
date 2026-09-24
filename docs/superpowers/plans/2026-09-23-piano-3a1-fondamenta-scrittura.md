@@ -47,7 +47,7 @@ Valgono per **ogni** task; non si ripetono task per task.
 | File | Responsabilità |
 |---|---|
 | `supabase/migrations/0013_invii_e_cancellate.sql` | tabelle `invio` e `visita_cancellata`, helper `app.versione`, `app.apri_invio`, `app.chiudi_invio`, trigger che registra le visite cancellate |
-| `supabase/migrations/0014_sessione_viva.sql` | `app.is_active_operator()` con il controllo della sessione, riscrittura delle 13 politiche con `(select …)` |
+| `supabase/migrations/0014_sessione_viva.sql` | `app.is_active_operator()` con il controllo della sessione, riscrittura delle 15 politiche con `(select …)` |
 | `supabase/migrations/0015_chiusura_sessioni.sql` | trigger su `operator` che chiude le sessioni, funzione `public.chiudi_sessioni(uuid)` |
 | `supabase/migrations/0016_salva_visita.sql` | `public.stato_visita`, `public.salva_visita` |
 | `supabase/migrations/0017_sposta_e_cancella.sql` | `public.sposta_visita_a`, `public.cancella_visita` |
@@ -916,15 +916,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `tests/schema/sessione-viva.test.ts`
 
 **Interfaces:**
-- Consuma: `app.is_active_operator()` (0001), le 13 politiche di `public`, e da Task 2 `asOperator`,
+- Consuma: `app.is_active_operator()` (0001), le 15 politiche di `public`, e da Task 2 `asOperator`,
   `asOperatorSenzaSessione`, `sessioneDi`, `dimenticaSessioni`, `rinnovoRiesce`.
-- Produce: `app.is_active_operator()` con il controllo della sessione; le 13 politiche riscritte nella forma
+- Produce: `app.is_active_operator()` con il controllo della sessione; le 15 politiche riscritte nella forma
   `(select app.is_active_operator())`.
 
 **Perché `(select …)`:** una funzione `security definer` non viene mai messa in linea; senza il `select` la funzione —
 e ora la ricerca in `auth.sessions` — girerebbe **a ogni riga**.
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/sessione-viva.test.ts
@@ -1057,14 +1057,14 @@ describe('forma delle politiche', () => {
 
 *(15 e non 13: il Task 1 ne ha aggiunte due, su `invio` e `visita_cancellata`.)*
 
-- [ ] **Passo 2: esegui e verifica che falliscano**
+- [x] **Passo 2: esegui e verifica che falliscano**
 
 Run: `npx vitest run tests/schema/sessione-viva.test.ts`
 Atteso: rosse *«non lascia leggere un token la cui sessione non esiste»*, *«non lascia scrivere…»*, *«smette di far
 leggere appena la sessione sparisce…»* e *«avvolge il predicato in un select…»*. Le altre tre sono già verdi: sono i
 controlli positivi che rendono le prime capaci di fallire.
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0014_sessione_viva.sql
@@ -1178,7 +1178,8 @@ create policy visita_cancellata_lettura on visita_cancellata
   for select using ((select app.is_active_operator()));
 ```
 
-I tredici nomi sono stati **verificati sul catalogo il 23 settembre 2026** e sono esattamente quelli dell'elenco qui
+I **quindici** nomi — 13 di `0001`-`0012` più `invio_lettura` e `visita_cancellata_lettura` del Task 1 — sono stati
+**ricontati sul catalogo il 24 settembre 2026** e sono esattamente quelli dell'elenco qui
 sopra (`appointment_access`, `appointment_slot_read` — che è `for select` —, `client_access`, `exception_day_access`,
 `exception_range_access`, `operator_access`, `operator_service_access`, `salon_closure_access`,
 `salon_settings_access`, `service_access`, `service_category_access`, `visit_access`,
@@ -1189,7 +1190,7 @@ inesistente fallisce a metà:
 node -e "const{Client}=require('pg');const c=new Client('postgresql://postgres:postgres@127.0.0.1:54322/postgres');c.connect().then(()=>c.query(\"select c.relname, p.polname, p.polcmd from pg_policy p join pg_class c on c.oid=p.polrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' order by 1,2\")).then(r=>{console.table(r.rows);return c.end()})"
 ```
 
-- [ ] **Passo 4: scrivi la migrazione di rientro, FUORI dalle migrazioni**
+- [x] **Passo 4: scrivi la migrazione di rientro, FUORI dalle migrazioni**
 
 ```sql
 -- supabase/rientro/0014_rientro_sessione_viva.sql
@@ -1215,12 +1216,12 @@ $$;
 -- alter table public.operator disable trigger zz_chiudi_sessioni;
 ```
 
-- [ ] **Passo 5: applica ed esegui le prove**
+- [x] **Passo 5: applica ed esegui le prove**
 
 Run: `npx supabase db reset && npx vitest run tests/schema/sessione-viva.test.ts`
 Atteso: 8 verdi.
 
-- [ ] **Passo 6: esegui TUTTA la suite e adatta le prove che cadono**
+- [x] **Passo 6: esegui TUTTA la suite e adatta le prove che cadono**
 
 Run: `npm test`
 
@@ -1258,7 +1259,7 @@ it('fa vedere le clienti a un operatrice attiva, con la stessa imbracatura', asy
 
 Scrivi nel resoconto **quante** prove hai adattato e **quante prove positive gemelle** hai aggiunto.
 
-- [ ] **Passo 7: sonde di mutazione**
+- [x] **Passo 7: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -1268,7 +1269,7 @@ Scrivi nel resoconto **quante** prove hai adattato e **quante prove positive gem
 | 3b | in una politica qualsiasi, togli il `(select …)` dal solo `with check` | la stessa — se resta verde, la `where` è tornata in `and` |
 | 4 | fai restituire `false` al primo `exists` | ogni prova positiva |
 
-- [ ] **Passo 8: gate e commit**
+- [x] **Passo 8: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
