@@ -199,13 +199,33 @@ export async function resetData(): Promise<void> {
     await c.query(`
       do $$
       begin
-        if to_regclass('public.operator') is not null then
-          update operator set is_active = true, auth_user_id = case name
-            when 'Vera'       then '00000000-0000-4000-8000-000000000001'::uuid
-            when 'Annalisa'   then '00000000-0000-4000-8000-000000000002'::uuid
-            when 'Alessandra' then '00000000-0000-4000-8000-000000000003'::uuid
-          end;
-        end if;
+        if to_regclass('public.operator') is null then return; end if;
+        -- Il ripristino va per ID, non per NOME. Con \`case name\` e nessun
+        -- \`else\`, una riga il cui nome era stato cambiato da una scrittura
+        -- COMMESSA riceveva \`auth_user_id = NULL\` e restava così: misurato il
+        -- 24/09/2026, 61 prove rosse su 14 file, e persistenti fino al db reset
+        -- successivo, perché il veleno sta nel database e non nel processo.
+        -- \`asOperatorCommit\` (Task 2) allarga questa superficie da zero a una
+        -- sessantina di punti del piano.
+        -- \`color\` e \`sort_order\` NON si toccano di proposito: li possiede la
+        -- migrazione (il Task 10 li riscrive), e le prove che li cambiano li
+        -- rimettono nel proprio \`finally\`.
+        update operator set name = v.nome, is_active = true, auth_user_id = v.conto
+          from (values
+            ('10000000-0000-4000-8000-000000000001'::uuid, 'Vera',
+             '00000000-0000-4000-8000-000000000001'::uuid),
+            ('10000000-0000-4000-8000-000000000002'::uuid, 'Annalisa',
+             '00000000-0000-4000-8000-000000000002'::uuid),
+            ('10000000-0000-4000-8000-000000000003'::uuid, 'Alessandra',
+             '00000000-0000-4000-8000-000000000003'::uuid)
+          ) as v(id, nome, conto)
+         where operator.id = v.id;
+        -- Un'operatrice in più, committata da una prova la cui pulizia è
+        -- fallita, fa arrossire access-control, che si aspetta tre nomi.
+        delete from operator where id not in (
+          '10000000-0000-4000-8000-000000000001',
+          '10000000-0000-4000-8000-000000000002',
+          '10000000-0000-4000-8000-000000000003');
       end $$;
     `)
   })

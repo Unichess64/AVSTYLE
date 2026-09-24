@@ -1,6 +1,11 @@
 // tests/schema/sessioni-imbracatura.test.ts
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  ALESSANDRA,
+  ALESSANDRA_AUTH,
+  ANNALISA,
+  ANNALISA_AUTH,
+  VERA,
   VERA_AUTH,
   asOperator,
   asOperatorCommit,
@@ -157,4 +162,55 @@ describe('imbracatura con sessioni vere', () => {
       await expect(preparaAccountLocali()).rejects.toThrow(/solo sul database locale/)
     })
   })
+
+  // Il ripristino del ruolo andava per NOME: una scrittura commessa che cambiava
+  // un nome lasciava `auth_user_id = NULL` per sempre, e con esso 61 prove rosse
+  // su 14 file fino al db reset successivo (dalla revisione del Task 2).
+  const USA_E_GETTA = '10000000-0000-4000-8000-0000000000f9'
+
+  it('resetData ripristina il ruolo per id, anche dopo che un nome è stato cambiato e commesso', async () => {
+    try {
+      await inquinaEControlla()
+    } finally {
+      // Pulizia esplicita, come la convenzione che la revisione del piano ha
+      // imposto al Task 4 (suo reperto 13): se questa prova cade a metà, una
+      // quarta operatrice COMMESSA farebbe arrossire access-control in un ALTRO
+      // file, e il sintomo sarebbe lontanissimo dalla causa.
+      await asOwner(async (c) => {
+        await c.query('delete from operator where id = $1', [USA_E_GETTA])
+        await c.query("update operator set name = 'Vera' where id = $1", [VERA])
+      })
+    }
+  })
+
+  async function inquinaEControlla(): Promise<void> {
+    await asOwner(async (c) => {
+      await c.query("update operator set name = 'SPORCA' where id = $1", [VERA])
+      await c.query(
+        "insert into operator (id, name, color, sort_order) values ($1, 'Usa e getta', '#000000', 9)",
+        [USA_E_GETTA],
+      )
+    })
+    // La gemella che rende capace di fallire l'asserzione qui sotto: se
+    // l'inquinamento non fosse avvenuto, il ripristino non proverebbe nulla.
+    const sporche = await asOwner(async (c) => {
+      const r = await c.query<{ n: string }>(
+        "select count(*) as n from operator where name in ('SPORCA', 'Usa e getta')",
+      )
+      return Number(r.rows[0].n)
+    })
+    expect(sporche).toBe(2)
+
+    await resetData()
+
+    const ruolo = await asOwner(async (c) => {
+      const r = await c.query('select id, name, is_active, auth_user_id from operator order by name')
+      return r.rows
+    })
+    expect(ruolo).toEqual([
+      { id: ALESSANDRA, name: 'Alessandra', is_active: true, auth_user_id: ALESSANDRA_AUTH },
+      { id: ANNALISA, name: 'Annalisa', is_active: true, auth_user_id: ANNALISA_AUTH },
+      { id: VERA, name: 'Vera', is_active: true, auth_user_id: VERA_AUTH },
+    ])
+  }
 })
