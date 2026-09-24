@@ -534,7 +534,7 @@ scrive i claim a mano (`tests/helpers/db.ts:40-42`) e non ha `session_id`: con l
 proprietario e poi ne conta la cancellazione **riproduce** il codice invece di interrogarlo. Con l'accesso vero,
 quello che si misura è l'effetto: il rinnovo del token fallisce, e una lettura dà zero righe.
 
-- [ ] **Passo 1: prepara gli account locali all'accesso — nelle FIXTURE, non in `seed.sql`**
+- [x] **Passo 1: prepara gli account locali all'accesso — nelle FIXTURE, non in `seed.sql`**
 
 ⛔ **`supabase/seed.sql` non si tocca.** Il design §8.5 lo vieta: `[db.seed]` è attivo
 (`supabase/config.toml:65-67`) e `supabase db reset --linked` eseguirebbe quel file **contro il progetto ospitato**,
@@ -604,7 +604,7 @@ CLI rifiuterebbe come chiave duplicata.
 sign_in_sign_ups = 300
 ```
 
-- [ ] **Passo 2: scrivi l'aiuto che accede davvero**
+- [x] **Passo 2: scrivi l'aiuto che accede davvero**
 
 ```ts
 // tests/helpers/sessioni.ts
@@ -683,7 +683,7 @@ export async function rinnovoRiesce(sessione: Sessione): Promise<boolean> {
 }
 ```
 
-- [ ] **Passo 3: fai passare l'imbracatura dalla sessione**
+- [x] **Passo 3: fai passare l'imbracatura dalla sessione**
 
 In `tests/helpers/db.ts`, sostituisci `inRole` e `asOperator` con queste versioni. `asAnon` e `asOwner` non cambiano.
 
@@ -783,7 +783,7 @@ export function asOperatorConSessione<T>(
 }
 ```
 
-- [ ] **Passo 4: scrivi le prove dell'imbracatura**
+- [x] **Passo 4: scrivi le prove dell'imbracatura**
 
 ```ts
 // tests/schema/sessioni-imbracatura.test.ts
@@ -868,7 +868,7 @@ describe('imbracatura con sessioni vere', () => {
 })
 ```
 
-- [ ] **Passo 5: esegui e verifica**
+- [x] **Passo 5: esegui e verifica**
 
 Run: `npx supabase db reset && npx vitest run tests/schema/sessioni-imbracatura.test.ts`
 Atteso: 7 verdi. Le due prove su commit e rollback sono la coppia che rende visibile la differenza: se passano
@@ -876,14 +876,14 @@ tutte e due, chi esegue i Task 5–8 sa quale aiuto usare. Se l'accesso dà **50
 `preparaAccountLocali()` (colonne testuali a NULL o riga in `auth.identities`); se dà **400**, la password non è
 quella. Se dà **429**, il limite locale di accessi non è stato alzato (Passo 1).
 
-- [ ] **Passo 6: esegui TUTTA la suite**
+- [x] **Passo 6: esegui TUTTA la suite**
 
 Run: `npm test`
 Atteso: **il conteggio del gate precedente, più le prove aggiunte dai Task 1 e 2**. Misuralo e scrivilo, non
 copiarlo da qui. La sessione è in più nei claim, ma nessuna regola la guarda ancora: se qualcosa diventa rosso, il
 difetto è nell'imbracatura, non nel database.
 
-- [ ] **Passo 7: gate e commit**
+- [x] **Passo 7: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler

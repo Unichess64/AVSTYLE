@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { sessioneDi } from './sessioni'
 
 // A `date` column (OID 1082) is parsed by node-postgres into a JS Date at
 // LOCAL midnight; converting it back with toISOString() returns the PREVIOUS
@@ -31,14 +32,19 @@ async function inRole<T>(
   role: 'authenticated' | 'anon',
   authUid: string | null,
   fn: (c: pg.Client) => Promise<T>,
+  sessionId?: string,
 ): Promise<T> {
   const client = await connect()
   try {
     await client.query('begin')
     if (authUid !== null) {
       // set_config BEFORE switching role: the claims GUC must be writable.
+      // session_id: dalla chiusura immediata (design 3a §4.7)
+      // app.is_active_operator() chiede che la sessione esista ancora, e un
+      // claim scritto a mano senza session_id renderebbe VERDE ogni prova
+      // negativa per la ragione sbagliata.
       await client.query("select set_config('request.jwt.claims', $1, true)", [
-        JSON.stringify({ sub: authUid, role }),
+        JSON.stringify({ sub: authUid, role, session_id: sessionId }),
       ])
     }
     await client.query(`set local role ${role}`)
@@ -49,9 +55,69 @@ async function inRole<T>(
   }
 }
 
-/** The application role, as the given operator's account. Rolls back. */
-export function asOperator<T>(authUid: string, fn: (c: pg.Client) => Promise<T>) {
-  return inRole('authenticated', authUid, fn)
+/**
+ * The application role, as the given operator's account, with a REAL session.
+ *
+ * **Non** controlla che la sessione sia viva e **non** riaccede da solo: un
+ * riaccesso automatico renderebbe verdi per il motivo sbagliato tutte le prove
+ * che chiudono una sessione e poi guardano che cosa succede con quel token
+ * (misurato: tre prove nominate di questo piano). Quando una prova chiude una
+ * sessione, chiama `dimenticaSessioni()` in coda, e usa
+ * `asOperatorConSessione` per la parte negativa.
+ */
+export async function asOperator<T>(authUid: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  const sessione = await sessioneDi(authUid)
+  return inRole('authenticated', authUid, fn, sessione.sessionId)
+}
+
+/**
+ * Come asOperator, ma COMMETTE.
+ *
+ * `inRole` chiude sempre con un rollback (è così da prima di questo piano), e
+ * va benissimo per le prove che leggono dentro la stessa callback. Ma ogni
+ * prova che scrive e poi rilegge da un'altra connessione — o che incatena due
+ * invii, o che si aspetta un messaggio sul canale — ha bisogno che la scrittura
+ * resti. La pulizia la fa `resetData()` nel beforeEach.
+ */
+export async function asOperatorCommit<T>(authUid: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  const sessione = await sessioneDi(authUid)
+  const client = await connect()
+  try {
+    await client.query('begin')
+    await client.query("select set_config('request.jwt.claims', $1, true)", [
+      JSON.stringify({ sub: authUid, role: 'authenticated', session_id: sessione.sessionId }),
+    ])
+    await client.query('set local role authenticated')
+    const esito = await fn(client)
+    await client.query('commit')
+    return esito
+  } catch (e) {
+    await client.query('rollback').catch(() => {})
+    throw e
+  } finally {
+    await client.end()
+  }
+}
+
+/** Come asOperator ma con una sessione che NON esiste: serve alle prove negative. */
+export function asOperatorSenzaSessione<T>(authUid: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  return inRole('authenticated', authUid, fn, '00000000-0000-4000-8000-0000000000ff')
+}
+
+/**
+ * Come asOperator ma con un `session_id` DATO, senza controllare che sia vivo e
+ * senza riaccedere.
+ *
+ * Serve alle prove che cancellano una sessione e poi vogliono vedere che cosa
+ * succede **con quel token**: `asOperator` riaccederebbe da solo e la prova
+ * negativa diventerebbe verde per il motivo sbagliato.
+ */
+export function asOperatorConSessione<T>(
+  authUid: string,
+  sessionId: string,
+  fn: (c: pg.Client) => Promise<T>,
+): Promise<T> {
+  return inRole('authenticated', authUid, fn, sessionId)
 }
 
 /** An unauthenticated visitor. Rolls back. */
