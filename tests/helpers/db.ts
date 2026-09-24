@@ -9,6 +9,27 @@ pg.types.setTypeParser(1082, (v: string) => v)
 export const DB_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 
+/**
+ * Rifiuta un database che non sia quello locale.
+ *
+ * `resetData()` tronca OGNI tabella di `public`, e `preparaAccountLocali()`
+ * riscrive le password con una stringa in chiaro nel repo. Il piano delle
+ * fondamenta suggerisce di leggere l'indirizzo da `npx supabase status` e di
+ * esportarlo in `DATABASE_URL`: se un giorno quell'indirizzo fosse quello del
+ * progetto ospitato, una passata di prove svuoterebbe il salone e cambierebbe
+ * le password delle operatrici vere. Il filtro `@example.test` della
+ * preparazione limita la seconda cosa, non la prima.
+ *
+ * È una guardia, non un recinto: riconosce l'indirizzo locale, non impedisce
+ * ogni forma di inganno. Serve a fermare l'errore distratto, che è il caso
+ * reale (dalla revisione del Task 2).
+ */
+export function esigiDatabaseLocale(url: string = process.env.DATABASE_URL ?? DB_URL): void {
+  if (!/@(127\.0\.0\.1|localhost|\[::1\])[:/]/.test(url)) {
+    throw new Error(`le prove scrivono solo sul database locale: DATABASE_URL è ${url}`)
+  }
+}
+
 // Operator row ids, fixed by the seed migration (spec D30).
 export const VERA = '10000000-0000-4000-8000-000000000001'
 export const ANNALISA = '10000000-0000-4000-8000-000000000002'
@@ -156,6 +177,7 @@ export async function asOwner<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
  * later task asserts on, and truncating it would empty it.
  */
 export async function resetData(): Promise<void> {
+  esigiDatabaseLocale()
   await asOwner(async (c) => {
     await c.query(`
       do $$

@@ -8,7 +8,7 @@
 // I token si riusano: il GoTrue locale limita gli accessi (`sign_in_sign_ups`
 // in supabase/config.toml: 30 per intervallo di default, alzato a 300 per
 // questa suite), e 81 prove che accedono una per una supererebbero il default.
-import { asOwner } from './db'
+import { asOwner, esigiDatabaseLocale } from './db'
 
 const AUTH_URL = process.env.SUPABASE_AUTH_URL ?? 'http://127.0.0.1:54321/auth/v1'
 const ANON_KEY =
@@ -27,6 +27,9 @@ let preparati = false
 export const PASSWORD_PROVA = 'prova-3a-1'
 
 export async function preparaAccountLocali(): Promise<void> {
+  // prima di `preparati`: una guardia che si salta al secondo giro non è una
+  // guardia, ed è anche l'unico modo di renderne verificabile il collegamento.
+  esigiDatabaseLocale()
   if (preparati) return
   await asOwner(async (c) => {
     await c.query(
@@ -48,6 +51,14 @@ export async function preparaAccountLocali(): Promise<void> {
         where email like '%@example.test'`,
       [PASSWORD_PROVA],
     )
+    // Su GoTrue v2.196.0 questa riga NON serve: misurato il 24/09/2026
+    // togliendo l'insert e azzerando auth.identities con un db reset, la suite
+    // resta verde (277) con 24 accessi riusciti e zero identità, e rispondono
+    // 200 anche `grant_type=refresh_token` e `GET /user`. Resta perché il piano
+    // la prescrive e perché una versione futura di GoTrue potrebbe tornare a
+    // pretenderla: l'insert è idempotente e costa una volta per passata. Ciò
+    // che invece SERVE sono i coalesce qui sopra: togliendoli, 96 prove su 15
+    // file falliscono con 500 «Database error querying schema».
     await c.query(
       `insert into auth.identities
          (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
@@ -99,6 +110,14 @@ export async function sessioneDi(authUid: string): Promise<Sessione> {
   const email = EMAIL_DI[authUid]
   if (!email) throw new Error(`nessuna email nota per ${authUid}`)
   const nuova = await accedi(email)
+  // La sessione deve essere DI questo account. Senza questo controllo una voce
+  // sbagliata in EMAIL_DI è muta per sempre: mutando l'estranea in
+  // vera@example.test, le cinque prove che si aspettano zero righe restano
+  // verdi girando con la sessione di Vera — misurato dalla revisione del
+  // Task 2, zero rosse anche con la chiusura immediata accesa.
+  if (nuova.userId !== authUid) {
+    throw new Error(`EMAIL_DI sbaglia: ${email} è l'account ${nuova.userId}, non ${authUid}`)
+  }
   cache.set(authUid, nuova)
   return nuova
 }

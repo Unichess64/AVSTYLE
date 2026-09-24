@@ -1224,9 +1224,19 @@ Atteso: 8 verdi.
 
 Run: `npm test`
 
-Atteso: **rosso**, all'incirca 57 prove su 81 (misura del terzo giro di revisione). Ogni rossa è una prova che entrava
-senza sessione: ora `asOperator` gliela dà, quindi le rosse che restano sono quelle che usano `inRole` per vie
-traverse, o che si aspettavano di NON vedere righe. Per ciascuna:
+Atteso: **verde**, non rosso — ⚠︎ **corretto il 24 settembre 2026, dalla revisione del Task 2.** La previsione
+«rosso, all'incirca 57 prove su 81» era della misura del terzo giro, quando l'imbracatura scriveva i claim a mano: il
+**Task 2 l'ha già smentita per misura**. Con questa funzione applicata al database, la suite dà **zero rosse**
+(misurato su un banco usa-e-getta: 20 file, 277 verdi; togliendo il secondo `exists` il banco dà 3 rosse sulle tre
+prove negative di questo task, quindi la funzione è davvero accesa). Le prove entrano già tutte con una sessione vera:
+non c'è nessun pezzo da raccogliere.
+
+⚠︎ **Che non cada niente NON ti esonera dall'obbligo qui sotto, ed è il punto più fragile di tutto il piano.** Questo
+passo non serve più ad adattare le rosse: serve a mettere una **gemella positiva** accanto a ogni prova negativa, e
+quella gemella è l'unico presidio che resta. Misurato nella revisione del Task 2: con le sessioni di un'operatrice
+cancellate e la cache non svuotata, una prova negativa generica (`expect(righe).toEqual([])`) resta **VERDE** e solo la
+gemella positiva arrossisce. Quindi censisci le prove negative che questa migrazione rende sensibili alla sessione e
+dàgliela, una per una. Per ciascuna:
 
 - se è una prova **positiva** (si aspetta righe o una scrittura riuscita) → deve tornare verde con `asOperator`;
 - se è una prova **negativa** (si aspetta il vuoto) → **accanto** le va messa una prova positiva della stessa
@@ -4995,7 +5005,7 @@ trigger per istruzione, anche attraverso la cascata di chiave esterna; la soglia
 | 12 | La prova «tiene fuori anon» misurava «nessun claim», non «anon» | Task 3: transazione esplicita |
 | 13 | Il Task 4 cancellava un'operatrice e ne creava una quarta, entrambe committate: `access-control` si aspetta tre nomi | Task 4: operatrice usa e getta e pulizia in `finally` |
 | 14 | Il Task 4 cambiava colore e ordine di Annalisa per sempre, e il Task 10 li asserisce | Task 4: ripristino in `finally` |
-| 15 | La cache dei token restava avvelenata dopo ogni chiusura di sessione, e le prove successive del file diventavano rosse o vuote | Task 2: `asOperator` controlla che la sessione sia viva; `dimenticaSessioni()` dove serve |
+| 15 | La cache dei token restava avvelenata dopo ogni chiusura di sessione, e le prove successive del file diventavano rosse o vuote | Task 2: `dimenticaSessioni()` dove serve. ⚠︎ **Corretta il 24/09/2026:** questa casella diceva anche «`asOperator` controlla che la sessione sia viva», che contraddice il corpo del Task 2 e la riga del bloccante 2 qui sotto — il riaccesso automatico è stato **tolto** perché uccideva tre prove negative, e `asOperator` non controlla niente. Chi legge la vecchia formula lo «ripristina» |
 | 16 | L'audit del `search_path` cercava `search_path=` invece di `search_path=""`: rosso per sempre | Task 9, con `app.touch_updated_at` dichiarata invece che nascosta |
 | 17 | Le prove `OUTSIDER-WRITE` passavano per il motivo sbagliato (elenco vuoto) o erano rosse (esito `non_trovata` senza errore), e usavano costanti mai definite | Task 9: file proprio, dati veri, asserzione sull'**effetto**, e la decisione sulla guardia esplicita portata all'orchestratrice |
 
