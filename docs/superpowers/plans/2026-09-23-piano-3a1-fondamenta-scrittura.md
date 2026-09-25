@@ -5890,3 +5890,194 @@ toglie ad `anon` quel grant per difetto: toltolo, arrossiscono **3** prove.
 - **Non** sono state riscritte le due prove di `access-control` e `account-directory` per presidiare `is_active` anche
   con una sessione catturata prima: la scelta è lasciata a chi esegue il Task 5, con l'avvertimento in testa al task.
 - Nessuna anticipazione del Task 5.
+
+## Appendice — Esecuzione del Task 5 e revisione (25 settembre 2026)
+
+Scritta da chi ha eseguito il Task 5, dopo due revisioni indipendenti avversariali **in parallelo** — una **empirica**
+(proprietaria esclusiva del database e di Vitest) e una **a secco** (sola lettura, senza Vitest, che consegna ipotesi
+falsificabili con il comando che le proverebbe e l'esito in numeri). Sostituisce il resoconto di chat: **la chat del
+Task 6 legge questa**, e legge anche l'avvertimento messo in testa al Task 6.
+
+**Consegnato in due commit:** `79574fe` (consegna) e `970b68c` (remediation). Il messaggio di `79574fe` **non è stato
+riscritto con `--amend`**: è l'indice dei due rapporti di revisione. Le sue tre affermazioni false sono corrette in una
+**`git note`** su quel commit (`git log --notes`; ⚠︎ **non viaggia** con un `git push` normale).
+
+**Gate finale a `970b68c`, in serie:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **23 file,
+351 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+`tests/schema/salva-visita.test.ts` ha **31 prove**: 21 dal Passo 1 del piano, 2 dal Passo 5, 4 sui permessi, 4 dalla
+remediation.
+
+### ⚠︎ Il reperto che cambia il Task 6, e che le due revisioni hanno trovato da due lati diversi
+
+**Nessuna prova faceva il giro di ripresa.** Design 3a §4.4: dopo `modificata_altrove` la scheda «prende lo stato
+corrente e le sue versioni, che diventano quelle di partenza». Tutte le prove ripartivano invece da ciò che
+`salva_visita` aveva restituito. Misurato sulla consegna, suite intera per ognuna:
+
+| Mutazione dentro `stato_visita` / `v_correnti` | Alla consegna | Dopo la remediation |
+|---|---|---|
+| `'versione', app.versione(a.updated_at)` → costante | **0 rosse su 347** | **2** |
+| `'operatrice', a.operator_id, 'servizio', a.service_id` → `null, null` | **0 rosse su 347** | **1** |
+| via `order by a.id` da `v_correnti` | **0 rosse su 347** | **1** |
+
+Erano i tre campi che non servono a **mostrare** la visita ma a **riscriverla**, e non avevano nessun lettore.
+⚠︎ **Al Task 6 i consumatori di `stato_visita` passano da uno a tre**, e le dieci prove del suo Passo 1 asseriscono
+`esito` e le righe del database: `stato` non compare in nessuna. Senza il giro, il presidio nascerebbe morto in tre
+punti invece che in uno.
+
+**L'`order by` si uccide sull'asse dell'INSERIMENTO, non dell'aggiornamento.** La revisione empirica non era riuscita a
+costruire il danno: gli UPDATE sono HOT, il `ctid` cambia ma l'indice punta al puntatore vecchio e la scansione
+conserva l'ordine. Creando invece gli appuntamenti in ordine di `id` **decrescente**, l'ordine fisico è l'inverso di
+quello degli id e un salvataggio conforme al contratto rimbalza. Gli id vengono da `crypto.randomUUID()` sul telefono
+(§4.4): l'ordine in cui la scheda crea i blocchi non ha **nessuna** relazione con quello dei loro id.
+
+### Il contratto di `p_attesi` era implicito, ed è stato scritto (spec revisione 15)
+
+Il confronto della regola 6 è un `is distinct from` fra due array `jsonb`, cioè **posizionale**, dove la spec diceva
+«insieme». Misurato:
+
+| `p_attesi` | esito |
+|---|---|
+| gli stessi elementi in ordine invertito | `modificata_altrove` |
+| `stato.appuntamenti` così com'è (**sei** chiavi) | `modificata_altrove` |
+| proiettato su `{id, versione}` e ordinato per `id` | `salvata` |
+
+**Decisione:** tenere il confronto posizionale e **scrivere** il contratto (spec §4.1 regola 6, revisione 15), perché
+quella è già la forma in cui `salva_visita` restituisce `appuntamenti`. Tre prove lo piantano; **renderlo insiemistico
+le fa arrossire**, ed è voluto — chi lo cambia deve togliere anche il capoverso dalla spec, invece di lasciare i due
+documenti a contraddirsi.
+
+### Sette asserzioni erano inerti, e la riparazione naturale era sbagliata
+
+Sette asserzioni «non ha scritto niente» leggono **dopo** un rollback: rileggono ciò che il setup ha committato, non
+ciò che la funzione ha fatto. Misurato: **tolte tutte e sette, la suite resta a 27 verdi**; e la sonda 8b dà le
+**stesse due rosse anche senza di loro**, perché a presidiare era l'eccezione al commit.
+
+⚠︎ **Spostarle dentro la callback non le salva:** l'atomicità di una transazione PostgreSQL non è falsificabile da una
+prova così, perché è una proprietà del motore e non del codice consegnato. Sono state **annotate** per quello che sono
+— documentano l'esito atteso — e al loro posto è nata una prova **viva** su ciò che il codice decide davvero: *«un
+invio fallito lascia il codice libero, e lo stesso codice salva al secondo tentativo»*. Vale perché `app.apri_invio`
+gira **dentro** la transazione di chi chiama: una registrazione in transazione autonoma sopravviverebbe
+all'annullamento e l'operatrice non potrebbe più né salvare né far dire a «Controlla» che cos'è successo.
+La sonda 8b passa da **2 a 3 rosse**: l'annotazione non ha disarmato niente (rimisurata prima e dopo, come impone la
+trappola dell'irrobustimento).
+
+### Le sonde, con il numero di rosse MISURATO
+
+Le prime quattordici sulla consegna, **rimisurate una per una dalla revisione empirica** con `db reset` + suite intera:
+**tredici su quattordici tornano**, e la sola che scosta lo fa nella direzione che rafforza la tesi.
+
+| # | Mutazione | Rosse | Nota |
+|---|---|---|---|
+| 1 letterale | `apri_invio` dopo l'insert della cliente | **9** (8 collaterali) | ⚠︎ la consegna diceva 8/7: **falso**, corretto nella `git note` |
+| 1 ristretta | insert della cliente prima di `apri_invio` | **2** | la prova nuova + *la regola 11…* |
+| 2 | via il confronto sull'insieme | **3** | |
+| 3 | via il confronto sulla versione della visita | **1** | 0 prima della prova aggiunta dal Passo 5 |
+| 4 | cancellazioni prima di aggiornamenti/inserimenti | **1** | |
+| 5 | via `v_insieme_cambia` | **1** | |
+| 6 | via `is distinct from` dall'UPDATE | **1** | |
+| 7 | via i due riesami dopo gli UPDATE | **1** | messaggio ricevuto: `new row violates row-level security policy for table "appointment"` |
+| 8 | via `set constraints … deferred` | **0** | dichiarato dal piano; presidio al Task 11 |
+| 8b | via `set constraints … immediate` | **2 → 3** | la terza è la prova viva della remediation |
+| 9 | via il controllo sugli id di un'altra visita | **1** | |
+| 10 | via la guardia `app.is_active_operator()` | **0** | **senza vittime ma NON equivalente**: vedi sotto |
+| — | via `and o.is_active` da `0014` | **2** | `access-control` + `account-directory`, **nessuna** di questo file |
+| — | sonda 3 senza la precondizione asserita | **1** (invariata) | l'irrobustimento **non** disarma |
+| R1 | versione degli appuntamenti in `stato_visita` → costante | **0 → 2** | chiusa dalla remediation |
+| R2 | `operatrice`/`servizio` in `stato_visita` → null | **0 → 1** | chiusa dalla remediation |
+| R3 | via `order by a.id` da `v_correnti` | **0 → 1** | chiusa dalla remediation |
+| — | via `order by a.id` da **`stato_visita`** | **0** | **equivalente per contratto**: il chiamante deve ordinare comunque |
+
+**La sonda 10 è senza vittime ma non equivalente.** Misurato con `OUTSIDER_AUTH` e sessione vera, togliendo la guardia:
+in **modifica** arriva `esito = non_trovata` — un esito di dominio, che la scheda tradurrebbe in «questa visita non
+esiste più» —, in **creazione** un `42501` dalla politica su `visit`; la stessa chiamata come Vera dà `salvata`, quindi
+il banco sa distinguere. Il presidio è la prova OUTSIDER-WRITE del **Task 9**.
+
+### Che cosa il Task 5 ha corretto del piano
+
+1. **Il rimedio prescritto per la sonda 3 non funziona.** Il piano ordina «una prova che cambia solo la data da
+   un'altra sessione»: misurato, `visit_date` cascata su `appointment.appointment_date` (`0004:26-29`) e il trigger
+   `appointment_touch` ne alza le versioni, quindi l'insieme differisce comunque e quella prova **resta verde** con la
+   mutazione. La revisione empirica l'ha **riscritta da zero** e confermato. La prova consegnata usa `client_id`.
+   ⚠︎ La ragione scritta nella consegna («l'unico campo che…») era **più stretta del vero**: anche
+   `update visit set visit_date = visit_date` alza la versione della visita senza toccare gli appuntamenti, perché
+   `visit_touch` è incondizionato (`0004:52-53`).
+2. **La sonda 1 letterale è sovradeterminata.** Spostare `apri_invio` dopo l'insert della cliente lo porta anche dopo
+   le `chiudi_invio` delle regole 3-6, che sollevano `P0003`: 9 rosse, 8 collaterali. Ristretta a «la cliente si scrive
+   prima del codice» dà 2 rosse.
+3. **Il Passo 4 attende «21 verdi (19 delle tre sezioni, più due)».** Le `it(` sono 21, ma le tre sezioni ne contengono
+   già 21: le due nominate a parte stanno **dentro** `registro degli invii`. Il totale torna, la scomposizione no.
+
+### La decisione sulle due prove di concorrenza e `is_active`
+
+Presa per misura e scritta nel file, non lasciata implicita. Togliendo `and o.is_active` da `app.is_active_operator()`
+le rosse sono **2**, e sono `access-control` e `account-directory`: **nessuna prova di questo file**. Le due prove di
+concorrenza presidiano le regole 2, 5, 6 e 11, **non** `is_active`. La prima strada del piano — riaprire una sessione
+viva dopo la disattivazione — **non è praticabile in questa forma**: lo scrittore fissa i claim con
+`set_config(..., true)` prima di mettersi in coda, e la disattivazione committata cancella tutte le sessioni
+dell'account, compresa quella che i suoi claim nominano (argomentato, non misurato). **Non** è stato applicato
+l'irrobustimento alle due prove di `access-control`/`account-directory`: al Task 4 quel gesto faceva scendere le loro
+rosse da 2 a 1.
+
+### Reperti aperti, con il danno misurato (nessuno bloccante)
+
+1. **`set constraints … immediate` non è eseguito sui cinque ritorni anticipati**, quindi il vincolo resta differito
+   per il resto della transazione. Misurato: in una transazione con una chiamata riuscita seguita da una che esce su
+   `esiste_gia`, un `insert` che collide **non** dà errore all'istruzione e il `23505` arriva al **COMMIT**, dove §4.3
+   passo 8 non sa più a quale chiamata attribuirlo. **Irraggiungibile oggi** (PostgREST: una chiamata per transazione)
+   e **non esercitato dal Task 11**, la cui quinta prova fa due chiamate entrambe riuscite — ⚠︎ la consegna del Task 5
+   affermava il contrario. Avvertimento messo in testa al Task 11.
+2. **`P0003` e `22023` viaggiano fuori dall'elenco di errori** di §4.1 e §4.3 passo 8, insieme a `23502` e `22P02` da
+   un `p_appuntamenti` malformato: per contratto un elenco vuoto darebbe oggi «Non so se è stata salvata» invece del
+   proprio messaggio. Scritto nella spec (§4.1, revisione 15) come **aperto, da chiudere prima del 3a-2**.
+3. **Il blocco della regola 2 sugli appuntamenti non è presidiato**: togliendo l'intera riga `perform 1 … for update`,
+   **0 rosse su 347**. Le due prove di concorrenza bloccano la riga della *visita* e quella della *cliente*, mai un
+   appuntamento. Argomentato (non misurato): il blocco sulla visita, che precede, serializza comunque i due scrittori.
+   ⚠︎ La riga è copiata **parola per parola** nelle due funzioni del Task 6: là avrà tre copie e zero presìdi.
+4. **`case when v.id is null then null` in `stato_visita` è irraggiungibile**: la `from … where v.id = p_visita` non
+   produce righe, e una funzione `language sql` restituisce NULL da sé. Non è un difetto, è una riga che un lettore
+   futuro potrebbe credere portante. Lo stesso vale per `case when v_registrato = 'annullato' …`, che è un'identità.
+   Il ramo che **consuma** il NULL dentro `salva_visita` (`if v_stato is null`) invece è vivo: togliendolo → **1 rossa**.
+5. **Nessun audit permanente su `pg_proc.proacl`**: `catalogue-audit.test.ts` enumera `pg_class.relacl` e filtra le
+   funzioni su `prosecdef`, quindi le due funzioni nuove — `invoker` — non sono viste da nessun audit. Presidiate da
+   quattro prove scritte a mano, che la revisione a secco ha verificato capaci di fallire (togliendo il
+   `revoke … from public, anon`: 2 rosse attese; togliendo il solo `grant … to authenticated`: **0**, perché
+   l'`alter default privileges` di Supabase lo concede comunque). Lo stringimento è del **Task 9**.
+6. **`salva_visita` non è presidiata sotto `40P01` né con più di due appuntamenti in modifica.** Misurato dalla
+   revisione empirica che **si comporta correttamente** in tutti e due i casi (due chiamate incrociate: A `salvata`,
+   B `40P01`, nessuna scrittura a metà; quattro appuntamenti insieme: `salvata`). Comportamento corretto e **non
+   presidiato**: nessuna delle due forme è in suite.
+
+### Punti deboli dichiarati che la misura ha SMENTITO
+
+Servono alla prossima revisione quanto i reperti: sono quattro ipotesi plausibili e false.
+
+- **«Il metodo delle sonde senza rilancio verde intermedio contamina i numeri»**: 13 su 14 rimisurate in isolamento
+  tornano. Lo `shasum` sul file più il `db reset` in testa a ogni sonda sono bastati.
+- **«`attendiBlocco` con 5 s è fragile»**: tempo vero per arrivare al blocco **9 ms e 12 ms**, margine 400-550×.
+- **«Nessuna prova pianta che `client_id` non cascata sugli appuntamenti»**: è piantato dalla precondizione asserita.
+  La revisione empirica ha installato dal vivo un trigger che alza `appointment.updated_at` al cambio di `client_id` →
+  **1 rossa**, ed è proprio quella prova. Il guasto sarebbe rumoroso.
+- **«La quinta prova del Task 11 esercita i ritorni anticipati»**: no, le sue due chiamate finiscono entrambe `salvata`.
+
+### Trappole di processo, confermate e nuove
+
+1. ⚠︎ **Il ripristino di un file non ripristina il database.** Ripreso in flagrante durante questa remediation: file
+   ripristinato per `shasum`, suite rossa, e la causa era la funzione mutata ancora viva nel database. Dopo ogni
+   ripristino di una migrazione serve un `db reset` **prima** di rimisurare.
+2. **Una revisione a secco può confermare a lettura un numero falso.** La consegna diceva «8 rosse» per la sonda 1
+   letterale, la revisione a secco lo ha **verificato al singolo** contando le prove che raggiungono un ritorno
+   anticipato, e la misura ne ha date **9**. Due letture concordi battute da una misura sola: è la ragione per cui la
+   revisione si partiziona in empirica e a secco, e non si fa a due letture.
+3. **Un reperto che due revisioni trovano da lati diversi è il reperto vero.** La a secco è arrivata al giro di ripresa
+   dal **contratto** (`p_attesi` posizionale, forma di `stato_visita`); l'empirica dalla **mutazione** (tre campi senza
+   lettore). Una prova sola le chiude tutte e due.
+
+### Che cosa NON è stato fatto, per decisione dell'orchestratrice
+
+- I sei reperti aperti qui sopra restano aperti, con il danno misurato accanto.
+- **Non** è stato reso insiemistico il confronto della regola 6: la decisione è di tenerlo posizionale e scrivere il
+  contratto, perché cambiarlo tocca anche il Task 6 e la forma di ritorno di `salva_visita`.
+- **Non** è stato presidiato il blocco della regola 2 sugli appuntamenti (reperto 3): dichiarato, e ripetuto in testa
+  al Task 6.
+- **Non** sono state cancellate le sette asserzioni inerti: annotate.
+- **Non** è stato anticipato l'audit su `pg_proc.proacl` (Task 9) né alcuna parte del Task 6.
