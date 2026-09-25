@@ -5992,6 +5992,25 @@ in **modifica** arriva `esito = non_trovata` — un esito di dominio, che la sch
 esiste più» —, in **creazione** un `42501` dalla politica su `visit`; la stessa chiamata come Vera dà `salvata`, quindi
 il banco sa distinguere. Il presidio è la prova OUTSIDER-WRITE del **Task 9**.
 
+### ⚠︎ Tre affermazioni del messaggio di `79574fe` sono FALSE
+
+Corrette in una `git note` su quel commit, e ripetute **qui** perché una nota non si vede su GitHub e non arriva a chi
+clona: serve `git fetch origin refs/notes/commits:refs/notes/commits` e poi `git log --notes`. Chi legge il messaggio
+di `79574fe` sul sito vede ancora la versione sbagliata. Non è stato usato `--amend` perché quel SHA è l'indice dei
+due rapporti di revisione.
+
+| Nel messaggio di `79574fe` | Misurato | Chi l'ha trovata |
+|---|---|---|
+| «la sonda 1 letterale … **8** rosse di cui **7** collaterali» | **9 rosse, 8 collaterali** (due misure identiche) | revisione empirica. ⚠︎ La revisione **a secco** aveva *confermato* l'8 contandolo a lettura: due letture concordi battute da una misura |
+| «le 21 del piano, più **tre** dal Passo 5 e **tre** sui permessi» | **21 + 2 + 4** | tutte e due le revisioni, indipendentemente. Il totale 27 tornava per compenso |
+| «l'**unico** campo che cambia la versione della visita lasciando intatte quelle degli appuntamenti è `client_id`» | **falso**: `visit_touch` è un BEFORE UPDATE di riga incondizionato (`0004:52-53`), quindi anche `update visit set visit_date = visit_date` lo fa — ed è l'istruzione che `salva_visita` usa già a `0016:280` | revisione a secco, a lettura |
+
+La prima e la terza non cambiano nulla di ciò che il codice fa: la tesi della sonda 1 regge **più forte** di come era
+scritta, e la prova sulla sonda 3 resta valida — era la *ragione* a essere più stretta del vero. La seconda era un
+errore di conteggio senza conseguenze sul codice. **Nessuna delle tre ha richiesto una riga di codice**, e sono qui
+perché il piano usa i numeri delle appendici come indice, e due volte — al Task 3 — un numero falso ha generato una
+correzione che ne conteneva altri due.
+
 ### Che cosa il Task 5 ha corretto del piano
 
 1. **Il rimedio prescritto per la sonda 3 non funziona.** Il piano ordina «una prova che cambia solo la data da
