@@ -6,6 +6,7 @@ import {
   OUTSIDER_AUTH,
   VERA,
   VERA_AUTH,
+  asAnon,
   asOperator,
   asOperatorCommit,
   asOwner,
@@ -238,5 +239,99 @@ describe('public.chiudi_sessioni', () => {
       return r.rows[0].p
     })
     expect(dopo).toBe(prima)
+  })
+
+  // ⚠︎ Aggiunta dalla revisione (reperto R2, trovato da tutte e due le
+  // revisore indipendentemente). In ogni altra prova di questo file `quante`
+  // vale 1, quindi l'intero contratto «dice quante ne ha chiuse» — il numero
+  // che il pulsante del 3c mostra all'operatrice — non era misurato da
+  // nessuno: misurato, un `perform …; return 1` costante dentro
+  // `app.chiudi_sessioni_di` lasciava la suite intera verde, 0 rosse su 317.
+  //
+  // `accedi` due volte, non `sessioneDi`: la cache di `sessioneDi` ne
+  // restituirebbe una sola. L'asserzione sui due `sessionId` diversi è la
+  // precondizione, ASSERITA e non raccontata — se GoTrue riusasse la stessa
+  // sessione, il `toBe(2)` qui sotto misurerebbe l'imbracatura invece della
+  // funzione.
+  it('dice quante sessioni ha chiuso davvero, anche quando sono più di una', async () => {
+    const una = await accedi('annalisa@example.test')
+    const due = await accedi('annalisa@example.test')
+    expect(una.sessionId).not.toBe(due.sessionId)
+    expect(await vive(ANNALISA_AUTH)).toBe(2)
+
+    const quante = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const r = await c.query<{ n: number }>('select chiudi_sessioni($1) as n', [ANNALISA])
+      return r.rows[0].n
+    })
+    expect(quante).toBe(2)
+    expect(await vive(ANNALISA_AUTH)).toBe(0)
+  })
+
+  // ⚠︎ Aggiunta dalla revisione (reperto R5). La prova qui sopra guarda solo
+  // `anon` e solo la funzione di `public`: misurato, togliendo le due funzioni
+  // di `app` dall'elenco del `revoke` di 0015 arrossiscono ZERO prove su 317.
+  // In PostgreSQL l'EXECUTE va a PUBLIC per difetto, e `0001_access_control`
+  // concede `usage on schema app` ad `anon` e ad `authenticated`: senza quella
+  // riga chiunque potrebbe chiamare `app.chiudi_sessioni_di(<un auth uid
+  // qualunque>)` scavalcando tutte e tre le guardie di `public.chiudi_sessioni`.
+  //
+  // Oggi il percorso NON è raggiungibile dall'app — `supabase/config.toml`
+  // espone a PostgREST i soli schemi `public` e `graphql_public` — quindi è
+  // difesa in profondità. Ma era difesa in profondità NON presidiata, e il
+  // resto del repo presidia ogni EXECUTE per nome di ruolo.
+  it('e nemmeno le due funzioni di app sono eseguibili, da nessuno dei due ruoli', async () => {
+    const privilegi = await asOwner(async (c) => {
+      const r = await c.query<{ f: string; ruolo: string; puo: boolean }>(
+        `select f, ruolo, has_function_privilege(ruolo, f, 'EXECUTE') as puo
+           from unnest(array['app.chiudi_sessioni_di(uuid)', 'app.chiudi_sessioni_operatrice()']) as f,
+                unnest(array['anon', 'public', 'authenticated']) as ruolo
+          order by f, ruolo`,
+      )
+      return r.rows
+    })
+    // Sei righe, non «nessuna riga»: un elenco vuoto passerebbe qualunque
+    // asserzione sul contenuto. Un nome di ruolo inesistente solleva 42704,
+    // quindi la riga non è inerte (misurato il 18/09/2026, availability-window).
+    expect(privilegi).toHaveLength(6)
+    expect(privilegi.filter((x) => x.puo)).toEqual([])
+  })
+
+  // La gemella POSITIVA delle due negative qui sopra, nella forma che il resto
+  // del repo usa: senza di lei un `has_function_privilege` che tornasse falso
+  // per una ragione qualunque — una firma sbagliata, un ruolo che non esiste —
+  // renderebbe verdi tutte le negative senza misurare niente.
+  //
+  // ⚠︎ Il `toBe(true)` su `authenticated` NON presidia il `grant execute … to
+  // authenticated` di 0015: quel grant è RIDONDANTE. Misurato il 24/09/2026:
+  // commentandolo la suite resta verde, 320 su 320, perché in `public` esiste
+  // un `alter default privileges` di Supabase — da DUE concedenti, `postgres` e
+  // `supabase_admin` — che concede EXECUTE ad `anon`, `authenticated` e
+  // `service_role` su OGNI funzione nuova. La mutazione è quindi EQUIVALENTE,
+  // non muta, e vale per tutte le funzioni del repo, non solo per queste.
+  // La riga che porta davvero è il `revoke … from public, anon`, che è ciò che
+  // toglie ad `anon` quel grant per difetto: toltala, qui arrossiscono 3 prove.
+  it('ma authenticated PUÒ eseguire public.chiudi_sessioni, e anon prende 42501, non zero righe', async () => {
+    const codice = await asAnon(async (c) => {
+      try {
+        await c.query('select public.chiudi_sessioni($1)', [ANNALISA])
+        return 'nessun errore'
+      } catch (e) {
+        return pgCode(e)
+      }
+    })
+    expect(codice).toBe('42501')
+
+    const privilegi = await asOwner(async (c) => {
+      const r = await c.query<{ anon: boolean; pubblico: boolean; autenticato: boolean }>(
+        `select has_function_privilege('anon', $1, 'EXECUTE') as anon,
+                has_function_privilege('public', $1, 'EXECUTE') as pubblico,
+                has_function_privilege('authenticated', $1, 'EXECUTE') as autenticato`,
+        ['public.chiudi_sessioni(uuid)'],
+      )
+      return r.rows[0]
+    })
+    expect(privilegi.anon).toBe(false)
+    expect(privilegi.pubblico).toBe(false)
+    expect(privilegi.autenticato).toBe(true)
   })
 })

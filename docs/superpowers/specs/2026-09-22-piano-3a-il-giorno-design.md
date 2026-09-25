@@ -1,7 +1,11 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 13 — registra in §4.7 ciò che l'esecuzione del **Task 4** del piano 3a-1 ha consegnato e misurato il
+**Revisione:** 14 — corregge in §4.7 due cose che la revisione 13 aveva scritto sulla fede di chi ha eseguito il
+Task 4 e che le due revisioni avversariali del 24 settembre 2026 hanno **misurato** false o incomplete: i tre trigger
+sono una **scelta**, non una necessità (un trigger solo lascia la suite verde), e il rientro `0014` neutralizza
+`app.is_active_operator()` e i tre trigger ma **non** `public.chiudi_sessioni`, che passa comunque da
+`delete from auth.sessions` — limite ora dichiarato accanto a S4-4. Nient'altro è cambiato; **revisione 13** — registra in §4.7 ciò che l'esecuzione del **Task 4** del piano 3a-1 ha consegnato e misurato il
 24 settembre 2026: i **tre** trigger di chiusura e la funzione `public.chiudi_sessioni(uuid)` esistono, e il rientro
 `supabase/rientro/0014_rientro_sessione_viva.sql` li neutralizza con tre righe **non più commentate**, verificate a
 mano (tutte e tre rispondono `ALTER TABLE`, `pg_trigger.tgenabled` passa da `'O'` a `'D'`) — quindi il reperto
@@ -475,7 +479,13 @@ messaggi si perdono in silenzio: la prova di §8.2 verifica la **ricezione**.
   `zz_chiudi_sessioni_upd` (con `of is_active, auth_user_id`) e `zz_chiudi_sessioni_del`, e
   `public.chiudi_sessioni(uuid)`. Il confronto `is distinct from` sta **nel corpo** della funzione, non in una
   clausola `when`: è la strada che §4.7 lasciava al piano fra le due. Presidiata da
-  `tests/schema/chiusura-sessioni.test.ts`, 13 prove, e da nove sonde di mutazione eseguite.
+  `tests/schema/chiusura-sessioni.test.ts`, **16** prove, e da sonde di mutazione eseguite.
+  ⚠︎ **Corretto alla revisione 14:** avendo scelto il confronto nel corpo, i trigger sono tre **per scelta, non per
+  necessità** — la revisione ha misurato che un trigger solo,
+  `after insert or update of is_active, auth_user_id or delete`, lascia la suite intera verde. La ragione «tre perché
+  una clausola `when` non si dichiara insieme per INSERT e DELETE», scritta alla revisione 13, vale solo per la strada
+  che **non** è stata presa. **Reperto aperto e non presidiato:** i tre nomi sono inchiodati dal rientro, e fonderli o
+  rinominarli è invisibile alla suite — farebbe fallire il rientro con `42704`, riaprendo S4-4 in silenzio.
 - **Chiusura automatica.** Un trigger **AFTER** `security definer` (proprietaria `postgres`, `search_path = ''`) su
   `operator` che agisce solo se `is_active` o `auth_user_id` **cambiano davvero** (`is distinct from`): un cambio di
   `color` o di `sort_order` non chiude nulla. Un solo trigger con una clausola `when` su `OLD` e `NEW` non si può
@@ -1092,7 +1102,7 @@ Nessuno ha modificato file o scritto sul database.
 | R4C-5 | La funzione gemella permetteva il blocco di sé stessa; recupero della password dalla posta del telefono perso | coerenza, sicurezza | §4.7: la gemella rifiuta l'operatrice di chi chiama; premessa sull'email in D3-20 e §8.7 |
 | S4-2 | Accesso via link o codice email da un telefono con la posta aperta | sicurezza | premessa dichiarata, §4.7 e §8.7 |
 | S4-3 | Scollegamento e ricollegamento chiudevano le sessioni ma non cambiavano la password | sicurezza | superato: nessuna password automatica; procedura scritta |
-| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura. Riaperto alla revisione 12 perché la neutralizzazione dei **tre** trigger era ancora commentata — non poteva essere altrimenti, perché il Task 4 non li aveva creati. ✅ **CHIUSO alla revisione 13:** il Task 4 ha creato `zz_chiudi_sessioni_ins`, `_upd` e `_del`, e le tre righe del rientro sono scommentate e **verificate in esecuzione** il 24/09/2026 (script Node con `pg`, mai `psql`): tre `ALTER TABLE`, `tgenabled` da `'O'` a `'D'` |
+| S4-4 | Migrazione di rientro dentro `migrations/` si sarebbe applicata da sola; rientro incompleto | sicurezza | §4.7: fuori da `migrations/`, neutralizza anche i trigger, dichiara la riapertura. Riaperto alla revisione 12 perché la neutralizzazione dei **tre** trigger era ancora commentata — non poteva essere altrimenti, perché il Task 4 non li aveva creati. ✅ **CHIUSO alla revisione 13:** il Task 4 ha creato `zz_chiudi_sessioni_ins`, `_upd` e `_del`, e le tre righe del rientro sono scommentate e **verificate in esecuzione** il 24/09/2026 (script Node con `pg`, mai `psql`): tre `ALTER TABLE`, `tgenabled` da `'O'` a `'D'`. ⚠︎ **Limite dichiarato alla revisione 14:** il rientro copre due dei tre consumatori di `auth.sessions` — resta fuori `public.chiudi_sessioni`, che passa da `app.chiudi_sessioni_di`. Nello scenario per cui il rientro esiste, il pulsante «Chiudi tutte le sessioni» del 3c continuerebbe a fallire; è un guasto rumoroso su un passo che §4.7 dichiara comunque eseguibile dalla dashboard, quindi il reperto resta chiuso e il limite è scritto |
 | R4C-12 | §11 della rev. 4 dichiarava esauriti i reperti sulle decisioni: falso | coerenza | §11 riscritta |
 
 ### D.3 Minori — reggono

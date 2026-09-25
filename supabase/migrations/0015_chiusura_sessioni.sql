@@ -8,10 +8,22 @@
 -- inserimento di una riga già collegata a un account che aveva una sessione;
 -- cancellazione della riga.
 --
--- Tre trigger e non uno: una clausola WHEN che confronta OLD e NEW non si può
--- dichiarare insieme per INSERT e per DELETE. Il confronto `is distinct from`
--- è dentro la funzione, così un aggiornamento che riscrive gli stessi valori —
--- quello che resetData() fa a ogni prova — non chiude niente.
+-- Il confronto `is distinct from` è dentro la funzione, così un aggiornamento
+-- che riscrive gli stessi valori — quello che resetData() fa a ogni prova —
+-- non chiude niente. §4.7 lasciava la scelta fra una clausola WHEN su OLD e
+-- NEW, che davvero non si dichiara insieme per INSERT e per DELETE, e il
+-- confronto nel corpo: qui si è presa la seconda.
+--
+-- ⚠︎ E allora i trigger sono TRE per scelta, non per necessità. La versione
+-- consegnata il 24/09/2026 diceva «tre e non uno, perché una clausola WHEN non
+-- si dichiara insieme per INSERT e per DELETE»: è una ragione FALSA, perché in
+-- questo file una clausola WHEN non c'è. Misurato dalla revisione: un trigger
+-- solo, `after insert or update of is_active, auth_user_id or delete`, lascia
+-- la suite intera verde. Restano tre perché ognuno dichiara il proprio evento
+-- e perché `supabase/rientro/0014_rientro_sessione_viva.sql` li spegne per
+-- nome. ⚠︎ Coda velenosa dichiarata e NON presidiata: fonderli o rinominarli è
+-- invisibile alla suite e farebbe fallire il rientro con `42704`, riaprendo il
+-- reperto S4-4 in silenzio.
 --
 -- La cancellazione delle sessioni si porta via i token di aggiornamento
 -- (refresh_tokens_session_id_fkey, on delete cascade). I token con

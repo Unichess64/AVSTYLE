@@ -1785,6 +1785,39 @@ public.salva_visita(
 La risposta è sempre `{"esito": …}`, più `"visita"` e `"appuntamenti"` con le versioni nuove quando ha scritto, e
 `"stato"` con lo stato corrente quando l'esito è `modificata_altrove`.
 
+⚠︎⚠︎ **DA LEGGERE PRIMA DI SCRIVERE LE PROVE — il Task 4 ha cambiato che cosa significa disattivare un'operatrice.**
+Scritto il 24/09/2026 dalla revisione empirica del Task 4, che lo ha **misurato su un banco usa e getta** nella forma
+esatta delle due prove di concorrenza qui sotto.
+
+Da `0015_chiusura_sessioni.sql`, un `update operator set is_active = false` **committato cancella anche le sessioni**
+di quell'account. Conseguenza: **una sessione catturata PRIMA della disattivazione non distingue più «operatrice
+disattivata» da «sessione cancellata»** — `app.is_active_operator()` è falsa per tutte e due le ragioni, e la seconda
+arriva per prima.
+
+| scenario | righe prima | sessione viva dopo | righe dopo |
+|---|---|---|---|
+| consegnato (`and o.is_active` presente, trigger vivi) | 1 | 0 | 0 |
+| **mutato**: via `and o.is_active`, trigger vivi | 1 | 0 | **0** ← indistinguibile |
+| controllo: via `and o.is_active`, trigger **spenti** | 1 | 1 | **1** ← il banco sa arrossire |
+
+**Che cosa significa per queste due prove.** *«l operatrice disattivata mentre il salvataggio è in coda…»* e *«la
+regola 11 ferma la scrittura quando la visibilità cade DOPO i confronti»* catturano `sessioneDi(VERA_AUTH)` **prima**
+dell'`update operator set is_active = false`. Il commento del piano dice «riparte SENZA più i permessi» attribuendolo
+a `is_active`: **misurato, la causa vera è la sessione cancellata**, e il loro valore di presidio su `is_active` è
+**zero**. Presidiano la regola 2, la regola 6 e la regola 11 — che è il loro scopo — ma non `is_active`.
+
+⚠︎ **E l'irrobustimento naturale peggiora le cose.** Aggiungendo dentro `access-control > shows nothing to a
+deactivated operator` la precondizione asserita — cioè esattamente il gesto che la revisione del Task 3 ha imposto
+altrove — con `and o.is_active` tolto da `app.is_active_operator()` le rosse scendono **da 2 a 1**: la prova diventa
+sovradeterminata e smette di presidiare. **Non applicare qui quel gesto senza rimisurare.**
+
+Oggi `and o.is_active` è ancora presidiato, con **2 rosse** (`access-control > shows nothing to a deactivated
+operator` e `account-directory > returns nothing to a deactivated operator`), ma **solo per un accidente d'ordine** che
+il Task 4 ha creato: `resetData()` svuota la cache delle sessioni, quindi `asOperator` riaccede **dopo** la
+disattivazione e apre una sessione viva. Chi esegue il Task 5 decide: o queste due prove riaprono una sessione viva
+dopo la disattivazione, e allora tornano a presidiare `is_active`; oppure si dichiara nel loro commento che
+presidiano la sicurezza per riga e non `is_active`. **Non lasciarlo implicito.**
+
 - [ ] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
@@ -2193,6 +2226,10 @@ describe('registro degli invii', () => {
     dimenticaSessioni()
   })
 
+  // ⚠︎ Vedi l'avvertimento in testa a questo task: la sessione è catturata
+  // PRIMA della disattivazione, quindi da 0015 la causa vera è la sessione
+  // cancellata, non `is_active`. Questa prova presidia le regole 5 e 6, NON
+  // `is_active`.
   it('l operatrice disattivata mentre il salvataggio è in coda riceve non_trovata, mai salvata', async () => {
     // Misurato tre volte al quarto giro e tre al quinto: l'esito è
     // `non_trovata`, non un errore. Quando il blocco si libera, la fotografia
@@ -2254,6 +2291,8 @@ describe('registro degli invii', () => {
     expect((await statoDb()).appuntamenti.map((x) => x.s)).toEqual([120])
   })
 
+  // ⚠︎ Vedi l'avvertimento in testa a questo task: stessa forma, stessa
+  // conseguenza. Presidia la regola 11, NON `is_active`.
   it('la regola 11 ferma la scrittura quando la visibilità cade DOPO i confronti', async () => {
     // Misurato 3 volte su 3 al quinto giro. Il blocco NON è sulla visita ma
     // sulla riga della cliente: così `salva_visita` supera la regola 2 e la

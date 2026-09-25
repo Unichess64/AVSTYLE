@@ -18,11 +18,14 @@ as $$
 $$;
 
 -- E, se anche i trigger di chiusura sessioni falliscono per lo stesso motivo.
--- Sono TRE, non uno: un solo trigger con una clausola `when` su OLD e NEW non
--- si può dichiarare insieme per INSERT, UPDATE e DELETE (design 3a §4.7), e il
--- Task 4 li crea separati. Un rientro che ne nominasse uno solo, o che usasse
--- il nome al singolare, solleverebbe `42704 trigger does not exist` e
--- lascerebbe vivi tutti e tre — cioè lascerebbe `update operator` impossibile
+-- Sono TRE perché il Task 4 li ha creati separati, uno per evento. ⚠︎ NON
+-- perché fossero necessari: la versione del 24/09/2026 diceva «un solo trigger
+-- con una clausola `when` su OLD e NEW non si può dichiarare insieme per
+-- INSERT, UPDATE e DELETE», ma in `0015` una clausola `when` non c'è — il
+-- confronto sta nel corpo — e la revisione ha misurato che un trigger solo
+-- lascia la suite verde. Qui la forma a tre va comunque onorata alla lettera:
+-- un rientro che ne nominasse uno solo, o che usasse il nome al singolare,
+-- solleverebbe `42704 trigger does not exist` e lascerebbe vivi tutti e tre — cioè lascerebbe `update operator` impossibile
 -- proprio mentre la procedura «telefono perso» di §4.7 chiede di riattivare le
 -- colleghe (passi 3 e 4). La spec pretende che il rientro neutralizzi anche i
 -- trigger, e con queste tre righe VIVE il reperto S4-4 è CHIUSO: restavano

@@ -203,10 +203,24 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-# Alzata per la suite delle prove, che fa 24 accessi per passata — uno per
-# COPPIA account/file, non uno per file — perché l'isolamento dei moduli di
-# Vitest non condivide la cache dei token. Il valore di default, 30, la fa
-# fallire a metà con un 429.
+# Alzata per la suite delle prove. ⚠︎ Il numero scritto qui è stato sbagliato
+# due volte, e la seconda misura smentisce anche la ragione della prima.
+#
+# Erano 24 accessi per passata, uno per COPPIA account/file, perché
+# l'isolamento dei moduli di Vitest non condivide la cache dei token. Dal
+# Task 4 del piano 3a-1 (24/09/2026) `resetData()` chiama `dimenticaSessioni()`
+# a ogni `beforeEach`, quindi si accede per coppia account/PROVA: misurati in
+# auth.audit_log_entries, sono 126 per passata.
+#
+# ⚠︎ E questa chiave NON governa quegli accessi. Misurato dalla revisione:
+# tre passate consecutive, 378 accessi in 107 secondi, ZERO 429 e 320 prove
+# verdi tutte e tre. Nel CLI 2.117.0 `sign_in_sign_ups` arriva al GoTrue come
+# GOTRUE_RATE_LIMIT_OTP (verificato in `docker inspect` del contenitore auth), e
+# `POST /token?grant_type=password` non ci passa sotto. Il valore resta a 300
+# perché non fa danno e perché il default a 30 è stato visto fallire con un 429
+# prima del Task 2 — ma nessuno ha rimisurato QUALE chiamata fosse a fallire, e
+# la regola operativa «due passate per finestra di cinque minuti» che ne era
+# stata dedotta è falsa: non dedurla di nuovo da questo file.
 #
 # ⚠ NON è una chiave «solo locale». `supabase config push` porta al progetto
 # collegato ogni proprietà che questo file DICHIARA, e in esecuzione non
