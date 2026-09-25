@@ -1,7 +1,11 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 16 — **chiude la lacuna del contratto sugli errori**, aperta dalla revisione 15. Il difetto non era
+**Revisione:** 17 — dichiara `move_visit_to` **esente** dalla parte della regola 8 sugli aggiornamenti condizionali
+(§4.1), con la misura che lo obbliga e il prezzo che si paga: la regola 8 e il riesame della regola 11 non sono
+conciliabili con una WHERE sul solo `id`, e fra le due vince la 11. Scritta dopo le due revisioni avversariali
+dell'esecuzione del **Task 6** del piano 3a-1, che erano arrivate alla stessa divergenza da lati diversi;
+**revisione 16** — **chiude la lacuna del contratto sugli errori**, aperta dalla revisione 15. Il difetto non era
 l'elenco ma la sua **forma**: §4.3 passo 8 enumerava i codici che provano l'annullamento, e ogni funzione nuova che ne
 sollevava uno fuori elenco allargava la lacuna in silenzio. Il criterio è ora per **proprietà** — *un errore con un
 SQLSTATE prova l'annullamento, perché in PostgreSQL non esistono commit parziali* — e i sei codici restano come
@@ -235,6 +239,25 @@ visita e l'insieme atteso degli appuntamenti esistenti con la versione di ciascu
 (calcolati dall'app conservando gli scarti), la versione attesa della visita e l'insieme atteso con le versioni.
 L'insieme degli `id` di destinazione deve **coincidere** con l'insieme atteso. Regole 0, 2, 5, 6, 8, 9, 10, 11 di
 `save_visit`. Serve al trascinamento di un blocco che rappresenta tutta la visita (§5.1).
+
+⚠︎ **ESENTE dalla parte della regola 8 sugli aggiornamenti condizionali, dal 25/09/2026 (revisione 17), e con il
+prezzo scritto.** La regola 8 impone di aggiornare «solo gli appuntamenti che cambiano» perché aggiornare righe
+identiche alza le versioni e dà «modificata altrove» alle schede aperte delle colleghe. `move_visit_to` **non può**
+obbedirle: i suoi UPDATE hanno la WHERE sul solo `id` e sono seguiti dal riesame della **regola 11**, che legge zero
+righe toccate come «la riga non mi è più visibile». Misurato sul Task 5 del piano 3a-1 il 25/09/2026: aggiungendo
+`and v.visit_date is distinct from p_data` all'UPDATE sulla visita, uno spostamento **nello stesso giorno** — che
+§5.1 rende il caso normale, perché il trascinamento è **solo verticale** (D3-15) — tocca zero righe e solleva un
+**falso `42501`**; tre prove rosse su 373, e la sola che sposta a un altro giorno resta verde. Le due regole non sono
+conciliabili con una WHERE sul solo `id`, e fra le due vince la **11**, che difende da una scrittura falsamente
+riuscita.
+
+**Il prezzo, misurato:** uno spostamento alza la versione **anche** degli appuntamenti che restano dove sono, e
+quella della visita, anche quando nessun campo cambia davvero. Conseguenza: la scheda aperta di una collega su quella
+visita riceve `modificata_altrove` e si ridisegna (§4.4) anche per un blocco che non si è mosso. **Raggiungibile solo
+quando una destinazione coincide con la posizione attuale** — in un trascinamento di §5.1 tutti i blocchi si muovono
+insieme, quindi resta il rilascio a scarto zero. Chi un giorno volesse aggiungere l'`is distinct from` deve prima
+cambiare il riesame della regola 11, non solo la WHERE; e `delete_visit`, che non ha UPDATE, non è toccata da niente
+di tutto questo.
 
 **`delete_visit`** — con le regole 0, 2, 10 e 11, e con **una sola DELETE su `visit`** (la cascata di `appointment_visit_date_fk` porta via
 gli appuntamenti: cancellarli prima farebbe scattare `zz_delete_orphan_visit` e la DELETE sulla visita toccherebbe zero

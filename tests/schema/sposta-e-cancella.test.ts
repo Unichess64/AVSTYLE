@@ -60,6 +60,17 @@ const inizi = () =>
     return r.rows
   })
 
+/**
+ * Gli esiti registrati in `invio` per un codice. Restituisce l'ARRAY e non il
+ * primo valore: così la prova può asserire che la riga c'è ed è una sola, e un
+ * registro vuoto non passa per un esito sbagliato.
+ */
+const esitiDi = (cod: string) =>
+  asOwner(async (c) => {
+    const r = await c.query<{ e: string }>('select esito as e from invio where codice = $1', [cod])
+    return r.rows.map((x) => x.e)
+  })
+
 /** Le versioni come `p_attesi` le vuole: proiettate su {id, versione} e in ordine di id (spec §4.1 regola 6). */
 const proietta = (a: Appuntamento[]) =>
   a.map((x) => ({ id: x.id, versione: x.versione })).sort((p, q) => p.id.localeCompare(q.id))
@@ -323,6 +334,169 @@ describe('sposta_visita_a', () => {
       [A2, 160],
     ])
   })
+
+  // ⚠︎ IL REGISTRO DEGLI INVII NON AVEVA NESSUN LETTORE, ed è il reperto su cui
+  // le due revisioni avversariali del 25/09/2026 sono convergute da lati
+  // diversi — l'empirica dalla mutazione, l'a secco dal contratto.
+  //
+  // Misurato: falsificare ciò che queste due funzioni REGISTRANO in `invio`,
+  // lasciando giusto il valore che RESTITUISCONO, dava **0 rosse su 369** in
+  // tutte e tre le forme provate (registrare 'salvata' al posto di
+  // 'modificata_altrove'; 'salvata' al posto di 'cancellata'; 'non_trovata' al
+  // posto di 'gia_cancellata'). Nessuna prova della suite leggeva
+  // `invio.esito` dopo `sposta_visita_a` o `cancella_visita`.
+  //
+  // È l'UNICO ingresso su cui «Controlla» (§4.4, Task 7) decide fra le sue sei
+  // righe: il telefono che non ha ricevuto risposta non sa niente della visita,
+  // sa solo il proprio codice d'invio. Con l'esito falsificato, «Controlla»
+  // risponderebbe «✓ Risulta salvata» a un invio che non ha scritto una riga —
+  // riprodotto su banco usa e getta con i tre soli ingressi del Task 7.
+  it('registra nel registro degli invii lo stesso esito che restituisce', async () => {
+    const creata = await crea()
+    const cod1 = codice()
+    const salvata = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        cod1,
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }, { id: A2, inizio: 146 }]),
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+      ])
+      return x.rows[0].r
+    })
+    expect(salvata.esito).toBe('salvata')
+    expect(await esitiDi(cod1)).toEqual(['salvata'])
+
+    // E l'altro ramo: un invio che NON scrive niente non deve lasciare dietro
+    // un esito che dica il contrario.
+    const cod2 = codice()
+    const rimbalzata = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        cod2,
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 130 }, { id: A2, inizio: 150 }]),
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+      ])
+      return x.rows[0].r
+    })
+    expect(rimbalzata.esito).toBe('modificata_altrove')
+    expect(await esitiDi(cod2)).toEqual(['modificata_altrove'])
+  })
+
+  // ⚠︎ I DUE RAMI CHE NESSUNA PROVA ESERCITAVA. Misurato: cambiare
+  // `cancellata_altrove` in `non_trovata` dentro `sposta_visita_a` dava **0
+  // rosse su 369** — nessuna prova dava a questa funzione una visita cancellata
+  // né una mai esistita.
+  //
+  // I due esiti non sono intercambiabili: §4.1 dà a `cancellata_altrove` il
+  // messaggio «È stata cancellata da un'altra parte» e a `non_trovata` il
+  // ricontrollo dell'account di §4.3 passo 7, cioè «account chiuso, oppure
+  // questa visita non esiste più». Percorso raggiungibile: trascinare il blocco
+  // di una visita che una collega ha appena cancellato.
+  it('distingue una visita cancellata da una mai esistita', async () => {
+    const creata = await crea()
+    await asOperatorCommit(VERA_AUTH, (c) =>
+      c.query('select cancella_visita($1,$2,$3,$4)', [codice(), V1, creata.visita, JSON.stringify(creata.appuntamenti)]),
+    )
+    const cancellata = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        codice(),
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }, { id: A2, inizio: 146 }]),
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+      ])
+      return x.rows[0].r
+    })
+    expect(cancellata.esito).toBe('cancellata_altrove')
+
+    // La gemella che rende i due esiti distinguibili: stessa chiamata, ma su un
+    // id che non è MAI esistito e quindi non è fra le cancellate. Senza questa
+    // riga, i due rami potrebbero restituire lo stesso valore e la prova sopra
+    // resterebbe verde.
+    const maiEsistita = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        codice(),
+        '50000000-0000-4000-8000-0000000000fe',
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }]),
+        '2026-03-12T08:00:00.000000Z',
+        '[]',
+      ])
+      return x.rows[0].r
+    })
+    expect(maiEsistita.esito).toBe('non_trovata')
+  })
+
+  // ⚠︎ L'ALTRA META del contratto di `p_attesi`, che questo file USAVA senza
+  // PIANTARE: misurato, rendere insiemistico il confronto della regola 6 dentro
+  // 0017 dava **0 rosse su 369**, e togliere `order by a.id` da `v_correnti`
+  // nelle due copie nuove ne dava altre **0**. Le tre prove che lo piantano
+  // stanno tutte in `salva-visita.test.ts` e guardano solo 0016.
+  //
+  // L'asse su cui l'`order by` si uccide NON è l'aggiornamento — gli UPDATE
+  // sono HOT e l'indice conserva l'ordine — ma l'INSERIMENTO: gli id vengono da
+  // `crypto.randomUUID()` sul telefono (§4.4), quindi l'ordine in cui la scheda
+  // crea i blocchi non ha nessuna relazione con quello dei loro id.
+  it('tiene l ordine quando gli appuntamenti sono creati in ordine di id decrescente, e confronta l insieme in ordine di id', async () => {
+    const creata = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const r = await c.query<{ r: Risposta }>('select salva_visita($1,$2,$3,null,$4::date,$5,null,null) as r', [
+        codice(),
+        V1,
+        CLIENT_MARIA,
+        DAY_ONE,
+        // A2 PRIMA di A1: l'ordine fisico delle righe è l'inverso di quello
+        // degli id, ed è l'unica forma in cui l'`order by` morde.
+        JSON.stringify([
+          { id: A2, operatrice: ALESSANDRA, servizio: SERVICE_MASSAGE, inizio: 140, durata: 10 },
+          { id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 },
+        ]),
+      ])
+      return r.rows[0].r
+    })
+    // Precondizione asserita: la funzione restituisce comunque in ordine di id,
+    // altrimenti questa prova misurerebbe l'ordine di `salvata.appuntamenti`
+    // invece di quello di `v_correnti`.
+    expect(creata.appuntamenti!.map((a) => a.id)).toEqual([A1, A2])
+
+    // Prima metà: l'insieme atteso INVERTITO deve rimbalzare. Il confronto è un
+    // `is distinct from` fra array jsonb, quindi posizionale (spec §4.1 regola
+    // 6): chi lo rendesse insiemistico farebbe arrossire questa riga, ed è
+    // voluto — dovrebbe togliere anche il contratto dalla spec, invece di
+    // lasciare i due documenti a contraddirsi.
+    const invertito = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        codice(),
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }, { id: A2, inizio: 146 }]),
+        creata.visita,
+        JSON.stringify([...creata.appuntamenti!].reverse()),
+      ])
+      return x.rows[0].r
+    })
+    expect(invertito.esito).toBe('modificata_altrove')
+
+    // Gemella positiva: proiettato e ordinato, lo STESSO spostamento passa — ed
+    // è la riga che uccide la perdita dell'`order by` in `v_correnti`.
+    const ok = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const x = await c.query<{ r: Risposta }>('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        codice(),
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }, { id: A2, inizio: 146 }]),
+        creata.visita,
+        JSON.stringify([...creata.appuntamenti!].sort((p, q) => p.id.localeCompare(q.id))),
+      ])
+      return x.rows[0].r
+    })
+    expect(ok.esito).toBe('salvata')
+    expect((await inizi()).map((x) => x.s)).toEqual([126, 146])
+  })
 })
 
 describe('cancella_visita', () => {
@@ -489,6 +663,25 @@ describe('cancella_visita', () => {
       [A1, 120],
       [A2, 160],
     ])
+  })
+
+  // La gemella della prova omonima in `sposta_visita_a`: vedi là il commento
+  // lungo sul registro degli invii, il reperto su cui le due revisioni
+  // avversariali sono convergute. Qui i due esiti che nessun altro leggeva sono
+  // `cancellata` e `gia_cancellata` — e sono anche i due che la tabella delle
+  // sei righe di §4.4 non nomina, cosa che il Task 7 deve chiudere nella spec
+  // prima di scrivere 0018.
+  it('registra nel registro degli invii lo stesso esito che restituisce', async () => {
+    const creata = await crea()
+    const cod1 = codice()
+    const prima = await cancella(creata, cod1)
+    expect(prima.esito).toBe('cancellata')
+    expect(await esitiDi(cod1)).toEqual(['cancellata'])
+
+    const cod2 = codice()
+    const seconda = await cancella(creata, cod2)
+    expect(seconda.esito).toBe('gia_cancellata')
+    expect(await esitiDi(cod2)).toEqual(['gia_cancellata'])
   })
 })
 

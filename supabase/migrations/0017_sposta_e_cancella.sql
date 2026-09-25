@@ -81,6 +81,18 @@ begin
       using errcode = '22023';
   end if;
 
+  -- ⚠︎ QUESTO UPDATE È INCONDIZIONATO, ED È OBBLIGATO: non metterci un
+  -- `is distinct from` per obbedire alla lettera alla regola 8 di §4.1
+  -- («update di data e cliente solo se cambiano»). Misurato il 25/09/2026:
+  -- aggiungendo `and v.visit_date is distinct from p_data`, uno spostamento
+  -- NELLO STESSO GIORNO — che §5.1 rende il caso normale, perché il
+  -- trascinamento è solo verticale — tocca zero righe, e il riesame della
+  -- regola 11 qui sotto solleva un FALSO `42501: la visita non è più visibile a
+  -- chi scrive`. Tre prove rosse su 373, e la sola che sposta a un altro giorno
+  -- resta verde. Per questo la spec (§4.1, revisione 17) dichiara
+  -- `move_visit_to` ESENTE dalla parte della regola 8 sugli aggiornamenti
+  -- condizionali, e ne scrive il prezzo: uno spostamento alza la versione anche
+  -- degli appuntamenti che non si muovono.
   update public.visit v set visit_date = p_data where v.id = p_visita;
   get diagnostics v_toccate = row_count;
   if v_toccate <> 1 then
@@ -91,6 +103,9 @@ begin
     select (e ->> 'id')::uuid as id, (e ->> 'inizio')::smallint as inizio
     from jsonb_array_elements(p_destinazioni) e
   loop
+    -- Incondizionato per la stessa ragione dell'UPDATE sulla visita, qui
+    -- sopra: il riesame della regola 11 legge zero righe come «non mi è più
+    -- visibile», e un appuntamento che resta dov'era ne toccherebbe zero.
     update public.appointment a
        set start_cell = r.inizio, appointment_date = p_data
      where a.id = r.id and a.visit_id = p_visita;
