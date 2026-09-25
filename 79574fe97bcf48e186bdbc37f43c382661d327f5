@@ -1,0 +1,36 @@
+CORREZIONI al messaggio di questo commit, misurate dalle due revisioni
+avversariali del 25/09/2026 e applicate in `970b68c`. Nota e non `--amend`:
+questo SHA è già l'indice dei due rapporti di revisione.
+
+1. «La sonda 1 nella forma letterale … con 8 rosse di cui 7 collaterali».
+   FALSO nel numero, vero nella sostanza. Misurato due volte dalla revisione
+   empirica: 9 rosse, di cui 8 collaterali. Le otto sono le prove che
+   raggiungono un ritorno anticipato con `chiudi_invio` su un codice mai
+   aperto; la nona è la prova nuova. La tesi della sovradeterminazione regge
+   più forte di come è scritta.
+
+2. «27 prove nel file nuovo: le 21 del piano, più tre che il Passo 5 ha reso
+   necessarie e tre sui permessi». FALSA la scomposizione, giusto il totale
+   per compenso: sono 21 + 2 + 4. Le prove aggiunte dal Passo 5 sono DUE (la
+   sonda 1 e la sonda 3); quelle sui permessi sono QUATTRO. Rilevato da tutte
+   e due le revisioni, indipendentemente.
+
+3. «L'unico campo della visita che cambia la sua versione lasciando intatte
+   quelle degli appuntamenti è `client_id`». FALSO: `visit_touch` è un trigger
+   BEFORE UPDATE di riga incondizionato (`0004:52-53`), quindi anche
+   `update visit set visit_date = visit_date` alza `visit.updated_at` senza
+   far scattare la cascata — ed è l'istruzione che `salva_visita` usa già a
+   `0016:280`. La prova scritta resta valida; la ragione era più stretta del
+   vero.
+
+Restano confermate per misura, in questo stesso giro: che il rimedio del piano
+per la sonda 3 non funziona (la prova nella forma «cambia solo la data» è stata
+riscritta dalla revisione empirica e resta verde con la mutazione); che la
+sonda 7 riceve `new row violates row-level security policy for table
+"appointment"`; che la sonda 10 è senza vittime ma non equivalente; che
+`and o.is_active` è presidiato da due prove e da nessuna di questo file; e il
+gate (23 file / 347 verdi, 4 / 96, tsc 0).
+
+Smentito invece il punto debole n. 2 dichiarato nella consegna: la quinta prova
+del Task 11 NON esercita i ritorni anticipati, perché le sue due chiamate
+finiscono entrambe `salvata`.
