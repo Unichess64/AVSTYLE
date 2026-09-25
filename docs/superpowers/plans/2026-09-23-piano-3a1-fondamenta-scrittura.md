@@ -1818,7 +1818,7 @@ disattivazione e apre una sessione viva. Chi esegue il Task 5 decide: o queste d
 dopo la disattivazione, e allora tornano a presidiare `is_active`; oppure si dichiara nel loro commento che
 presidiano la sicurezza per riga e non `is_active`. **Non lasciarlo implicito.**
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/salva-visita.test.ts
@@ -2351,12 +2351,12 @@ describe('registro degli invii', () => {
 })
 ```
 
-- [ ] **Passo 2: esegui e verifica che falliscano**
+- [x] **Passo 2: esegui e verifica che falliscano**
 
 Run: `npx vitest run tests/schema/salva-visita.test.ts`
 Atteso: rosse con `42883 function salva_visita(...) does not exist`.
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0016_salva_visita.sql
@@ -2666,12 +2666,12 @@ Nel file scrivi `stato_visita` **prima** di `salva_visita`: non è un obbligo te
 nomina una funzione non ancora creata passa, e la chiamata funziona appena l'altra esiste (misurato) — ma si legge
 meglio.
 
-- [ ] **Passo 4: applica ed esegui**
+- [x] **Passo 4: applica ed esegui**
 
 Run: `npx supabase db reset && npx vitest run tests/schema/salva-visita.test.ts`
 Atteso: 21 verdi (19 delle tre sezioni, più la prova su `non_trovata` sotto blocco e quella sulla regola 11).
 
-- [ ] **Passo 5: sonde di mutazione**
+- [x] **Passo 5: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -2687,7 +2687,7 @@ Atteso: 21 verdi (19 delle tre sezioni, più la prova su `non_trovata` sotto blo
 | 9 | togli il controllo della regola 7 sugli id di un'altra visita | *«rifiuta un appuntamento che appartiene a un altra visita»* |
 | 10 | togli la guardia `app.is_active_operator()` in testa | *«risponde sempre 42501, mai un esito di dominio»* (Task 9), **e solo quella**: le due prove sull'effetto restano verdi perché la sicurezza per riga difende comunque — ed è esattamente la ragione per cui la guardia serve, cioè un messaggio univoco |
 
-- [ ] **Passo 6: gate e commit**
+- [x] **Passo 6: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
