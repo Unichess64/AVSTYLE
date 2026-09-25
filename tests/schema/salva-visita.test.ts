@@ -33,7 +33,19 @@ type Risposta = {
   esito: string
   visita?: string
   appuntamenti?: { id: string; versione: string }[]
-  stato?: { data: string; cliente: string; appuntamenti: { id: string; inizio: number }[] }
+  stato?: {
+    visita: string
+    data: string
+    cliente: string
+    appuntamenti: {
+      id: string
+      versione: string
+      operatrice: string
+      servizio: string
+      inizio: number
+      durata: number
+    }[]
+  }
 }
 
 const app1 = (id: string, inizio: number, operatrice = VERA, servizio = SERVICE_REFILL, durata = 12) => ({
@@ -139,9 +151,61 @@ describe('creazione', () => {
       }
     })
     expect(codiceErrore).toBe('23505')
+    // ⚠︎ Le due righe qui sotto NON sono il presidio di questa prova, e la
+    // revisione del 25/09/2026 lo ha misurato: tolte, la suite resta verde, e
+    // con `set constraints … immediate` tolto questa prova arrossisce lo stesso
+    // — perché il `23505` che slitta al commit fa fallire `asOperatorCommit`,
+    // non l'asserzione. Misurano l'atomicità della TRANSAZIONE, che è una
+    // proprietà di PostgreSQL, non del codice consegnato. Restano perché
+    // documentano l'esito atteso; il presidio vero è il codice d'errore sopra,
+    // che la sonda 8b uccide, e la prova sul codice d'invio riusabile qui
+    // sotto, che è l'unica cosa dello scenario che il codice decide davvero.
     const stato = await statoDb()
     expect(stato.visite).toHaveLength(1)
     expect(stato.appuntamenti).toHaveLength(1)
+  })
+
+  // ⚠︎ La prova VIVA che le due righe annotate sopra non erano. Design 3a §4.4:
+  // «se l'invio fallisce e annulla la transazione, il codice resta libero e
+  // “Controlla” lo brucia». Questo dipende da una scelta del codice — che
+  // `app.apri_invio` giri DENTRO la transazione di chi chiama — e non da
+  // PostgreSQL: una registrazione fatta in una transazione autonoma (dblink,
+  // o un `pragma` in un altro motore) sopravvivrebbe all'annullamento, il
+  // codice resterebbe `in_corso` per sempre e l'operatrice non potrebbe più
+  // né salvare né far dire a «Controlla» che cos'è successo.
+  it('un invio fallito lascia il codice libero, e lo stesso codice salva al secondo tentativo', async () => {
+    await asOperatorCommit(VERA_AUTH, (c) => salva(c, { appuntamenti: [app1(A1, 120)] }))
+    const cod = codice()
+    const codiceErrore = await asOperatorCommit(VERA_AUTH, async (c) => {
+      try {
+        await salva(c, {
+          codice: cod,
+          visita: '50000000-0000-4000-8000-0000000000b2',
+          cliente: CLIENT_LUCIA,
+          appuntamenti: [app1(A2, 200), app1(A3, 120)],
+        })
+        return 'nessun errore'
+      } catch (e) {
+        return pgCode(e)
+      }
+    })
+    expect(codiceErrore).toBe('23505')
+    // Il registro non conserva il codice bruciato a metà.
+    const registro = await asOwner(async (c) => {
+      const x = await c.query<{ e: string }>('select esito as e from invio where codice = $1', [cod])
+      return x.rows.map((y) => y.e)
+    })
+    expect(registro).toEqual([])
+    // Gemella positiva, ed è il punto: lo STESSO codice funziona ancora.
+    const r = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        codice: cod,
+        visita: '50000000-0000-4000-8000-0000000000b2',
+        cliente: CLIENT_LUCIA,
+        appuntamenti: [app1(A2, 200)],
+      }),
+    )
+    expect(r.esito).toBe('salvata')
   })
 
   it('crea la cliente nuova nella stessa transazione', async () => {
@@ -178,6 +242,13 @@ describe('creazione', () => {
       const x = await c.query<{ n: string }>('select count(*) as n from client where id = $1', [NUOVA_CLIENTE])
       return Number(x.rows[0].n)
     })
+    // ⚠︎ Stessa natura delle due righe annotate sopra: misurato il 25/09/2026,
+    // tolta questa asserzione la suite resta verde, e la sonda 8b fa arrossire
+    // questa prova comunque. L'atomicità è della transazione. Quello che il
+    // codice decide davvero — che la cliente nuova si scriva DOPO il codice
+    // d'invio — è presidiato dalla prova «non lascia la cliente nuova quando
+    // l invio è già bruciato», che gira su un invio già annullato e quindi
+    // COMMETTE.
     expect(quante).toBe(0)
   })
 
@@ -406,6 +477,171 @@ describe('modifica', () => {
         appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
         visitaAttesa: stato.visita,
         attesi: creata.appuntamenti,
+      }),
+    )
+    expect(ok.esito).toBe('salvata')
+  })
+
+  // ⚠︎ IL GIRO INTERO, dalla revisione del 25/09/2026. È la prova che mancava, e
+  // le due revisioni avversariali l'hanno trovata da due lati diversi.
+  //
+  // Design 3a §4.4: dopo `modificata_altrove` la scheda «prende lo stato
+  // corrente e le sue versioni, che diventano quelle di partenza». Nessuna
+  // prova faceva quel giro: tutte ripartivano da `creata.appuntamenti`, cioè
+  // dal valore che `salva_visita` aveva restituito, mai da `stato`.
+  //
+  // Conseguenza misurata sulla consegna: dentro `stato_visita` si potevano
+  // mettere a costante le VERSIONI degli appuntamenti (0 rosse su 347), e a
+  // null `operatrice` e `servizio` (0 rosse su 347). Sono i tre campi che non
+  // servono a MOSTRARE la visita ma a RISCRIVERLA, ed erano gli unici tre
+  // senza un lettore. Questa prova li legge tutti e tre.
+  //
+  // ⚠︎ Al Task 6 i consumatori di `stato_visita` passano da uno a tre
+  // (`sposta_visita_a` e `cancella_visita` restituiscono lo stesso `stato`):
+  // senza questa prova il presidio nascerebbe morto in tre punti invece che
+  // in uno.
+  it('il giro si chiude: dopo modificata_altrove la scheda riparte dallo stato e salva', async () => {
+    const creata = await crea()
+    // Una collega sposta un servizio. La scheda di Vera è ancora sulle versioni
+    // vecchie e il suo primo salvataggio deve rimbalzare.
+    await asOwner((c) => c.query('update appointment set start_cell = 160 where id = $1', [A2]))
+    const primo = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
+        visitaAttesa: creata.visita,
+        attesi: creata.appuntamenti,
+      }),
+    )
+    expect(primo.esito).toBe('modificata_altrove')
+
+    // La scheda si ridisegna da `stato`: è QUI che i tre campi muti vengono
+    // letti. `operatrice`, `servizio` e `durata` ricostruiscono i blocchi;
+    // `versione` e `stato.visita` diventano l'atteso del secondo invio.
+    const dallaScheda = primo.stato!.appuntamenti.map((a) => ({
+      id: a.id,
+      operatrice: a.operatrice,
+      servizio: a.servizio,
+      inizio: a.inizio,
+      durata: a.durata,
+    }))
+    expect(dallaScheda).toHaveLength(2)
+    // Gemella positiva delle asserzioni sul contenuto: senza, uno `stato` con
+    // i campi a null passerebbe ogni riga che segue.
+    expect(dallaScheda.find((x) => x.id === A2)).toEqual({
+      id: A2,
+      operatrice: ALESSANDRA,
+      servizio: SERVICE_MASSAGE,
+      inizio: 160,
+      durata: 10,
+    })
+
+    // ⚠︎ La PROIEZIONE su {id, versione} e l'ordine di `id` non sono un
+    // dettaglio di questa prova: sono il contratto di `p_attesi`. Vedi la prova
+    // qui sotto, che li pianta.
+    const attesi = primo
+      .stato!.appuntamenti.map((a) => ({ id: a.id, versione: a.versione }))
+      .sort((p, q) => p.id.localeCompare(q.id))
+
+    // Vera rifà la sua modifica sopra il lavoro della collega e stavolta passa.
+    const secondo = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [{ ...dallaScheda.find((x) => x.id === A1)!, inizio: 126 }, dallaScheda.find((x) => x.id === A2)!],
+        visitaAttesa: primo.stato!.visita,
+        attesi,
+      }),
+    )
+    expect(secondo.esito).toBe('salvata')
+    const stato = await statoDb()
+    expect(stato.appuntamenti.map((x) => x.s).sort((p, q) => p - q)).toEqual([126, 160])
+    // L'appuntamento della collega è ancora suo: il giro non gliel'ha tolto.
+    expect(stato.appuntamenti.find((x) => x.id === A2)!.op).toBe(ALESSANDRA)
+  })
+
+  // ⚠︎ L'ALTRA META del contratto: l'ordine lo deve tenere anche il DATABASE.
+  //
+  // `v_correnti` è costruito con `order by a.id` e confrontato con `p_attesi`,
+  // che il chiamante ordina per `id`. La revisione empirica ha misurato che
+  // togliere quell'`order by` dava 0 rosse su 347 e non è riuscita a costruire
+  // il danno, perché gli UPDATE sono HOT e l'indice conserva l'ordine.
+  //
+  // L'asse giusto non è l'aggiornamento: è l'INSERIMENTO. Gli id vengono da
+  // `crypto.randomUUID()` sul telefono (spec §4.4), quindi l'ordine in cui la
+  // scheda crea i blocchi non ha nessuna relazione con l'ordine dei loro id.
+  // Creando gli appuntamenti in ordine di id DECRESCENTE, l'ordine fisico
+  // delle righe è l'inverso di quello degli id, e senza `order by` un secondo
+  // salvataggio perfettamente conforme al contratto riceve `modificata_altrove`
+  // — misurato il 25/09/2026: verde sul consegnato, rossa con l'`order by`
+  // tolto. La riga è copiata parola per parola in `sposta_visita_a` e
+  // `cancella_visita` al Task 6.
+  it('tiene l ordine anche quando gli appuntamenti sono creati in ordine di id decrescente', async () => {
+    const creata = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, { appuntamenti: [app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10), app1(A1, 120)] }),
+    )
+    expect(creata.esito).toBe('salvata')
+    // Precondizione asserita: la funzione restituisce comunque in ordine di id,
+    // altrimenti questa prova misurerebbe l'ordine di `salvata.appuntamenti`
+    // invece di quello di `v_correnti`.
+    expect(creata.appuntamenti!.map((a) => a.id)).toEqual([A1, A2])
+    const attesi = [...creata.appuntamenti!].sort((p, q) => p.id.localeCompare(q.id))
+    const r = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
+        visitaAttesa: creata.visita,
+        attesi,
+      }),
+    )
+    expect(r.esito).toBe('salvata')
+    expect((await statoDb()).appuntamenti.map((x) => x.s).sort((p, q) => p - q)).toEqual([126, 140])
+  })
+
+  // ⚠︎ Pianta il CONTRATTO di `p_attesi`, che era implicito e che la revisione
+  // del 25/09/2026 ha misurato: il confronto della regola 6 è POSIZIONALE
+  // (`is distinct from` fra due array jsonb), non insiemistico. Quindi chi
+  // chiama deve proiettare `stato.appuntamenti` su {id, versione} — che ha SEI
+  // chiavi, non due — e ordinarlo per `id`.
+  //
+  // La spec §4.1 regola 6 parla di «insieme»: la decisione del 25/09/2026 è di
+  // tenere il confronto posizionale e SCRIVERE il contratto (spec §4.1,
+  // revisione 15), perché l'ordine di `id` è già quello che `salva_visita`
+  // restituisce in `appuntamenti`. Questa prova è ciò che rende la decisione
+  // reversibile in modo rumoroso: chi rendesse il confronto insiemistico la
+  // farebbe arrossire, e sarebbe costretto a togliere il contratto dalla spec
+  // invece di lasciare i due documenti a contraddirsi.
+  it('l insieme atteso si confronta in ordine di id, e non nella forma di stato_visita', async () => {
+    const creata = await crea()
+    const invertito = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
+        visitaAttesa: creata.visita,
+        attesi: [...creata.appuntamenti!].reverse(),
+      }),
+    )
+    expect(invertito.esito).toBe('modificata_altrove')
+
+    const stato = await asOperator(VERA_AUTH, async (c) => {
+      const x = await c.query<{ s: NonNullable<Risposta['stato']> }>('select stato_visita($1) as s', [V1])
+      return x.rows[0].s
+    })
+    const grezzo = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
+        visitaAttesa: stato.visita,
+        attesi: stato.appuntamenti,
+      }),
+    )
+    expect(grezzo.esito).toBe('modificata_altrove')
+
+    // Gemella positiva: proiettato e ordinato, lo STESSO salvataggio passa.
+    // Senza di lei le due righe sopra resterebbero verdi anche se
+    // `modificata_altrove` arrivasse per una ragione qualunque.
+    const proiettato = stato.appuntamenti
+      .map((a) => ({ id: a.id, versione: a.versione }))
+      .sort((p, q) => p.id.localeCompare(q.id))
+    const ok = await asOperatorCommit(VERA_AUTH, (c) =>
+      salva(c, {
+        appuntamenti: [app1(A1, 126), app1(A2, 140, ALESSANDRA, SERVICE_MASSAGE, 10)],
+        visitaAttesa: stato.visita,
+        attesi: proiettato,
       }),
     )
     expect(ok.esito).toBe('salvata')

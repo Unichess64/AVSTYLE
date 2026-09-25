@@ -23,6 +23,20 @@
 
 -- Lo stato corrente di una visita, come lo mostra la scheda dopo
 -- «modificata altrove» e come lo legge «Controlla» (Task 7).
+--
+-- ⚠︎ DUE VINCOLI, scritti il 25/09/2026 dopo le revisioni avversariali.
+--
+-- 1. È `stable`, e §4.4 vieta a «Controlla» le funzioni `stable` che leggano
+--    «con la fotografia presa prima dell'attesa». Si concilia così, ed è ora
+--    scritto anche nella spec (§4.4, revisione 15): `stato_visita` si chiama in
+--    un'ISTRUZIONE PROPRIA, dopo l'attesa sul codice d'invio, mai nella stessa
+--    istruzione dell'`insert into invio` e mai in una CTE con esso.
+--
+-- 2. I suoi `appuntamenti` hanno SEI chiavi; `p_attesi` di `salva_visita` ne
+--    vuole DUE, `{id, versione}`, ordinate per `id`. Chi riparte da qui dopo un
+--    «modificata altrove» deve proiettare e ordinare, altrimenti rimbalza per
+--    sempre (misurato). Contratto in spec §4.1 regola 6; presidiato da tre
+--    prove in `tests/schema/salva-visita.test.ts`.
 create function public.stato_visita(p_visita uuid) returns jsonb
 language sql
 stable

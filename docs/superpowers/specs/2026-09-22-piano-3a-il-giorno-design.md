@@ -1,7 +1,12 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 14 — corregge in §4.7 due cose che la revisione 13 aveva scritto sulla fede di chi ha eseguito il
+**Revisione:** 15 — scrive in §4.1 il **contratto di `p_attesi`**, che l'esecuzione del **Task 5** del piano 3a-1
+aveva lasciato implicito e che le due revisioni avversariali del 25 settembre 2026 hanno **misurato**: il confronto
+della regola 6 è **posizionale**, non insiemistico, quindi chi chiama proietta lo stato corrente su `{id, versione}`
+e lo ordina per `id`. Registra anche che `stato_visita` è `stable` e che §4.4 la ammette in «Controlla» **solo in
+un'istruzione propria**, e che `P0003` viaggia fuori dall'elenco degli errori. Nient'altro è cambiato;
+**revisione 14** — corregge in §4.7 due cose che la revisione 13 aveva scritto sulla fede di chi ha eseguito il
 Task 4 e che le due revisioni avversariali del 24 settembre 2026 hanno **misurato** false o incomplete: i tre trigger
 sono una **scelta**, non una necessità (un trigger solo lascia la suite verde), e il rientro `0014` neutralizza
 `app.is_active_operator()` e i tre trigger ma **non** `public.chiudi_sessioni`, che passa comunque da
@@ -182,6 +187,23 @@ visita e l'insieme atteso degli appuntamenti esistenti con la versione di ciascu
    esistenti** o la versione di **uno qualunque** di essi differiscono da quelli attesi → **`modificata_altrove`**, con
    lo stato corrente. Un appuntamento aggiunto da una collega fa differire l'insieme: **non viene mai tolto in
    silenzio**.
+
+   ⚠︎ **Contratto di `p_attesi`, misurato il 25/09/2026** (revisione 15; prima era implicito e il Task 5 lo aveva
+   consegnato senza scriverlo). Il confronto è realizzato con un `is distinct from` fra due array `jsonb`, che in
+   PostgreSQL è **posizionale**: «insieme» qui significa *insieme confrontato in una forma canonica*, non confronto
+   insiemistico. Chi chiama deve quindi, ogni volta:
+   - **proiettare** su `{"id", "versione"}` e **solo** quelle due chiavi — `stato_visita` ne restituisce **sei**
+     (`id`, `versione`, `operatrice`, `servizio`, `inizio`, `durata`), e passarlo così com'è dà `modificata_altrove`;
+   - **ordinare per `id`** — gli stessi elementi in ordine diverso danno `modificata_altrove`.
+
+   È la forma in cui la funzione stessa restituisce `appuntamenti` dopo un `salvata`, quindi chi riparte da lì è già
+   conforme; chi riparte da `stato` dopo un `modificata_altrove` — che è ciò che §4.4 gli impone — **deve** proiettare
+   e ordinare. Il lato database tiene la stessa canonicalizzazione (`order by a.id`), e non è ridondante: con gli
+   appuntamenti creati in ordine di `id` decrescente, toglierla fa rimbalzare un salvataggio conforme (misurato).
+   Tutto questo è presidiato da tre prove in `tests/schema/salva-visita.test.ts`; **renderlo insiemistico le fa
+   arrossire**, ed è voluto: chi lo cambia deve togliere anche questo capoverso.
+
+   Vale identico per `move_visit_to` e `delete_visit`, che riusano la regola 6.
 7. **Regole sull'elenco:** almeno un appuntamento (per togliere tutto si usa `delete_visit`); ogni `id` esistente
    nell'elenco appartiene a **questa** visita; ogni `id` nuovo non esiste altrove.
 8. **Ordine delle scritture**, dopo i controlli: cliente nuova; visita (insert, oppure update di data e cliente **solo
@@ -230,6 +252,13 @@ Riuscita → **`cancellata`**.
 
 `da_confermare` (D3-19) è un esito **del server**, calcolato prima di chiamare la funzione (§4.5). Restano **errori**:
 `23505`, `23503`, `40P01`, `42501`, `57014`, `23514`. Il piano fissa quale codice solleva ciascuna funzione in ogni caso.
+
+⚠︎ **Aperto, dal Task 5 (25/09/2026):** le funzioni consegnate sollevano anche **`22023`** (elenco vuoto, id ripetuto,
+appuntamento di un'altra visita) e **`P0003`** (codice d'invio già in corso nella stessa transazione, o invio non
+aperto in `app.chiudi_invio`), e lasciano passare `23502` e `22P02` da un `p_appuntamenti` malformato. Nessuno dei
+quattro è nell'elenco qui sopra, che §4.3 passo 8 usa come «gli errori che **provano** l'annullamento»: per contratto
+un elenco vuoto darebbe oggi all'operatrice «Non so se è stata salvata» invece del proprio messaggio. **Da chiudere
+prima del 3a-2**, allargando l'elenco o cambiando i codici; non è un difetto del database, è una lacuna del contratto.
 
 Le **versioni** (`updated_at`) viaggiano **come testo, così come arrivano**, mai attraverso un `Date` di JavaScript
 (spec §10.2).
@@ -336,6 +365,14 @@ app.is_active_operator())`. Nessuno può, via PostgREST, cancellare o «sbruciar
   il codice come «annullato» con `on conflict do nothing`; **poi**, in un'istruzione successiva, legge lo stato del
   codice, la visita e la tabella delle cancellate.
 - **Livello di isolamento `read committed`**, il predefinito, dichiarato; nessuna funzione lo cambia (§8.2).
+
+⚠︎ **`public.stato_visita` è `stable`** (Task 5, `0016_salva_visita.sql`), e il divieto qui sopra la riguarda:
+«Controlla» può usarla, ma **solo in un'istruzione propria, dopo l'attesa sul codice d'invio**, mai nella stessa
+istruzione dell'`insert into invio` e mai dentro una CTE con esso. Una funzione `stable` prende la sua fotografia
+all'inizio dell'**istruzione** che la chiama, non della transazione: in un'istruzione successiva vede il commit
+dell'invio che ha appena atteso; nella stessa istruzione no. Scritto il 25/09/2026 perché il commento di
+`0016_salva_visita.sql` la consegna esplicitamente a «Controlla» e chi esegue il Task 7 trovava l'invito nel codice
+e il divieto qui, senza la riga che li concilia.
 
 Misurato su un database di prova separato [dalla revisione, sesto giro]: con queste regole, se l'invio ha già
 registrato il codice «Controlla» **aspetta** che finisca, commit compreso (anche la parte differita), e poi lo vede;

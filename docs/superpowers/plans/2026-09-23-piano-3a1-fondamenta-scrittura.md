@@ -2725,6 +2725,27 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Destinazione assoluta e non scarto relativo:** l'app calcola il nuovo inizio di **ciascun** appuntamento
 conservando gli scarti, così un invio ripetuto non sposta due volte (design 3a §4.1).
 
+⚠⚠ **DA LEGGERE PRIMA DI SCRIVERE LE PROVE — tre cose che il Task 5 ti lascia, misurate il 25/09/2026 dalle due
+revisioni avversariali.** Stanno per esteso nell'appendice del Task 5, in fondo a questo file.
+
+1. **`stato_visita` aveva tre campi che nessuno leggeva, e tu ne moltiplichi i consumatori per tre.** Le tue due
+   funzioni restituiscono `'stato', public.stato_visita(p_visita)` esattamente come `salva_visita`. Alla consegna del
+   Task 5, mettere a costante le **versioni** degli appuntamenti dentro `stato_visita` dava **0 rosse su 347**, e
+   `operatrice`/`servizio` a null **0 rosse**: erano i tre campi che non servono a *mostrare* la visita ma a
+   *riscriverla*, e nessuna prova faceva il giro che li usa. Ora li presidia *«il giro si chiude: dopo
+   modificata_altrove la scheda riparte dallo stato e salva»* (2 rosse e 1 rossa rispettivamente). ⚠︎ **Le dieci
+   prove del Passo 1 qui sotto asseriscono `esito` e le righe del database, e `stato` non compare in nessuna.**
+   Aggiungi il giro anche per `sposta_visita_a`, o i tuoi due consumatori nascono senza lettore.
+
+2. **Il contratto di `p_attesi` è posizionale, ed è ora scritto** (spec §4.1 regola 6, revisione 15): proiezione su
+   `{id, versione}` e ordine per `id`. Il tuo `p_destinazioni` ha lo stesso insieme di id di `p_attesi`: se lo
+   confronti con un `is distinct from` fra array `jsonb`, vale la stessa canonicalizzazione, e va scritto.
+
+3. **`order by a.id` in `v_correnti` non è ridondante**, anche se toglierlo dà 0 rosse sulle prove del Task 5 che
+   non lo sondano: l'asse non è l'aggiornamento (gli UPDATE sono HOT e conservano l'ordine) ma l'**inserimento**.
+   Con gli appuntamenti creati in ordine di `id` decrescente, toglierlo fa rimbalzare un salvataggio conforme
+   (misurato). Copi quella riga in tutte e due le funzioni: copiala con l'`order by`.
+
 - [ ] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
@@ -3175,6 +3196,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ---
 
 ### Task 7: `controlla_invio` — la rilettura che brucia l'invio che non trova
+
+⚠⚠ **`public.stato_visita` è `stable`, e §4.4 vieta qui le funzioni `stable`.** Il commento di
+`0016_salva_visita.sql` la consegna esplicitamente a «Controlla»: l'invito nel codice e il divieto nella spec si
+conciliano in un modo solo, ed è ora scritto in tutti e due i posti (spec §4.4, revisione 15). `stato_visita` si
+chiama in un'**istruzione propria, dopo** l'attesa sul codice d'invio — mai nella stessa istruzione
+dell'`insert into invio`, mai in una CTE con esso. Una funzione `stable` prende la fotografia all'inizio
+dell'**istruzione**, non della transazione: in un'istruzione successiva vede il commit che ha appena atteso.
 
 **Files:**
 - Create: `supabase/migrations/0018_controlla_invio.sql`
@@ -4792,6 +4820,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ---
 
 ### Task 11: le cinque prove che restano
+
+⚠⚠ **La quinta prova NON esercita i ritorni anticipati di `salva_visita`, e il Task 5 credeva di sì.** Le sue due
+chiamate nella stessa transazione finiscono **tutte e due** `salvata`, quindi passano tutte e due dal
+`set constraints … immediate` finale. Misurato il 25/09/2026: su un ritorno anticipato (`annullato`, `esiste_gia`,
+`cancellata_altrove`, `non_trovata`, `modificata_altrove`) quell'istruzione **non viene eseguita**, e il vincolo resta
+differito per il resto della transazione — un `23505` successivo arriva al **COMMIT** invece che all'istruzione, dove
+§4.3 passo 8 non sa più a quale chiamata attribuirlo. Oggi è irraggiungibile (PostgREST: una chiamata per
+transazione) e **non è un difetto da correggere qui**; ma se aggiungi una prova a due chiamate di cui la seconda
+esce presto, sappi che è questo che stai misurando.
 
 Il design §8.2 chiede cinque presidi che nessuno dei task precedenti copre. Stanno qui, in un task proprio, invece
 che sparsi: così nessuno si perde in una riscrittura, e le due mutazioni che i Task 5 e 7 dichiarano «equivalenti»
