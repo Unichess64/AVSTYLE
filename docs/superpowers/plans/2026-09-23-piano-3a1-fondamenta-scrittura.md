@@ -6045,9 +6045,17 @@ rosse da 2 a 1.
    passo 8 non sa più a quale chiamata attribuirlo. **Irraggiungibile oggi** (PostgREST: una chiamata per transazione)
    e **non esercitato dal Task 11**, la cui quinta prova fa due chiamate entrambe riuscite — ⚠︎ la consegna del Task 5
    affermava il contrario. Avvertimento messo in testa al Task 11.
-2. **`P0003` e `22023` viaggiano fuori dall'elenco di errori** di §4.1 e §4.3 passo 8, insieme a `23502` e `22P02` da
-   un `p_appuntamenti` malformato: per contratto un elenco vuoto darebbe oggi «Non so se è stata salvata» invece del
-   proprio messaggio. Scritto nella spec (§4.1, revisione 15) come **aperto, da chiudere prima del 3a-2**.
+2. ~~**`P0003` e `22023` viaggiano fuori dall'elenco di errori**~~ — **CHIUSO il 25/09/2026, spec revisione 16.**
+   La chiusura non è stata allargare l'elenco: il difetto era la **forma** del criterio, che enumerava invece di
+   definire, così che ogni funzione nuova allargasse la lacuna in silenzio. §4.3 passo 8 ora dice che **un errore con
+   un SQLSTATE prova l'annullamento** (in PostgreSQL non esistono commit parziali), e i sei codici restano come
+   elenco di quelli con un messaggio **proprio**.
+   ⚠︎ **Censimento misurato** su banco usa e getta, enumerando le forme invece di leggere il corpo: fuori elenco e
+   **raggiungibili** sono `22023` (quattro forme), `22P02` (due) e `23502` (una), tutti errori di programmazione che
+   §4.3 passo 2 impedisce a monte. **`P0003` NON è raggiungibile dall'app** — serve un invio lasciato `in_corso` da
+   una transazione committata, cioè una chiamata diretta ad `app.apri_invio`, e `config.toml` non espone lo schema
+   `app` a PostgREST. La revisione a secco lo aveva messo sullo stesso piano degli altri tre, **a lettura**: è la
+   terza volta in questo piano che una deduzione plausibile cade alla misura.
 3. **Il blocco della regola 2 sugli appuntamenti non è presidiato**: togliendo l'intera riga `perform 1 … for update`,
    **0 rosse su 347**. Le due prove di concorrenza bloccano la riga della *visita* e quella della *cliente*, mai un
    appuntamento. Argomentato (non misurato): il blocco sulla visita, che precede, serializza comunque i due scrittori.

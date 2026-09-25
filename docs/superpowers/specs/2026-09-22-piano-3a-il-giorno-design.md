@@ -1,7 +1,14 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 15 — scrive in §4.1 il **contratto di `p_attesi`**, che l'esecuzione del **Task 5** del piano 3a-1
+**Revisione:** 16 — **chiude la lacuna del contratto sugli errori**, aperta dalla revisione 15. Il difetto non era
+l'elenco ma la sua **forma**: §4.3 passo 8 enumerava i codici che provano l'annullamento, e ogni funzione nuova che ne
+sollevava uno fuori elenco allargava la lacuna in silenzio. Il criterio è ora per **proprietà** — *un errore con un
+SQLSTATE prova l'annullamento, perché in PostgreSQL non esistono commit parziali* — e i sei codici restano come
+elenco di quelli che meritano un messaggio **proprio**. In §4.1 il censimento **misurato** dei codici di
+`salva_visita`: `22023`, `22P02` e `23502` sono raggiungibili e stavano fuori; `P0003` **non è raggiungibile
+dall'app**, contro quanto la revisione a secco aveva dedotto a lettura. Nient'altro è cambiato;
+**revisione 15** — scrive in §4.1 il **contratto di `p_attesi`**, che l'esecuzione del **Task 5** del piano 3a-1
 aveva lasciato implicito e che le due revisioni avversariali del 25 settembre 2026 hanno **misurato**: il confronto
 della regola 6 è **posizionale**, non insiemistico, quindi chi chiama proietta lo stato corrente su `{id, versione}`
 e lo ordina per `id`. Registra anche che `stato_visita` è `stable` e che §4.4 la ammette in «Controlla» **solo in
@@ -253,12 +260,30 @@ Riuscita → **`cancellata`**.
 `da_confermare` (D3-19) è un esito **del server**, calcolato prima di chiamare la funzione (§4.5). Restano **errori**:
 `23505`, `23503`, `40P01`, `42501`, `57014`, `23514`. Il piano fissa quale codice solleva ciascuna funzione in ogni caso.
 
-⚠︎ **Aperto, dal Task 5 (25/09/2026):** le funzioni consegnate sollevano anche **`22023`** (elenco vuoto, id ripetuto,
-appuntamento di un'altra visita) e **`P0003`** (codice d'invio già in corso nella stessa transazione, o invio non
-aperto in `app.chiudi_invio`), e lasciano passare `23502` e `22P02` da un `p_appuntamenti` malformato. Nessuno dei
-quattro è nell'elenco qui sopra, che §4.3 passo 8 usa come «gli errori che **provano** l'annullamento»: per contratto
-un elenco vuoto darebbe oggi all'operatrice «Non so se è stata salvata» invece del proprio messaggio. **Da chiudere
-prima del 3a-2**, allargando l'elenco o cambiando i codici; non è un difetto del database, è una lacuna del contratto.
+⚠︎ **CHIUSO il 25/09/2026 (revisione 16), e la chiusura non è stata allargare l'elenco.** Il difetto era la **forma**
+del criterio: §4.3 passo 8 enumerava i codici che provano l'annullamento, e ogni funzione nuova che ne solleva uno
+nuovo allargava la lacuna **in silenzio**. Ora il criterio è per **proprietà**, e l'elenco dei sei resta come elenco
+dei codici che meritano un **messaggio proprio**, non come definizione di che cosa prova l'annullamento. Vedi §4.3
+passo 8.
+
+**Censimento dei codici di `salva_visita`, MISURATO il 25/09/2026** su banco usa e getta, enumerando ogni forma
+raggiungibile invece di leggerne il corpo (la revisione a secco ne aveva dedotti quattro a lettura, e uno dei quattro
+non è raggiungibile):
+
+| Codice | Forme che lo producono | In elenco? |
+|---|---|---|
+| `23505` | due appuntamenti sulla stessa cella della stessa operatrice | sì |
+| `23503` | cliente inesistente; servizio o operatrice inesistenti | sì |
+| `23514` | `inizio` fuori da 0-287; `durata` zero | sì |
+| `42501` | chi chiama non è operatrice attiva; visibilità persa durante la scrittura (regola 11) | sì |
+| **`22023`** | elenco vuoto; id ripetuto; `p_appuntamenti` non è un array; appuntamento di un'altra visita | **no** |
+| **`22P02`** | `inizio` non numerico; `id` non è un uuid | **no** |
+| **`23502`** | `operatrice` o `servizio` assenti dall'oggetto JSON | **no** |
+| `P0003` | **non raggiungibile dall'app**: serve un invio lasciato `in_corso` da una transazione committata, cioè una chiamata diretta ad `app.apri_invio`, e `config.toml` non espone lo schema `app` a PostgREST | — |
+
+I tre raggiungibili fuori elenco sono tutti **errori di programmazione**, non di dominio: §4.3 passo 2 valida a monte
+date, celle, durate e forma dell'elenco, quindi nessuno di loro può nascere da ciò che l'operatrice digita. Il
+criterio nuovo li copre **senza nominarli**, che è il punto: coprirà anche quelli che il Task 6 e il Task 7 aggiungeranno.
 
 Le **versioni** (`updated_at`) viaggiano **come testo, così come arrivano**, mai attraverso un `Date` di JavaScript
 (spec §10.2).
@@ -327,12 +352,32 @@ scrivere tutto. «Nessuna visita vuota» all'inserimento la garantisce solo `sav
    `salvata` e `cancellata`** — compreso `modificata_altrove`, che un account chiuso fra due letture riceve con uno stato
    «corrente» vuoto — si **ricontrolla l'account** prima di scegliere il messaggio e prima che la scheda adotti lo
    stato restituito.
-8. **Altro:** solo gli errori che **provano** che la transazione è stata annullata (`40P01` esauriti, `57014`,
-   `23505`, `23503`, `23514`, `42501`) danno un messaggio di fallimento («Non sono riuscita a salvare, riprova» o il
-   messaggio proprio). **Ogni altro errore** — rete fra il server dell'app e Supabase, tempo scaduto della
-   piattaforma, codice non riconosciuto dall'involucro — **non prova nulla** e dà *«Non so se è stata salvata»* con
-   «Controlla» (§4.4). Azione non trovata dopo un nuovo rilascio → «l'app è stata aggiornata, ricarica». I dati
+8. **Altro.** ⚠︎ **Riscritto alla revisione 16** (25/09/2026): prima questo passo **enumerava** i codici che
+   provano l'annullamento, e ogni funzione nuova che ne sollevava uno fuori elenco allargava la lacuna in silenzio.
+   Misurato sul Task 5: `salva_visita` solleva anche `22023`, `22P02` e `23502`, e per il vecchio criterio un elenco
+   vuoto avrebbe dato all'operatrice *«Non so se è stata salvata»* — un'incertezza **falsa**, che l'avrebbe mandata a
+   «Controlla» per una transazione certamente annullata. Il criterio è ora per **proprietà**:
+
+   > **Un errore che arriva con un SQLSTATE del database prova l'annullamento.** In PostgreSQL un errore dentro una
+   > transazione la porta in stato abortito e il `COMMIT` successivo diventa un `ROLLBACK`: non esistono commit
+   > parziali, e vale anche per un errore sollevato **dal** `COMMIT` (un vincolo differito), che il client riceve
+   > comunque come SQLSTATE.
+
+   Quindi **danno un messaggio di fallimento** tutti gli errori con SQLSTATE: i sei con un messaggio **proprio**
+   (`40P01` esauriti, `57014`, `23505`, `23503`, `23514`, `42501` — passi 5, 6 e 7), e **ogni altro SQLSTATE** con
+   «Non sono riuscita a salvare, riprova», **registrato per chi sviluppa**: sono errori di programmazione che il
+   passo 2 deve impedire, e all'operatrice non serve saperne il codice. **Non** danno «Non so se è stata salvata»:
+   l'incertezza sarebbe falsa.
+
+   **Non prova nulla, e dà *«Non so se è stata salvata»* con «Controlla» (§4.4)**, solo ciò che accade **fuori** dal
+   database: rete fra il server dell'app e Supabase; tempo scaduto della piattaforma; **risposta persa dopo un
+   `COMMIT` riuscito** — il caso per cui «Controlla» esiste; errore di PostgREST che non porta un SQLSTATE (un 500
+   generico, un `PGRST…`). Azione non trovata dopo un nuovo rilascio → «l'app è stata aggiornata, ricarica». I dati
    restano nella scheda.
+
+   ⚠︎ **L'involucro non deve avere un elenco di codici «riconosciuti»**: deve distinguere *SQLSTATE presente* da
+   *SQLSTATE assente*, e dentro il primo caso cercare i sei che hanno un messaggio proprio. Un involucro che
+   enumerasse riaprirebbe esattamente la lacuna che questa revisione chiude.
 
 La **decisione** dei passi 2, 3, 5, 6, 7, 8, data la lettura del database, e la traduzione degli esiti sono **logica
 pura** (§8.1).

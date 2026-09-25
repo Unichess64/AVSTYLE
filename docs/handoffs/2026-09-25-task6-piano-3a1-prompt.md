@@ -259,9 +259,16 @@ prove in `tests/schema/salva-visita.test.ts`. La spec 3a è a **revisione 15**: 
    Irraggiungibile oggi (PostgREST: una chiamata per transazione) e **non esercitato dal Task 11**. ⚠︎ **Ti riguarda:**
    `sposta_visita_a` ha lo stesso `set constraints` in testa e gli stessi ritorni anticipati. Non è un difetto da
    correggere qui — ma non scrivere che il Task 11 lo presidia, perché è falso.
-2. **`P0003` e `22023` viaggiano fuori dall'elenco di errori** di §4.1 e §4.3 passo 8, insieme a `23502` e `22P02`.
-   Scritto nella spec come aperto, da chiudere prima del 3a-2. Le tue funzioni ereditano `P0003` da
-   `app.apri_invio`/`app.chiudi_invio`.
+2. ~~**`P0003` e `22023` fuori dall'elenco di errori**~~ — **CHIUSO il 25/09/2026, spec revisione 16**, e ti
+   riguarda perché crei due funzioni. §4.3 passo 8 non enumera più i codici che provano l'annullamento: dice che
+   **un errore con un SQLSTATE lo prova** (in PostgreSQL non esistono commit parziali), e i sei codici restano come
+   elenco di quelli con un messaggio **proprio**. Conseguenza per te: **i codici che le tue funzioni sollevano sono
+   già coperti dal criterio**, qualunque siano, e non devi aggiungerli a nessun elenco. Misurato che su
+   `salva_visita` i codici fuori dai sei e **raggiungibili** sono `22023`, `22P02` e `23502` — tutti errori di
+   programmazione — e che **`P0003` non è raggiungibile dall'app**, perché servirebbe una chiamata diretta ad
+   `app.apri_invio` e `config.toml` non espone lo schema `app` a PostgREST. ⚠︎ Se una tua funzione solleva un codice
+   **di dominio** che merita un messaggio proprio all'operatrice, quello sì va scritto in §4.3: proponilo, non
+   aggiungerlo da sola.
 3. **Il blocco della regola 2 sugli appuntamenti non è presidiato** (0 rosse su 347) — vedi l'avvertimento 4.
 4. **`case when v.id is null then null` in `stato_visita` è irraggiungibile**, e `case when v_registrato = 'annullato'`
    è un'identità. Non sono difetti: sono righe che un lettore futuro potrebbe credere portanti. Il piano scrive già la
