@@ -5702,3 +5702,154 @@ corretta in sede. Conseguenza per il Task 4: il conteggio globale su `auth.sessi
   politica di `realtime.messages` che non è creabile, registrata la forma `current_setting` con doppio `nullif` scelta
   al posto di `auth.jwt()`, e rimesso S4-4 su «aperto».
 - Nessuna anticipazione del Task 4.
+
+## Appendice — Esecuzione del Task 4 e revisione (24-25 settembre 2026)
+
+Scritta da chi ha eseguito il Task 4, dopo due revisioni indipendenti avversariali **in parallelo** — una **empirica**
+(proprietaria esclusiva del database e di Vitest) e una **a secco** (sola lettura, senza Vitest, che consegna ipotesi
+falsificabili con il comando che le proverebbe e l'esito in numeri). Sostituisce il resoconto di chat: **la chat del
+Task 5 legge questa**, e legge anche l'avvertimento messo in testa al Task 5.
+
+**Consegnato in due commit:** `a98470d` (consegna) e `e16428e` (remediation). Il messaggio di `a98470d` **non è stato
+riscritto con `--amend`**: la convenzione «amend» del Task 3 vale quando il SHA non è riferito altrove, e qui `a98470d`
+è l'indice di questa appendice e dei due resoconti di revisione. Le sue due affermazioni false sono corrette **nel
+messaggio di `e16428e`** e nei file.
+
+**Gate finale a `e16428e`, in serie:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **22 file,
+320 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+
+### Una riga del piano non funzionava, e il danno peggiore era il secondo
+
+Il Passo 1 prescriveva `asOperator` per due prove che scrivono e poi **rileggono da un'altra connessione**, e
+`asOperator` chiude sempre con un `rollback` (`inRole`). *«chiude le sessioni di un altra operatrice»* era l'unica
+rossa dopo il Passo 4: `quante` valeva 1 e `vive()` trovava ancora 1 sessione. Ma *«non tocca MAI la password di
+nessuno»* — il presidio di D3-20 — era **verde e MUTA**: misurato, con `chiudi_sessioni` che riscrive
+`encrypted_password` del bersaglio restava verde, perché il rollback annullava anche quello. Con `asOperatorCommit` la
+stessa mutazione dà 2 rosse. Corretto anche nel piano, in sede.
+
+### Il censimento è stato rifatto con una spia, e stavolta regge
+
+Il punto debole dichiarato più grave era che i quattro file indicati dal Passo 4 erano stati riguardati **a lettura**,
+il metodo che al Task 3 aveva dato 18 prove invece di 98. La revisione empirica ha strumentato `asOperator` **e**
+`asOperatorCommit` con una spia che interroga `auth.sessions` sul `session_id` servito e registra il nome della prova:
+**108 chiamate, 0 con sessione morta**, su 104 prove distinte. E la spia **sa arrossire**: togliendo
+`dimenticaSessioni()` da `resetData()` ne segna esattamente **2**, nelle due prove che diventano rosse. L'affermazione
+«nessun file di prova esistente è stato adattato, la riga in `resetData()` li copre tutti» è vera **per misura**.
+
+### Le sonde, con il numero di rosse MISURATO
+
+Tutte eseguite davvero: mutazione applicata, `db reset`, suite intera, ripristino **da copia di scorta** verificato per
+`shasum`, `db reset`, rilancio verde. Le prime dodici rimisurate dalla revisione empirica, e **tornano tutte**.
+
+| # | Mutazione | Rosse | Prova arrossita |
+|---|---|---|---|
+| 1 | via il ramo `tg_op = 'INSERT'` | **1** | *quando un account che aveva già una sessione diventa operatrice* |
+| 2 | via il ramo `tg_op = 'DELETE'` | **1** | *quando la riga dell operatrice viene cancellata* |
+| 3 | `is distinct from` → `new.is_active = false` | **1** | *quando l operatrice viene riattivata…* |
+| 4 | via `chiudi_sessioni_di(old.auth_user_id)` | **1** | *quando l account viene scollegato…*, riga 60 |
+| 4b | via il **secondo** `perform` del ramo `auth_user_id` | **1** | la stessa, **riga 64** → il punto debole «secondo `perform` non esercitato» è **falso** |
+| 5a | via la clausola `of is_active, auth_user_id` | **0** | nessuna: vedi la misura del costo qui sotto |
+| 5b | via i due `is distinct from` | **2** | *NON chiude niente per un aggiornamento identico* + `sessioni-imbracatura > resetData non chiude le sessioni delle prove` |
+| 5c | via **entrambi** | **3** | le due sopra + *NON chiude niente per un cambio di colore* |
+| 6 | via `v_bersaglio is not distinct from v_io` | **1** | *rifiuta l operatrice di chi la chiama…* |
+| 7 | via la guardia `app.is_active_operator()` | **1** | *non fa niente se la chiama un account che non è operatrice attiva* |
+| 8 | via `dimenticaSessioni()` da `resetData()` | **2** | le due gemelle positive di `access-control` e `account-directory`, esattamente |
+| 9 | `rinnovoRiesce` → `return false` | **2** | le due `toBe(true)` |
+| 10 | `rinnovoRiesce` → `return true` | **6** | le sei `toBe(false)` |
+| 11 | `chiudi_sessioni` riscrive `encrypted_password` | **2** *(con `asOperator`: **0**)* | *non tocca MAI la password di nessuno* |
+| R2 | `return app.chiudi_sessioni_di(…)` → `perform …; return 1` | **0 → 1** | *dice quante sessioni ha chiuso davvero…*, aggiunta dalla remediation |
+| R5 | via le due funzioni di `app` dal `revoke` | **0 → 1** | *e nemmeno le due funzioni di app sono eseguibili…*, aggiunta dalla remediation |
+| R5b | via il `grant execute … to authenticated` | **0** | **equivalente**, non muta: vedi il reperto sui permessi per difetto |
+| R5c | via **tutto** il `revoke` | **1 → 3** | le due nuove + *non è eseguibile da anon* |
+| — | tre trigger → **uno solo** | **0** | la ragione dei tre trigger era falsa: vedi sotto |
+| — | trigger `security definer` → `security invoker` | **1** | `operator-guard > allows deactivating an operator while others remain`: il `definer` **è** esercitato |
+| — | `select … into v_io` → `v_io := null` | **1** | *rifiuta l operatrice di chi la chiama*: la risoluzione di chi chiama è esercitata |
+| — | via la guardia `p_auth_user_id is null` | **0** | **equivalente**: `where user_id = null` non tocca righe |
+| — | nel ramo `is_active`, `new.auth_user_id` → `old.auth_user_id` | **0** | **equivalente**: quando cambiano entrambi, il secondo ramo chiude comunque vecchio e nuovo. Codice ridondante |
+
+`rinnovoRiesce` è quindi **capace di fallire in tutte e due le direzioni**: il reperto 4 dell'appendice del Task 3,
+che la dava non esercitata con 0 rosse, **è chiuso**. Si chiama **una volta sola per sessione**: le otto chiamate
+stanno in otto prove diverse, ognuna su un oggetto `Sessione` distinto.
+
+### ⚠︎ Il reperto che cambia il Task 5 mentre lo si scrive
+
+È l'esito del compito «una mutazione invisibile oggi e letale al task successivo», ed è **misurato su banco usa e
+getta**, non ragionato. Sta scritto per esteso **in testa al Task 5**, dove chi esegue lo leggerà: da `0015`, un
+`update operator set is_active = false` **committato cancella anche le sessioni**, quindi una sessione catturata
+**prima** della disattivazione non distingue più «disattivata» da «sessione cancellata». Togliendo `and o.is_active`
+da `app.is_active_operator()`, nella forma delle due prove di concorrenza previste dal Task 5 lo scenario mutato è
+**indistinguibile** dal consegnato; il controllo a trigger spenti dimostra che il banco sa vedere la differenza.
+
+Oggi quel predicato è ancora presidiato, con **2 rosse**, ma **solo per un accidente d'ordine che il Task 4 ha
+creato**: `resetData()` svuota la cache, quindi `asOperator` riaccede **dopo** la disattivazione. E l'accidente è
+fragile in modo perverso: aggiungendo la precondizione asserita — **il gesto che la revisione del Task 3 ha imposto
+altrove** — le rosse scendono **da 2 a 1**. Il gesto giusto disarma il presidio.
+
+### Due ragioni scritte nella consegna erano false
+
+1. **«Tre trigger, perché una clausola WHEN su OLD e NEW non si dichiara insieme per INSERT e DELETE».** In `0015` una
+   clausola `when` **non c'è**: il confronto sta nel corpo, che è l'altra strada che §4.7 lasciava al piano. Misurato:
+   un trigger solo, `after insert or update of is_active, auth_user_id or delete`, lascia la suite intera **verde**. I
+   trigger sono tre **per scelta**. La ragione falsa era in quattro posti — messaggio di commit, intestazione di
+   `0015`, spec §4.7 e rientro `0014` — ed è corretta nei tre file.
+2. **«Due passate per finestra di cinque minuti, non tre».** Misurato: **tre passate consecutive, 378 accessi in 107
+   secondi, zero `429`**, verdi tutte e tre. `sign_in_sign_ups` arriva al GoTrue come `GOTRUE_RATE_LIMIT_OTP`
+   (verificato in `docker inspect`) e **non governa** `POST /token?grant_type=password`. La regola era **dedotta dalla
+   configurazione, non provata**. Il commento di `config.toml` diceva ancora «24 accessi per passata»: ora dice
+   **126**, misurati, e dice di non dedurre di nuovo quella regola da quel file.
+
+### Due presìdi erano muti, e ora mordono
+
+- **Il valore di ritorno di `chiudi_sessioni`**: `quante` valeva 1 in tutte le 13 prove, e un `return 1` costante
+  lasciava **317 verdi su 317**. È il numero che il pulsante del 3c mostra all'operatrice. Chiuso da una prova con
+  **due** sessioni vive sullo stesso account, aperte con due `accedi` e non con `sessioneDi`, e la precondizione
+  asserita sui due `sessionId` diversi.
+- **Il `revoke` sulle due funzioni di `app`**: toglierle dall'elenco dava **0 rosse**. `EXECUTE` va a `PUBLIC` per
+  difetto e `0001` concede `usage on schema app` ad `anon` e `authenticated`, quindi senza quella riga chiunque
+  potrebbe chiamare `app.chiudi_sessioni_di(<un auth uid qualunque>)` scavalcando tutte e tre le guardie. **Percorso
+  non raggiungibile dall'app** (`config.toml` espone a PostgREST i soli `public` e `graphql_public`): difesa in
+  profondità, ma non presidiata. Chiuso da due prove.
+
+### ⚠︎ Il `grant execute … to authenticated` è ridondante, e non solo qui
+
+Misurato: commentandolo la suite resta **verde, 320 su 320**. In `public` esiste un `alter default privileges` di
+Supabase — da **due** concedenti, `postgres` e `supabase_admin` — che concede `EXECUTE` ad `anon`, `authenticated` e
+`service_role` su **ogni funzione nuova**. La mutazione è **equivalente, non muta**, e la proprietà vale per tutte le
+funzioni del repo, non solo per queste. La riga che porta davvero è il **`revoke … from public, anon`**, che è ciò che
+toglie ad `anon` quel grant per difetto: toltolo, arrossiscono **3** prove.
+
+### Reperti aperti, con il danno misurato (nessuno bloccante)
+
+1. **La forma a tre trigger non è presidiata**, e il rientro `0014` li spegne **per nome**: fonderli o rinominarli è
+   invisibile alla suite (misurato: 320 verdi con un trigger solo) e farebbe fallire il rientro con `42704`,
+   **riaprendo S4-4 in silenzio**. Coda velenosa dichiarata, non chiusa.
+2. **Il rientro copre due dei tre consumatori di `auth.sessions`**: resta fuori `public.chiudi_sessioni`, che passa da
+   `app.chiudi_sessioni_di`. Nello scenario per cui il rientro esiste, il pulsante del 3c continuerebbe a fallire —
+   guasto rumoroso su un passo che §4.7 dichiara comunque eseguibile dalla dashboard. **S4-4 resta chiuso, il limite è
+   scritto nella spec** (revisione 14). Argomentato, non misurato: la revisione non ha simulato la revoca, perché
+   `auth.sessions` è di `supabase_auth_admin` e una revoca finta non riprodurrebbe lo scenario.
+3. **Nessun audit permanente su `pg_proc.proacl`**: `catalogue-audit.test.ts` enumera `pg_class.relacl` proprio per non
+   doverlo rifare a mano, ma i permessi delle **funzioni** sono presidiati solo da prove scritte a mano, funzione per
+   funzione. **Il Task 5 crea due funzioni nuove.** Il piano assegna al Task 9 lo stringimento di `catalogue-audit`.
+4. **`delete from auth.refresh_tokens … session_id is null` è muto E inerte**: 0 rosse, e dopo una passata intera
+   `auth.refresh_tokens` ha 0 righe con `session_id` nullo. L'intestazione di `0015` la dichiara necessaria; su questo
+   GoTrue il caso non esiste. Riga innocua, motivazione non misurata.
+5. **La clausola `of is_active, auth_user_id` vale 4 chiamate al trigger su 668** per passata (0,6%), misurate con un
+   contatore in `app`. La tesi «non equivalente, solo più costosa» è **vera in specie e trascurabile in misura**: è
+   documentazione dell'intento, non un presidio.
+6. **La sonda della password dà 2 rosse ma una sola è il presidio**: la seconda è danno collaterale, perché l'hash di
+   Annalisa distrutto fa fallire l'`accedi` della prova successiva.
+7. **La guardia `p_auth_user_id is null` e la scelta `new` invece di `old` nel ramo `is_active` sono equivalenti**, non
+   mute: `where user_id = null` non tocca righe, e quando cambiano entrambi il secondo ramo chiude comunque vecchio e
+   nuovo. Sono ottimizzazione e ridondanza, non presìdi: un lettore futuro non le tratti come portanti.
+
+### Che cosa NON è stato fatto, per decisione dell'utente
+
+- I sette reperti qui sopra restano aperti, con il danno misurato accanto.
+- **Non** è stato costruito il presidio che farebbe arrossire una fusione o una rinomina dei tre trigger (reperto 1):
+  dichiarato e basta.
+- **Non** è stato esteso il rientro `0014` a neutralizzare `public.chiudi_sessioni` (reperto 2): il limite è scritto
+  nella spec.
+- **Non** sono state riscritte le due prove di `access-control` e `account-directory` per presidiare `is_active` anche
+  con una sessione catturata prima: la scelta è lasciata a chi esegue il Task 5, con l'avvertimento in testa al task.
+- Nessuna anticipazione del Task 5.
