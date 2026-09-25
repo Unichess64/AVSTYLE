@@ -6108,3 +6108,179 @@ Servono alla prossima revisione quanto i reperti: sono quattro ipotesi plausibil
   al Task 6.
 - **Non** sono state cancellate le sette asserzioni inerti: annotate.
 - **Non** è stato anticipato l'audit su `pg_proc.proacl` (Task 9) né alcuna parte del Task 6.
+
+## Appendice — Esecuzione del Task 6 e revisione (25 settembre 2026)
+
+Scritta da chi ha eseguito il Task 6, dopo due revisioni indipendenti avversariali **in parallelo** — una **empirica**
+(proprietaria esclusiva del database e di Vitest) e una **a secco** (sola lettura, senza Vitest, che consegna ipotesi
+falsificabili con il comando che le proverebbe e l'esito in numeri). Sostituisce il resoconto di chat: **la chat del
+Task 7 legge questa.**
+
+**Consegnato in due commit:** `3182cd6` (consegna) e `d894f57` (remediation). Il messaggio di `3182cd6` **non è stato
+riscritto né annotato**: è l'unico di questo piano che le due revisioni abbiano verificato **riga per riga senza
+trovare un'affermazione falsa**. Una sola mezza frase è inesatta ed è corretta qui sotto.
+
+**Gate finale a `d894f57`, in serie:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **24 file,
+373 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+`tests/schema/sposta-e-cancella.test.ts` ha **22 prove**: 10 dal Passo 1 del piano, 8 dalla consegna, 4 dalla
+remediation. La spec 3a è a **revisione 17**.
+
+### ⚠︎ Il reperto che cambia il Task 7, e che le due revisioni hanno trovato da due lati diversi
+
+**Nessuna prova leggeva `invio.esito` dopo `sposta_visita_a` o `cancella_visita`** — ed è l'**unico** ingresso su cui
+«Controlla» decide fra le sue sei righe, perché il telefono che non ha ricevuto risposta non sa niente della visita: sa
+solo il proprio codice d'invio. Misurato sulla consegna, suite intera per ognuna:
+
+| Mutazione: si falsifica ciò che la funzione REGISTRA, lasciando giusto ciò che RESTITUISCE | Alla consegna | Dopo la remediation |
+|---|---|---|
+| `chiudi_invio(…, 'modificata_altrove')` → `'salvata'`, in tutte e due le funzioni | **0 rosse su 369** | **1** |
+| `cancella_visita`: `chiudi_invio(…, 'cancellata')` → `'salvata'` | **0 rosse su 369** | **1** |
+| `cancella_visita`: `'gia_cancellata'` → `'non_trovata'` nel solo `chiudi_invio` | **0 rosse su 369** | **1** |
+
+Riprodotte su banco usa e getta con i **tre soli ingressi del Task 7** (`invio.esito`, `stato_visita`,
+`visita_cancellata`): con la prima, «Controlla» risponde **«✓ Risulta salvata» a un invio che non ha scritto una
+riga**; con la seconda, l'app **offre di ricreare** una visita che l'operatrice ha appena cancellato.
+
+⚠︎ **E il buco gemello, che è del Task 7 e NON è chiuso qui.** `cancella_visita` immette in `invio` due esiti nuovi,
+**`cancellata`** e **`gia_cancellata`**, e la tabella delle **sei righe** di §4.4 — che il Task 7 codificherà come
+`riga: 1..6` — **non ne copre nessuno**: le righe 2-5 pretendono `salvata`, e la riga 6 è «un esito che **non** ha
+scritto», il che è falso per `cancellata`. La prosa di §4.4 li tratta in un capoverso separato (««Elimina visita»
+incerta») che la tabella non nomina. **Da chiudere nella spec PRIMA di scrivere `0018`**, con una riga 7 o allargando
+la riga 6: farlo dopo vuol dire scoprirlo con l'interfaccia già scritta.
+
+### La regola 8 non è applicabile a `sposta_visita_a`, ed è ora dichiarato (spec revisione 17)
+
+Le due revisioni sono arrivate alla stessa divergenza da lati diversi, e **si contraddicevano sul rimedio**. La misura
+ha dato ragione alla revisione a secco, al carattere:
+
+| | esito |
+|---|---|
+| la regola 8 **non** è applicata: spostando solo A1 e lasciando A2 fermo, **A2 e la visita prendono comunque una versione nuova** | misurato su banco |
+| applicare `and v.visit_date is distinct from p_data` all'UPDATE sulla visita | **3 rosse su 373**, tutte con `la visita non è più visibile a chi scrive`, e la sola prova che sposta a un **altro giorno** resta verde |
+
+Gli UPDATE hanno la WHERE sul solo `id` e sono seguiti dal riesame della **regola 11**, che legge zero righe come «la
+riga non mi è più visibile». Uno spostamento **nello stesso giorno** — il caso normale, perché il trascinamento di
+D3-15 è **solo verticale** — toccherebbe zero righe e solleverebbe un **falso `42501`**. Le due regole non sono
+conciliabili con una WHERE sul solo `id`, e **fra le due vince la 11**, che difende da una scrittura falsamente
+riuscita. **Decisione dell'utente:** dichiarare l'esenzione in spec (§4.1, revisione 17) **con il prezzo scritto** —
+uno spostamento alza la versione anche di ciò che non si muove — e mettere in `0017` il commento che impedisce al
+prossimo lettore di «riparare» e rompere. **Nessuna riga di comportamento è cambiata.**
+
+### Le sonde, con il numero di rosse MISURATO
+
+Le dieci della consegna, **rimisurate una per una dalla revisione empirica** con `db reset` + suite intera: **zero
+scostamenti su dieci**. È la prima volta in questo piano.
+
+| # | Mutazione | Rosse | Nota |
+|---|---|---|---|
+| 1 | appuntamenti cancellati prima della visita | **5** | bersaglio + 4; ⚠︎ vedi la correzione qui sotto |
+| 2 | via il controllo sull'insieme delle destinazioni | **1** | |
+| 3 | via il confronto dell'insieme in `cancella_visita` | **3** | |
+| 4 | `gia_cancellata` → `cancellata` | **1** | |
+| 5 | via il trigger delle cancellate (**0013**, la sola migrazione che lo definisce) | **9** | 2 qui + 5 `invii` + 2 `salva-visita` |
+| R1 | versioni in `stato_visita` → costante | **2 → 4** | le 2 in più sono i due giri nuovi |
+| R2 | `operatrice`/`servizio` in `stato_visita` → null | **1 → 3** | idem |
+| 6 | via il blocco della regola 2 in `cancella_visita` | **0 → 1** | senza la riga l'esito è **`cancellata`** |
+| 6b | la stessa riga in `sposta_visita_a` | **0 → 1** | senza la riga l'esito è **`salvata`** |
+| 6c | la stessa riga in **`0016`** | **0** | **resta scoperta**, non è di questo task |
+| N13/N1/N15 | il registro degli invii, tre forme | **0 → 1** ciascuna | il reperto qui sopra |
+| N8 | `sposta_visita_a`: `cancellata_altrove` → `non_trovata` | **0 → 1** | ramo non esercitato da nessuno |
+| N4 | via `order by a.id` da `v_correnti`, **tutte e due** le copie di `0017` | **0 → 1** | |
+| N5 | confronto della regola 6 reso **insiemistico** in `0017` | **0 → 1** | |
+| N12 | regola 8 **applicata** a `sposta_visita_a` | **0** | né conformità né difformità erano piantate |
+| N9 | via la guardia `is_active_operator()` dalle due funzioni | **0** | **senza vittime, NON equivalente**: vedi i reperti aperti |
+| N16 | via il solo `grant execute … to authenticated` | **0** | **equivalente**: `alter default privileges` di Supabase |
+| N17 | via il solo `revoke … from public, anon` | **1** | è il `revoke` a portare |
+| N18 | via `set search_path = ''` | **1** | la prova a mano regge dove `catalogue-audit` non guarda |
+| N2/N3 | `stato_visita.data` / `.cliente` → null | **1** / **2** | già presidiati, candidati falsificati |
+| N6 | *combinata*: via il blocco **e** R1 | **5** = 4 + 1 | unione esatta, **nessun disarmo** |
+| N10 | via `and a.visit_id = p_visita` dall'UPDATE | **0** | **equivalente** (tesi): il controllo d'insieme lo garantisce |
+| N11 | via `appointment_date = p_data` dall'UPDATE | **0** | **equivalente** (tesi): `on update cascade` (`0004:26-29`) |
+
+### Una mezza frase del messaggio di `3182cd6` è inesatta
+
+«le 4 collaterali della sonda 1 sono lo stesso percorso, **non setup**»: vera per tre, **falsa per una**. In *«risponde
+gia_cancellata…»* a morire è la **prima** chiamata, che è setup della seconda. Tutte e cinque muoiono comunque con lo
+**stesso messaggio**, quindi la parte che conta — nessuna copertura indipendente — regge. Non è stato usato `--amend`:
+`3182cd6` è l'indice dei due rapporti di revisione.
+
+### Punti deboli dichiarati che la misura ha SMENTITO
+
+Servono alla prossima revisione quanto i reperti.
+
+- **«Il margine di `attendiBlocco` è fragile»**: tempo vero per arrivare al blocco **4-5 ms** contro 5000, margine
+  **~1000×**, più largo del 400-550× del Task 5.
+- **«Le prove del blocco e quelle del giro si disarmano a vicenda»**: la mutazione combinata dà **5 = 4 + 1**, unione
+  esatta, nessuna prova persa.
+- **«I cinque ritorni anticipati di `sposta_visita_a`»**: sono **tre** (righe 43, 62, 69). Cinque è il numero di
+  `salva_visita`, copiato senza contare.
+- **«`cancella_visita` senza `set constraints deferred` è creduto giusto per lettura»**: **è giusto, ora misurato** —
+  `appointment_slot_unique` è `deferrable **initially deferred**` (`0005:27`), e l'assenza è **strettamente più
+  sicura**: dopo una chiamata riuscita, un `23505` arriva **all'istruzione** e non al COMMIT.
+
+⚠︎ **E una correzione di metodo che vale per le sonde future:** una sonda sul `set constraints` **è inerte** se la
+transazione è fresca, perché il vincolo è già differito per dichiarazione. Va montata a partire da una chiamata
+**riuscita**.
+
+### Reperti aperti, con il danno misurato (nessuno bloccante)
+
+1. **Le sei righe di §4.4 non coprono `cancellata` né `gia_cancellata`** — vedi sopra. **È del Task 7 e va chiuso nella
+   spec prima di `0018`.**
+2. **Il ramo `if v_stato is null` di `0016:174` non è stato copiato in `0017`** (righe 67 e 173). Se la visibilità cade
+   fra il `for update` e la chiamata a `stato_visita`, le due funzioni nuove rispondono `modificata_altrove` con
+   `stato: null` e lo **registrano** così, dove la gemella registrerebbe `non_trovata`. **Ipotesi della revisione a
+   secco, NON misurata**: serve una prova ricalcata su `salva-visita.test.ts:716`. Non bloccante — §4.3 passo 7 impone
+   al server di ricontrollare l'account su ogni esito diverso da `salvata`/`cancellata` — ma è un'asimmetria non
+   dichiarata fra tre funzioni gemelle, e **il precedente che il Task 7 copierà è 1 a 3 contro**.
+3. **`0017` chiama `stato_visita` due volte senza la riga di commento che rimanda al vincolo di §4.4** sulle funzioni
+   `stable` («istruzione propria, dopo l'attesa»). La copia è corretta **per accidente**, e chi scriverà `0018`
+   copierà la forma di `0017`, dove la regola non c'è.
+4. **La guardia `app.is_active_operator()` delle due funzioni: senza vittime, NON equivalente.** Misurato con la
+   sessione vera di un account che non è operatrice: **con** la guardia, `42501` su tutte e due; **senza**, tutte e due
+   rispondono `esito = non_trovata`, un esito di dominio. Il presidio è la prova OUTSIDER-WRITE del **Task 9**.
+5. **`set constraints … immediate` non è eseguito sui TRE ritorni anticipati di `sposta_visita_a`** — reperto 1 del
+   Task 5, riprodotto identico su questa funzione. Irraggiungibile da PostgREST (una chiamata per transazione).
+6. **Il blocco della regola 2 in `0016` resta l'unica delle tre copie scoperta** (0 rosse su 373). Le due di `0017`
+   sono ora presidiate.
+7. **`sposta_visita_a` non è presidiata sotto `40P01` né con più di due appuntamenti**, benché misurato che si comporti
+   correttamente in tutti e due i casi (quattro appuntamenti insieme → `salvata`; due spostamenti incrociati →
+   `salvata` / `40P01`, con la visita della perdente **intatta**). Come il reperto 6 del Task 5.
+8. **`22003` manca al censimento dei codici fuori elenco** di §4.1: `(e ->> 'inizio')::smallint` fuori dal campo di
+   `smallint` lo solleva. **Ipotesi a lettura, non misurata.** Nessun danno: il criterio per **proprietà** di §4.3
+   passo 8 (revisione 16) lo copre senza nominarlo. È la spec ad avere un numero da correggere.
+9. **Quattro divergenze di sola prosa nella spec**, tutte senza danno: l'elenco di `delete_visit` («0, 2, 10 e 11»)
+   omette la 5 e la 6, che il codice implementa; la regola 10 promette «le versioni nuove» anche a `delete_visit`, che
+   dopo una cancellazione non ne ha; la tabella degli esiti non prevede che il ramo del conflitto sul codice d'invio
+   possa restituire un esito di un'altra funzione (non raggiungibile: ogni invio ha il suo `crypto.randomUUID()`);
+   §5.1 non ha una riga per gli SQLSTATE diversi da `57014`/`40P01`.
+10. Dal Task 5 e prima: i tre trigger su `operator` non presidiati, le sette prove negative senza gemella, l'audit
+    cieco a `(select …) or true` (S4-6, Task 9), nessun audit su `pg_proc.proacl` (Task 9). **Non toccarli.**
+
+⚠︎ **Un commento di `sposta-e-cancella.test.ts` è stato scritto male alla consegna e corretto qui:** diceva che il
+percorso non serializzato dal blocco sulla visita è «quello che fa la cascata, ed è quello che farà `controlla_invio`
+domani». Falso in entrambe le metà — `controlla_invio` **legge soltanto**, e la cascata da `delete from client` prende
+comunque prima il blocco sulla visita (`0008`). La ragione **vera** è più forte: spec §4.2 dichiara che `authenticated`
+ha INSERT, UPDATE e DELETE **diretti** su `visit`, `appointment` e `client`.
+
+### Trappole di processo, confermate e nuove
+
+1. ⚠︎ **Il ripristino di un file non ripristina il database.** Ripresa in flagrante **una terza volta**, durante questa
+   esecuzione: file `0016` ripristinato per `shasum`, due prove rosse, e la mutazione era ancora viva nel database.
+   Dopo ogni ripristino di una migrazione serve un `db reset` **prima** di rimisurare.
+2. **Una revisione a secco batte una empirica quando il rimedio è il punto.** Sulla regola 8 le due si contraddicevano:
+   la a secco prediceva 3 rosse con un messaggio preciso, l'empirica dichiarava che la correzione passava. La misura ha
+   dato ragione alla a secco **al carattere**, compreso il discriminante (la prova che sposta a un altro giorno resta
+   verde). Quando due revisioni divergono, si misura la forma **letterale** che una delle due ha scritto.
+3. **`grep -c` esce con 1 quando conta zero**, e in una catena `&&` la spezza in silenzio. Un gate che sembra
+   interrotto può essere solo un conteggio a zero.
+4. **Una misura presa nella finestra in cui un'altra persona usa il database è falsa in silenzio.** Il Passo 2 di
+   questa esecuzione cadeva in quella finestra ed è stato **rifatto** sul file finale: **18 rosse**, tutte per
+   l'assenza delle due funzioni, poi ripristino verificato per `shasum` e **18 verdi**.
+
+### Che cosa NON è stato fatto, per decisione dell'utente
+
+- I dieci reperti aperti qui sopra restano aperti, con il danno misurato accanto.
+- **Non** è stata applicata la regola 8 a `sposta_visita_a`: dichiarata l'esenzione in spec, revisione 17.
+- **Non** è stato chiuso il buco delle sei righe di §4.4 (reperto 1): è del Task 7 e tocca la spec.
+- **Non** è stata scritta la prova del reperto 2 (ramo `v_stato is null`): ipotesi non misurata.
+- **Non** è stato anticipato niente del Task 7 né del Task 9.
