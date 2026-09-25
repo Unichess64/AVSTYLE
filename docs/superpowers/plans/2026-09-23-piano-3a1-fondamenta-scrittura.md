@@ -2746,7 +2746,7 @@ revisioni avversariali.** Stanno per esteso nell'appendice del Task 5, in fondo 
    Con gli appuntamenti creati in ordine di `id` decrescente, toglierlo fa rimbalzare un salvataggio conforme
    (misurato). Copi quella riga in tutte e due le funzioni: copiala con l'`order by`.
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/sposta-e-cancella.test.ts
@@ -2955,10 +2955,10 @@ describe('cancella_visita', () => {
 })
 ```
 
-- [ ] **Passo 2: esegui e verifica che falliscano** — `npx vitest run tests/schema/sposta-e-cancella.test.ts`, rosse
+- [x] **Passo 2: esegui e verifica che falliscano** — `npx vitest run tests/schema/sposta-e-cancella.test.ts`, rosse
   con `42883`.
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0017_sposta_e_cancella.sql
@@ -3160,10 +3160,10 @@ grant execute on function
 to authenticated;
 ```
 
-- [ ] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/sposta-e-cancella.test.ts`,
+- [x] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/sposta-e-cancella.test.ts`,
   10 verdi.
 
-- [ ] **Passo 5: sonde di mutazione**
+- [x] **Passo 5: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -3173,7 +3173,7 @@ to authenticated;
 | 4 | in `cancella_visita`, `gia_cancellata` → `cancellata` | *«risponde gia_cancellata…»* |
 | 5 | togli il trigger delle cancellate (Task 1) | *«registra la visita fra le cancellate»* e *«risponde gia_cancellata…»* |
 
-- [ ] **Passo 6: gate e commit**
+- [x] **Passo 6: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
