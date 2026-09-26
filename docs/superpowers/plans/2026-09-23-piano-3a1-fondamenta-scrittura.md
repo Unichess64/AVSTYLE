@@ -6226,12 +6226,24 @@ transazione è fresca, perché il vincolo è già differito per dichiarazione. V
 
 1. **Le sei righe di §4.4 non coprono `cancellata` né `gia_cancellata`** — vedi sopra. **È del Task 7 e va chiuso nella
    spec prima di `0018`.**
-2. **Il ramo `if v_stato is null` di `0016:174` non è stato copiato in `0017`** (righe 67 e 173). Se la visibilità cade
-   fra il `for update` e la chiamata a `stato_visita`, le due funzioni nuove rispondono `modificata_altrove` con
-   `stato: null` e lo **registrano** così, dove la gemella registrerebbe `non_trovata`. **Ipotesi della revisione a
-   secco, NON misurata**: serve una prova ricalcata su `salva-visita.test.ts:716`. Non bloccante — §4.3 passo 7 impone
-   al server di ricontrollare l'account su ogni esito diverso da `salvata`/`cancellata` — ma è un'asimmetria non
-   dichiarata fra tre funzioni gemelle, e **il precedente che il Task 7 copierà è 1 a 3 contro**.
+2. ⚠︎ **Il ramo `if v_stato is null` di `0016:174` non è stato copiato in `0017`** (righe 67 e 173).
+   **MISURATO il 26/09/2026 su banco usa e getta, non più un'ipotesi.** Forma: il guardiano cambia un appuntamento e
+   ne tiene il blocco; la funzione supera il `for update` sulla **visita** (quindi `v_trovata` è già `true`) e si ferma
+   sul `for update` degli **appuntamenti**; mentre è ferma, l'operatrice viene disattivata — e la disattivazione
+   committata cancella le sue sessioni (`0015`), quindi la sicurezza per riga le nasconde tutto; il guardiano molla.
+   Le tre funzioni gemelle, **stesso istante, stessa forma**:
+
+   | funzione | esito | `stato` |
+   |---|---|---|
+   | `salva_visita` (`0016`, che ha il ramo) | **`non_trovata`** | assente |
+   | `sposta_visita_a` | **`modificata_altrove`** | **`null`** |
+   | `cancella_visita` | **`modificata_altrove`** | **`null`** |
+
+   Danno: la scheda riceve `modificata_altrove` e §4.4 le impone di ridisegnarsi «dallo stato corrente», che è vuoto —
+   e in `invio` resta registrato `modificata_altrove` dove la gemella registrerebbe `non_trovata`. ⚠︎ **Conta doppio
+   dal Task 7**, che su quel campo decide la riga di «Controlla». Mitigato ma non chiuso da §4.3 passo 7, che impone al
+   server di ricontrollare l'account su ogni esito diverso da `salvata`/`cancellata`. **Non corretto: la decisione è
+   dell'utente**, e il rimedio è copiare il ramo di `0016:171-177` in tutti e due i punti, con la prova che lo pianta.
 3. **`0017` chiama `stato_visita` due volte senza la riga di commento che rimanda al vincolo di §4.4** sulle funzioni
    `stable` («istruzione propria, dopo l'attesa»). La copia è corretta **per accidente**, e chi scriverà `0018`
    copierà la forma di `0017`, dove la regola non c'è.
@@ -6245,9 +6257,11 @@ transazione è fresca, perché il vincolo è già differito per dichiarazione. V
 7. **`sposta_visita_a` non è presidiata sotto `40P01` né con più di due appuntamenti**, benché misurato che si comporti
    correttamente in tutti e due i casi (quattro appuntamenti insieme → `salvata`; due spostamenti incrociati →
    `salvata` / `40P01`, con la visita della perdente **intatta**). Come il reperto 6 del Task 5.
-8. **`22003` manca al censimento dei codici fuori elenco** di §4.1: `(e ->> 'inizio')::smallint` fuori dal campo di
-   `smallint` lo solleva. **Ipotesi a lettura, non misurata.** Nessun danno: il criterio per **proprietà** di §4.3
-   passo 8 (revisione 16) lo copre senza nominarlo. È la spec ad avere un numero da correggere.
+8. **`22003` manca al censimento dei codici fuori elenco** di §4.1. **MISURATO il 26/09/2026**: `sposta_visita_a` con
+   `inizio: 40000` solleva `22003`, non `22P02` né `23514`. I codici raggiungibili fuori dai sei diventano quindi
+   **quattro**: `22023`, `22P02`, `23502`, `22003`. **Nessun danno**: il criterio per **proprietà** di §4.3 passo 8
+   (revisione 16) lo copre senza nominarlo — è esattamente il motivo per cui quel criterio è stato riscritto. È la
+   spec ad avere un numero da correggere, non il codice.
 9. **Quattro divergenze di sola prosa nella spec**, tutte senza danno: l'elenco di `delete_visit` («0, 2, 10 e 11»)
    omette la 5 e la 6, che il codice implementa; la regola 10 promette «le versioni nuove» anche a `delete_visit`, che
    dopo una cancellazione non ne ha; la tabella degli esiti non prevede che il ramo del conflitto sul codice d'invio
