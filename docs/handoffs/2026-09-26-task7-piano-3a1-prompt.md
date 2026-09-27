@@ -7,9 +7,9 @@ Lavori in `/Users/nadiaottavi/Desktop/Git/salon-scheduler`, ramo `main`.
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
-git merge-base --is-ancestor c8cba5c21171ce016e8be9bedf496f1ede8bff31 HEAD \
+git merge-base --is-ancestor 7b2f085bda068c30cc05dc5ca07f822097d08bf4 HEAD \
   && echo "storia lineare" || echo "STORIA RISCRITTA — questo prompt è invalido"
-git diff --stat c8cba5c..HEAD -- supabase tests src
+git diff --stat 7b2f085..HEAD -- supabase tests src
 git status --short
 git branch --show-current
 git log --oneline -1 origin/main
@@ -17,16 +17,16 @@ git log --oneline -1 origin/main
 
 Atteso, una riga per comando:
 
-* il primo stampa `storia lineare`: il commit che porta le due ipotesi misurate del Task 6 è ancora nella storia di
-  questo ramo. È «docs(3a-1): le due ipotesi rimaste del Task 6, ora misurate», e `git log --oneline -1 c8cba5c` lo
+* il primo stampa `storia lineare`: il commit che chiude il reperto 2 del Task 6 è ancora nella storia di questo ramo.
+  È «fix(3a-1): il ramo dello stato vuoto, copiato da 0016 nelle due gemelle», e `git log --oneline -1 7b2f085` lo
   conferma;
 * il secondo **non stampa niente**: dopo la fine del Task 6 nessuno ha toccato `supabase/`, `tests/` o `src/`. Se
   stampa qualcosa, qualcuno ha lavorato sul codice dopo di me e questo prompt è vecchio;
 * il terzo non stampa niente tranne `?? .superpowers/` e i **due** file più vecchi sotto `docs/handoffs/` (datati
   2026-09-18 e 2026-09-22), che sono preesistenti e non si toccano;
 * il quarto stampa `main`;
-* il quinto: ⚠︎ **il ramo è avanti di quattro commit sul remoto** (`3182cd6`, `d894f57`, `737d9bc`, `c8cba5c`, più il
-  commit che introduce questo file). `origin/main` dovrebbe essere a `1173eb3` o più avanti se nel frattempo l'utente
+* il quinto: ⚠︎ **il ramo è avanti di sei commit sul remoto** (`3182cd6`, `d894f57`, `737d9bc`, `c8cba5c`, `7b2f085`, più
+  il commit che aggiorna questo file). `origin/main` dovrebbe essere a `1173eb3` o più avanti se nel frattempo l'utente
   ha pushato. Se è **più avanti di HEAD**, qualcuno ha pushato o resettato: fermati.
 
 Il controllo non nomina l'ultimo commit apposta: il commit che introduce questo file sposterebbe HEAD e renderebbe il
@@ -39,13 +39,17 @@ tua iniziativa: lo decide l'utente, ed è un'azione su un repo pubblico.
 Se una qualunque riga diverge, fermati e dillo: non eseguire il Passo 1 e non proporre alternative finché non ti
 rispondono.
 
-## ⚠︎⚠︎ DUE DECISIONI CHE NON SONO TUE, E CHE VANNO PRESE PRIMA DI SCRIVERE `0018`
+## ⚠︎⚠︎ UNA DECISIONE CHE NON È TUA, E CHE VA PRESA PRIMA DI SCRIVERE `0018`
 
-Non sono difetti da correggere né dettagli da interpretare: sono due punti su cui il Task 6 si è fermato apposta,
-lasciandoli all'utente. **Portali all'utente nel tuo primo messaggio, prima del Passo 1**, e non proseguire oltre il
-Passo 1 finché non rispondono. Stanno per esteso nell'appendice del Task 6.
+Non è un difetto da correggere né un dettaglio da interpretare: è il punto su cui il Task 6 si è fermato apposta,
+lasciandolo all'utente. **Portalo all'utente nel tuo primo messaggio, prima del Passo 1**, e non proseguire oltre il
+Passo 1 finché non rispondono. Sta per esteso nell'appendice del Task 6.
 
-### Decisione A — le sei righe di §4.4 non coprono due esiti che ORA esistono
+*(Il Task 6 ne aveva lasciate due. La seconda — il ramo `if v_stato is null` che `0017` non aveva copiato da `0016` —
+è stata **chiusa il 27/09/2026**: il ramo è nelle due funzioni con due prove che lo piantano, e le tre gemelle ora
+rispondono `non_trovata` nello stesso scenario. Non ti riguarda più, se non come precedente da imitare.)*
+
+### La decisione — le sei righe di §4.4 non coprono due esiti che ORA esistono
 
 È il reperto su cui le due revisioni avversariali del Task 6 sono convergute **da lati diversi**, ed è quello che ti
 riguarda più di ogni altra cosa: **tu codifichi quelle righe come `riga: 1..6`.**
@@ -61,23 +65,6 @@ La prosa di §4.4 li tratta, ma in un capoverso separato («**«Elimina visita»
 due strade sono: **una riga 7** («esito `cancellata` → ✓ Risulta cancellata»), oppure **allargare la riga 6** a
 `gia_cancellata` e trattare `cancellata` come le righe 2/3 sul «è ancora lì?». **Proponi, non decidere.** Chiuderlo
 dopo vuol dire scoprirlo con l'interfaccia già scritta.
-
-### Decisione B — il ramo `if v_stato is null` non è in `0017`, ed è MISURATO
-
-`0016:171-177` degrada un `modificata_altrove` con `stato` non leggibile a `non_trovata`/`cancellata_altrove`; le due
-funzioni del Task 6 non hanno quel ramo. Misurato il 26/09/2026 su banco usa e getta, **stesso istante, stessa forma**
-(guardiano che blocca un appuntamento, operatrice disattivata mentre la funzione è in coda):
-
-| funzione | esito | `stato` |
-|---|---|---|
-| `salva_visita` | **`non_trovata`** | assente |
-| `sposta_visita_a` | **`modificata_altrove`** | **`null`** |
-| `cancella_visita` | **`modificata_altrove`** | **`null`** |
-
-⚠︎ **Ti riguarda direttamente:** quell'esito finisce in `invio`, e `invio.esito` è **l'ingresso su cui tu decidi la
-riga**. Un `modificata_altrove` registrato dove la gemella registrerebbe `non_trovata` ti manda sulla riga 6 invece
-che sulla 5. Il rimedio è copiare il ramo di `0016:171-177` in tutti e due i punti di `0017` (righe 67 e 173) con la
-prova che lo pianta — ma **è una modifica al Task 6, non al tuo**: proponila, non farla.
 
 ## Che cosa leggere, prima di toccare qualunque cosa
 
@@ -95,7 +82,7 @@ prova che lo pianta — ma **è una modifica al Task 6, non al tuo**: proponila,
    tuo contratto, tabella delle sei righe compresa — più §4.1 (le regole 0-11 e il contratto di `p_attesi`), §4.3
    passo 7 e **passo 8** (⚠︎ riscritto alla revisione 16: vedi sotto), §4.2, e le decisioni D3-9, D3-18, D3-21.
 5. `tests/helpers/db.ts`, `tests/helpers/sessioni.ts`, `tests/helpers/fixtures.ts`.
-6. `tests/schema/salva-visita.test.ts` (31 prove) e `tests/schema/sposta-e-cancella.test.ts` (22 prove). Del secondo
+6. `tests/schema/salva-visita.test.ts` (31 prove) e `tests/schema/sposta-e-cancella.test.ts` (24 prove). Del secondo
    guarda in particolare le **due prove che leggono `invio.esito`**: sono il presidio nato apposta per te.
 7. `supabase/migrations/0013_invii_e_cancellate.sql` per intero — `invio`, `visita_cancellata`, `app.versione`,
    `app.apri_invio`, `app.chiudi_invio`, il trigger delle cancellate: è la migrazione che consumi di più. Più
@@ -277,26 +264,38 @@ ad `anon`, `authenticated` e `service_role` su ogni funzione nuova. Conseguenze:
    **9**. Al Task 6 le due revisioni si contraddicevano su un rimedio: si è misurata la **forma letterale** che una
    delle due aveva scritto, e aveva ragione lei — l'altra aveva applicato il rimedio in una forma diversa. Prima di
    scrivere un numero o una ragione nel messaggio di commit, chiediti se l'hai **misurata** o **dedotta**.
-10. ⚠︎ **`grep -c` esce con 1 quando conta zero**, e in una catena `&&` la spezza in silenzio. Un gate che sembra
+10. ⚠︎ **`git checkout --` cancella anche la modifica NON COMMITTATA di un file TRACCIATO.** La trappola 2 registra il
+    caso del file non tracciato; questa è la variante che è costata di più, il 27/09/2026: uno script di sonde finiva
+    con quel comando per «ripristinare» e ha cancellato il ramo appena scritto, così **sette sonde di seguito hanno
+    girato su codice senza la modifica che dovevano misurare**. Il sintomo somigliava a due prove **instabili** — verdi
+    da sole, rosse nella suite — e la diagnosi sbagliata era a un passo. Lo smaschera un `grep -c` sulla riga mutata,
+    **non** uno `shasum`: il file «ripristinato» ha lo shasum di HEAD, che è quello giusto per un ripristino e quello
+    sbagliato per la misura. Il ripristino si fa **sempre** da copia di scorta, e la copia si fa **dopo** aver scritto
+    la modifica.
+11. ⚠︎ **`grep -c` esce con 1 quando conta zero**, e in una catena `&&` la spezza in silenzio. Un gate che sembra
     interrotto può essere solo un conteggio a zero.
 
 ## Che cosa ti ha lasciato il Task 6
 
-**Quattro commit:** `3182cd6` (consegna), `d894f57` (remediation dopo due revisioni avversariali in parallelo),
-`737d9bc` (l'appendice, che è quella che leggi tu) e `c8cba5c` (le due ipotesi rimaste, misurate).
+**Cinque commit:** `3182cd6` (consegna), `d894f57` (remediation dopo due revisioni avversariali in parallelo),
+`737d9bc` (l'appendice, che è quella che leggi tu), `c8cba5c` (le due ipotesi rimaste, misurate) e `7b2f085` (il ramo
+dello stato vuoto, che chiude il reperto 2).
 
 Esistono ora `public.sposta_visita_a(uuid,uuid,date,jsonb,text,jsonb)` e `public.cancella_visita(uuid,uuid,text,jsonb)`,
-con **22 prove** in `tests/schema/sposta-e-cancella.test.ts`. La spec 3a è a **revisione 17**: §4.1 dichiara
+con **24 prove** in `tests/schema/sposta-e-cancella.test.ts`. La spec 3a è a **revisione 17**: §4.1 dichiara
 `move_visit_to` **esente** dalla parte della regola 8 sugli aggiornamenti condizionali, con la misura che lo obbliga e
 il prezzo che si paga.
 
-**Baseline verificata a `c8cba5c`, eseguita in serie:** `npx supabase db reset` senza righe `Skipping migration`;
-`npm test` → **24 file, 373 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+**Baseline verificata, eseguita in serie:** `npx supabase db reset` senza righe `Skipping migration`;
+`npm test` → **24 file, 375 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
 
 **Presìdi che restano scoperti, con il danno misurato** (tutti nell'appendice del Task 6, nessuno bloccante):
 
 1. **Le sei righe di §4.4 non coprono `cancellata` né `gia_cancellata`** — è la **decisione A** qui sopra, ed è tua.
-2. **Il ramo `if v_stato is null` non è in `0017`** — **decisione B**, misurata.
+2. ✅ **Il ramo `if v_stato is null` è ORA in `0017`** (chiuso il 27/09/2026): le tre funzioni gemelle rispondono
+   `non_trovata` nello stesso scenario, e due prove lo piantano — una per funzione, 1 rossa ciascuna. **Imita quella
+   forma**: `controlla_invio` deve decidere che fare quando `stato_visita` torna NULL, ed è la differenza fra la riga 4
+   e la riga 5.
 3. **`0017` chiama `stato_visita` senza la riga di commento** sul vincolo di §4.4: copia da `0016`, non da `0017`.
 4. **La guardia `app.is_active_operator()` delle funzioni del Task 6: senza vittime, NON equivalente.** Senza, tutte e
    due rispondono `esito = non_trovata`, un esito di dominio. Il presidio è la prova OUTSIDER-WRITE del **Task 9**.
