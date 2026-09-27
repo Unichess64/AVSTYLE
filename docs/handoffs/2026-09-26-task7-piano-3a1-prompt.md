@@ -27,8 +27,10 @@ Atteso, una riga per comando:
 * il quarto stampa `main`;
 * il quinto: `origin/main` dovrebbe essere a `d3cff27` (pushato il 27/09/2026) o più avanti, se nel frattempo l'utente
   ha pushato anche `7b2f085`, `23adaca` e il commit che aggiorna questo file. Se è **più avanti di HEAD**, qualcuno ha
-  pushato o resettato: fermati. ⚠︎ Le `git note` (su `79574fe` e su `7b2f085`) **non viaggiano** con un push normale:
-  si leggono con `git log --notes` solo in locale.
+  pushato o resettato: fermati. ⚠︎ Le `git note` (su `79574fe` e su `7b2f085`) **sono sul remoto**,
+  pushate a mano il 27/09/2026 con `git push origin refs/notes/commits` — ma **un `git clone` non le scarica**: servono
+  `git fetch origin refs/notes/commits:refs/notes/commits` e poi `git log --notes`. Su GitHub non si vedono. Le
+  correzioni che portano sono comunque nei file, ed è lì che le leggi.
 
 Il controllo non nomina l'ultimo commit apposta: il commit che introduce questo file sposterebbe HEAD e renderebbe il
 controllo impossibile da superare. Il SHA è scritto per esteso perché nel prompt del Task 2 un segnaposto era costato
