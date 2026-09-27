@@ -3237,7 +3237,7 @@ primo, «Controlla» aspetta la fine del commit dell'invio — parte differita c
 arriva prima, l'invio tardivo riceve `annullato`. Una CTE unica invece **legge la fotografia presa prima
 dell'attesa**: per questo la funzione è `volatile` e in `plpgsql`.
 
-- [ ] **Passo 1: scrivi le prove che falliscono**
+- [x] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/controlla-invio.test.ts
@@ -3458,9 +3458,9 @@ describe('concorrenza, con due connessioni', () => {
 })
 ```
 
-- [ ] **Passo 2: esegui e verifica che falliscano** — rosse con `42883 function controlla_invio(...)`.
+- [x] **Passo 2: esegui e verifica che falliscano** — rosse con `42883 function controlla_invio(...)`.
 
-- [ ] **Passo 3: scrivi la migrazione**
+- [x] **Passo 3: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0018_controlla_invio.sql
@@ -3589,12 +3589,12 @@ to authenticated;
 Scrivi `app.apri_invio_come_annullato` **prima** di `controlla_invio` nel file, per leggibilità: l'ordine non è un
 obbligo tecnico (misurato).
 
-- [ ] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/controlla-invio.test.ts`,
+- [x] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/controlla-invio.test.ts`,
   **13 verdi** (10 del Passo 1, due per le righe 6 e 7, una per la regola su `non_trovata` di §4.4 revisione 19; era
   «10 verdi» prima del 27/09/2026). La prova (b) e la (b bis) devono **durare** circa mezzo secondo: se finiscono subito, «Controlla» non sta
   aspettando e il meccanismo non regge. Scrivi nel resoconto la durata misurata.
 
-- [ ] **Passo 5: sonde di mutazione**
+- [x] **Passo 5: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -3607,7 +3607,7 @@ obbligo tecnico (misurato).
 | 7 | `v_riga := 7` → `v_riga := 2` per `cancellata`, e `gia_cancellata` spostato sulla riga 2 | la forma che il piano aveva prima del 27/09/2026: devono arrossire **le due prove nuove** delle righe 6 e 7. Se non arrossiscono, quelle prove non presidiano il ramo che dicono di presidiare |
 | 8 | via l'intero ramo `elsif v_esito = 'non_trovata'`, così che ricada nell'`else` della riga 6 | la prova che l'avvertimento in testa al task ti fa aggiungere: «Controlla» su un `non_trovata` la cui visita è ancora leggibile deve dare **riga 1**, non 6. Se non arrossisce, la regola di §4.4 revisione 19 nasce morta. ⚠︎ La forma per costruirla è misurata e sta nell'appendice della revisione mirata: guardiano che blocca un appuntamento, `sposta_visita_a` in coda, operatrice disattivata e poi **riattivata** prima di «Controlla» |
 
-- [ ] **Passo 6: gate e commit**
+- [x] **Passo 6: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
