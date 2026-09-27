@@ -69,16 +69,60 @@ riuscita, poi «Controlla») e una per la riga 6 con `gia_cancellata` (due cance
 codice) — e l'atteso del Passo 4 è già stato portato da 10 a **12**. La **settima sonda** del Passo 5 esiste apposta
 per verificarle: rimette la forma sbagliata e le due prove nuove devono arrossire.
 
-### 2. Il ramo `if v_stato is null` è ORA nelle due funzioni del Task 6
+### 2. ⚠︎ IL VINCOLO CHE DEVI IMPLEMENTARE: `non_trovata` non autorizza a dire «non esiste più»
+
+**È la cosa più importante di questo prompt dopo il punto 1, ed è lavoro tuo, non contesto.** Spec §4.4,
+**revisione 19**, fra le «Regole comuni a tutti i messaggi dopo «Controlla»».
+
+Misurato il 27/09/2026 da una revisione mirata: **tutte e tre** le funzioni di scrittura registrano in `invio`
+`non_trovata` anche quando la visita **c'è ancora** e ciò che è caduto è il **permesso di leggerla** — l'operatrice
+disattivata mentre l'invio è in coda perde le sessioni (`0015`), e la sicurezza per riga le nasconde tutto. Il banco
+l'ha verificato: `invio = ['non_trovata']`, e la visita in `visit` con i suoi appuntamenti.
+
+Percorso raggiungibile fino a te: disattivazione → riattivazione → l'operatrice rientra entro le **24 ore** che §4.4
+concede al codice d'invio → «Controlla» passa il codice rimasto in `localStorage` → **il ricontrollo dell'account
+riesce**, perché è attiva di nuovo → e la riga 6 prenderebbe il secondo messaggio di `non_trovata`, «questa visita non
+esiste più», **su una visita che è lì**.
+
+La regola che lo disinnesca era già in §4.4, prima riga delle regole comuni: **«Dove sta la visita lo dice la lettura,
+mai la memoria del telefono»** — e tu la visita la **leggi**. Quindi, con `esito_invio = 'non_trovata'`:
+
+* la lettura **trova** la visita → si tratta come **riga 1**, «Non risulta salvata: l'invio non ha scritto nulla» (ed è
+  vero, `non_trovata` non scrive), con lo **stato letto** che diventa quello di partenza della scheda, così il «Salva»
+  successivo non rimbalza per versioni vecchie;
+* la lettura **non** la trova ed è fra le cancellate → **riga 4**; non la trova e non è fra le cancellate → **riga 5**.
+
+Il messaggio «questa visita non esiste più» si usa **solo** quando la tua lettura conferma l'assenza. Per
+`cancellata_altrove` e `gia_cancellata` la questione non si pone: quegli esiti affermano l'assenza per definizione.
+
+✅ **Il Passo 3 del piano lo implementa già** (corretto il 27/09/2026): c'è un `elsif v_esito = 'non_trovata'` che
+guarda la lettura e dà **riga 1** se la visita c'è, 4 o 5 se non c'è. **Ma nessuna prova lo pianta**: quella la scrivi
+tu, ed è l'ottava sonda del Passo 5 a verificarla. La forma per costruirla è misurata e sta nell'appendice «Revisione
+mirata del ramo dello stato vuoto»: guardiano che blocca un appuntamento, `sposta_visita_a` in coda, operatrice
+disattivata e poi **riattivata** prima di «Controlla».
+
+### 3. Il ramo `if v_stato is null` è ORA nelle due funzioni del Task 6
 
 Chiuso il 27/09/2026. `0016:171-177` degrada un `modificata_altrove` con `stato` non leggibile a `non_trovata`, e
 `0017` non aveva quel ramo: misurato, nello stesso istante e con la stessa forma, `salva_visita` rispondeva
 `non_trovata` e le altre due `modificata_altrove` con `stato: null` — e quell'esito finiva in `invio`, cioè nel campo
 su cui **tu** decidi la riga. Ora le tre gemelle rispondono uguale, e due prove lo piantano, una per funzione.
 
-⚠︎ **Ti riguarda come precedente da imitare:** anche `controlla_invio` legge `stato_visita`, e deve decidere che fare
-quando torna NULL. È la differenza fra la **riga 4** e la **riga 5**, e §4.4 aggiunge che una riga del codice non
-visibile → *«Non so»*, **mai** la riga 1.
+⚠︎ **Ti riguarda come precedente da imitare — ma NON copiarne la metà morta.** Anche `controlla_invio` legge
+`stato_visita` e deve decidere che fare quando torna NULL: là è la differenza fra la **riga 4** e la **riga 5**, e §4.4
+aggiunge che una riga del codice non visibile → *«Non so»*, **mai** la riga 1.
+
+⚠︎ E attenzione a una differenza che conta: in `0017` la visita è sotto `for update`, quindi `v_stato is null` ha **una
+sola** causa possibile, «permesso caduto». Da te no: `controlla_invio` legge **senza** bloccare, quindi NULL ha due
+cause vere e distinte — visita davvero cancellata (riga 4) e visita mai esistita (riga 5). **Copiare il ragionamento
+senza copiare la differenza è il modo più rapido per riaprire il reperto.**
+
+⚠︎ E il ramo `case when v_cancellata then … else 'non_trovata' end` che vedi nelle tre funzioni è **codice morto**,
+misurato: cinque mutazioni su di esso danno **0 rosse su 375**, compreso scambiare i due letterali fra le gemelle, e non
+esiste porta per raggiungerlo (la visita è bloccata, e `visita_cancellata` si legge con la stessa politica di `visit`).
+Sta lì per simmetria, **non perché sia presidiato**: due di quelle mutazioni sono invisibili oggi e **letali a te** —
+`cancellata` è la tua riga 7 e `salvata` la tua riga 2, per un invio che non ha scritto una riga. **Nel tuo `0018` non
+riprodurre la forma credendola difesa.**
 
 ## Che cosa leggere, prima di toccare qualunque cosa
 
@@ -93,7 +137,8 @@ visibile → *«Non so»*, **mai** la riga 1.
 3. Subito prima, le appendici dei Task 5, 4, 3 e 2: contengono le trappole di processo, di cui **due sono FALSE** e
    segnate come tali (vedi sotto).
 4. `docs/superpowers/specs/2026-09-22-piano-3a-il-giorno-design.md` (ora **revisione 17**): **§4.4 per intero** — è il
-   tuo contratto, tabella delle sei righe compresa — più §4.1 (le regole 0-11 e il contratto di `p_attesi`), §4.3
+   tuo contratto, tabella delle **sette** righe compresa, **più la regola su `non_trovata`** fra le regole comuni
+   (revisione 19) — più §4.1 (le regole 0-11 e il contratto di `p_attesi`), §4.3
    passo 7 e **passo 8** (⚠︎ riscritto alla revisione 16: vedi sotto), §4.2, e le decisioni D3-9, D3-18, D3-21.
 5. `tests/helpers/db.ts`, `tests/helpers/sessioni.ts`, `tests/helpers/fixtures.ts`.
 6. `tests/schema/salva-visita.test.ts` (31 prove) e `tests/schema/sposta-e-cancella.test.ts` (24 prove). Del secondo
@@ -240,7 +285,7 @@ ad `anon`, `authenticated` e `service_role` su ogni funzione nuova. Conseguenze:
   `npm run test:fuso`, `npx tsc --noEmit`.
 * **Le sonde di mutazione si eseguono davvero**: si applica la mutazione, si lancia, si verifica che sia rossa, si
   ripristina, si rilancia e si verifica che sia di nuovo verde. Una sonda «ragionata» non vale. Il Passo 5 ne elenca
-  **sette**; se una non fa vittime, dichiaralo e di' che cosa farebbe davvero in produzione.
+  **otto**; se una non fa vittime, dichiaralo e di' che cosa farebbe davvero in produzione.
 * Se Docker non risponde: `open -a OrbStack`, ~30 s, poi `npx supabase start`.
 
 ## Le trappole misurate prima di te — non ripeterle
@@ -332,9 +377,10 @@ il prezzo che si paga.
   decisioni in testa potrebbero farti toccare la spec — **nominali uno per uno**. Un `git add` largo porta dentro
   modifiche che non hai dichiarato. Le caselle `- [ ]` del piano che spunti sono una modifica al piano: va nel commit,
   nominata.
-* **Il Passo 4 attende «12 verdi»**: le `it(` del Passo 1 sono **10**, contate il 26/09/2026, più le **due** delle
-  righe 6 e 7 che l'avvertimento in testa ti fa aggiungere. Contale tu: se non fanno 12, **non aggiustare il numero,
-  dillo**. E ricorda che il Passo 5 te ne fa aggiungere almeno un'altra, più quelle sui permessi.
+* **Il Passo 4 attende «13 verdi»**: le `it(` del Passo 1 sono **10**, contate il 26/09/2026, più le **due** delle
+  righe 6 e 7 e **una** per la regola su `non_trovata`, che gli avvertimenti in testa ti fanno aggiungere. Contale tu:
+  se non fanno 13, **non aggiustare il numero, dillo**. E ricorda che il Passo 5 te ne fa aggiungere almeno un'altra,
+  più quelle sui permessi.
 
 ## Come chiudere
 

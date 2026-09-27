@@ -717,9 +717,17 @@ describe('registro degli invii', () => {
     // Misurato tre volte al quarto giro e tre al quinto: l'esito è
     // `non_trovata`, non un errore. Quando il blocco si libera, la fotografia
     // nuova è già senza permessi, quindi la regola 2 legge un insieme vuoto e
-    // la regola 6 se ne accorge. È il presidio delle regole 5 e 6 sotto
-    // concorrenza — con `p_attesi` CORRETTI, come qui. Con `p_attesi` vuoti la
-    // stessa forma arriva invece alla regola 11: la prova qui sotto.
+    // la regola 6 se ne accorge. Con `p_attesi` vuoti la stessa forma arriva
+    // invece alla regola 11: la prova qui sotto.
+    //
+    // ⚠︎ CORRETTO il 27/09/2026: questo commento diceva «è il presidio delle
+    // regole 5 e 6 sotto concorrenza», e non è vero. Misurato: `v_trovata` qui
+    // è già `true` (il `for update` sulla visita è passato), quindi la regola 5
+    // non si raggiunge; la regola 6 si raggiunge, ma l'esito `non_trovata` esce
+    // dal ramo `if v_stato is null` che sta DENTRO di essa — e togliendo quel
+    // ramo (`if false then`) è **questa** prova ad arrossire, da sola. È quindi
+    // il presidio della regola 6 **e del degrado dello stato non leggibile**,
+    // che è la riga copiata in `0017` dalle due funzioni del Task 6.
     const creata = await asOperatorCommit(VERA_AUTH, (c) => salva(c, { appuntamenti: [app1(A1, 120)] }))
     const guardiano = await connect()
     const scrittore = await connect()

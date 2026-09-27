@@ -566,6 +566,17 @@ describe('sposta_visita_a', () => {
     // E la riga che conta per il Task 7: nel registro finisce lo stesso esito,
     // non `modificata_altrove`.
     expect(await esitiDi(cod)).toEqual(['non_trovata'])
+    // ⚠︎ GEMELLA POSITIVA, e insieme il presidio del reperto che la revisione
+    // mirata del 27/09/2026 ha misurato: `non_trovata` qui è un'affermazione
+    // PIÙ FORTE DEL VERO. La visita c'è ancora, con il servizio dove la collega
+    // l'ha messo: è caduto il permesso di leggerla, non la riga. Per questo
+    // §4.4 (revisione 19) vieta a «Controlla» di dire «questa visita non esiste
+    // più» quando la sua lettura la trova, e la tratta come riga 1. Senza
+    // queste righe nessuna prova guardava il mondo DOPO.
+    expect((await inizi()).map((x) => [x.id, x.s])).toEqual([
+      [A1, 120],
+      [A2, 160],
+    ])
   })
 })
 
@@ -739,8 +750,11 @@ describe('cancella_visita', () => {
   // lungo sul registro degli invii, il reperto su cui le due revisioni
   // avversariali sono convergute. Qui i due esiti che nessun altro leggeva sono
   // `cancellata` e `gia_cancellata` — e sono anche i due che la tabella delle
-  // sei righe di §4.4 non nomina, cosa che il Task 7 deve chiudere nella spec
-  // prima di scrivere 0018.
+  // righe di §4.4 non nominava. ✅ Chiuso il 27/09/2026 con la spec a revisione
+  // 18: `gia_cancellata` è entrato nell'elenco della **riga 6**, che è
+  // letteralmente il suo caso («un esito che non ha scritto»), e `cancellata` ha
+  // la **riga 7**, «✓ Risulta cancellata». Il contratto di «Controlla» è quindi
+  // `riga: 1..7`.
   it('registra nel registro degli invii lo stesso esito che restituisce', async () => {
     const creata = await crea()
     const cod1 = codice()
@@ -820,6 +834,14 @@ describe('cancella_visita', () => {
     // E la riga che conta per il Task 7: nel registro finisce lo stesso esito,
     // non `modificata_altrove`.
     expect(await esitiDi(cod)).toEqual(['non_trovata'])
+    // ⚠︎ GEMELLA POSITIVA, la stessa della prova gemella in `sposta_visita_a`:
+    // la visita che questa chiamata dichiara `non_trovata` **c'è ancora**, con
+    // gli appuntamenti intatti. Vedi là il commento per esteso e §4.4 revisione
+    // 19, che vieta a «Controlla» di affermare l'assenza contro la sua lettura.
+    expect((await inizi()).map((x) => [x.id, x.s])).toEqual([
+      [A1, 120],
+      [A2, 160],
+    ])
   })
 })
 

@@ -67,10 +67,9 @@ begin
     v_stato := public.stato_visita(p_visita);
     -- ⚠︎ Il ramo che `0016:171-177` aveva e che questo file non aveva copiato,
     -- portato qui il 27/09/2026 dopo che la misura ha mostrato l'asimmetria.
-    -- Se nel frattempo la visita non è più leggibile — cancellata da una
-    -- collega, o account chiuso — `stato` è NULL e la scheda non ha niente da
-    -- mostrare, mentre §4.4 le impone di ridisegnarsi «dallo stato corrente»:
-    -- l'esito giusto è l'altro.
+    -- Se la visita non è più leggibile, `stato` è NULL e la scheda non ha
+    -- niente da mostrare, mentre §4.4 le impone di ridisegnarsi «dallo stato
+    -- corrente»: l'esito giusto è l'altro.
     --
     -- Misurato il 26/09/2026 su banco usa e getta, PRIMA di questo ramo: con il
     -- guardiano che blocca un appuntamento, la funzione supera il `for update`
@@ -79,9 +78,31 @@ begin
     -- disattivazione committata cancella le sue sessioni (0015), quindi la
     -- sicurezza per riga le nasconde tutto. Nello STESSO istante e con la STESSA
     -- forma, `salva_visita` rispondeva `non_trovata` e queste due
-    -- `modificata_altrove` con `stato: null`. E quell'esito finisce in `invio`,
-    -- che è il campo su cui «Controlla» (Task 7) decide la riga: l'asimmetria
-    -- fra tre funzioni gemelle costava al Task 7 la riga sbagliata.
+    -- `modificata_altrove` con `stato: null`.
+    --
+    -- ⚠︎ DUE COSE MISURATE IL 27/09/2026 dalla revisione mirata, che il primo
+    -- commento di questo ramo diceva male.
+    --
+    -- 1. NON è vero che l'asimmetria «costava al Task 7 la riga sbagliata»:
+    --    `modificata_altrove` e `non_trovata` cadono ENTRAMBI nella riga 6 di
+    --    §4.4. Costava il MESSAGGIO dentro quella riga, non la riga.
+    -- 2. La visita, in questo scenario, C'È ANCORA: è caduto il permesso di
+    --    leggerla, non la riga. Quindi `non_trovata` qui è un'affermazione più
+    --    forte del vero, e §4.4 (revisione 19) la disinnesca dal lato di
+    --    «Controlla»: con esito `non_trovata`, se la LETTURA trova la visita si
+    --    tratta come riga 1 — «Non risulta salvata» — e non si dice mai «questa
+    --    visita non esiste più». Il Task 7 lo presidia con una prova.
+    --
+    -- ⚠︎ E il ramo `then` di questo `case when` è CODICE MORTO, misurato: cinque
+    -- mutazioni su di esso (compreso scambiare i due letterali fra le gemelle)
+    -- danno 0 rosse su 375, e non esiste porta per raggiungerlo. `v_stato is
+    -- null` con `v_trovata` vero significa solo «permesso caduto», perché la
+    -- visita è sotto `for update` e nessuno può cancellarla; ma `v_cancellata`
+    -- si legge con la STESSA politica di `visit` (`0014`), quindi sotto lo stesso
+    -- blackout è falsa. Perché fosse vera, la disattivazione dovrebbe committare
+    -- fra quelle due istruzioni, e fra loro non c'è alcun punto di attesa da cui
+    -- pilotarla. Si tiene per simmetria con `0016`, NON perché sia presidiato:
+    -- chi copia questa forma in `0018` non la creda difesa da una prova.
     if v_stato is null then
       perform app.chiudi_invio(p_codice, case when v_cancellata then 'cancellata_altrove' else 'non_trovata' end);
       return jsonb_build_object('esito', case when v_cancellata then 'cancellata_altrove' else 'non_trovata' end);
@@ -207,23 +228,18 @@ begin
   if v_versione is distinct from p_visita_attesa
      or coalesce(p_attesi, '[]'::jsonb) is distinct from v_correnti then
     v_stato := public.stato_visita(p_visita);
-    -- ⚠︎ Il ramo che `0016:171-177` aveva e che questo file non aveva copiato,
-    -- portato qui il 27/09/2026 dopo che la misura ha mostrato l'asimmetria.
-    -- Se nel frattempo la visita non è più leggibile — cancellata da una
-    -- collega, o account chiuso — `stato` è NULL e la scheda non ha niente da
-    -- mostrare, mentre §4.4 le impone di ridisegnarsi «dallo stato corrente»:
-    -- l'esito giusto è l'altro.
+    -- Il ramo gemello di quello di `sposta_visita_a`: **le sue tre avvertenze
+    -- valgono identiche qui**, e stanno scritte là per esteso (la ragione falsa
+    -- sulla «riga sbagliata», la visita che in questo scenario c'è ancora, e il
+    -- ramo `then` che è codice morto). Qui solo ciò che cambia.
     --
-    -- Misurato il 26/09/2026 su banco usa e getta, PRIMA di questo ramo: con il
-    -- guardiano che blocca un appuntamento, la funzione supera il `for update`
-    -- sulla visita (quindi `v_trovata` è già true), si ferma su quello degli
-    -- appuntamenti, e mentre è ferma l'operatrice viene disattivata — la
-    -- disattivazione committata cancella le sue sessioni (0015), quindi la
-    -- sicurezza per riga le nasconde tutto. Nello STESSO istante e con la STESSA
-    -- forma, `salva_visita` rispondeva `non_trovata` e queste due
-    -- `modificata_altrove` con `stato: null`. E quell'esito finisce in `invio`,
-    -- che è il campo su cui «Controlla» (Task 7) decide la riga: l'asimmetria
-    -- fra tre funzioni gemelle costava al Task 7 la riga sbagliata.
+    -- Il letterale è `gia_cancellata` e non `cancellata_altrove` perché §4.1 dà
+    -- quell'esito a `delete_visit` — «visita assente e fra le cancellate» — ed è
+    -- lo stesso che il ramo «visita assente» di questa funzione usa poche righe
+    -- sopra. Misurato il 27/09/2026: scambiarlo con quello della gemella dà
+    -- 0 rosse su 375, perché il ramo `then` non è raggiungibile. La coerenza
+    -- con §4.1 è quindi l'unica ragione per cui è quello giusto: nessuna prova
+    -- lo difende.
     if v_stato is null then
       perform app.chiudi_invio(p_codice, case when v_cancellata then 'gia_cancellata' else 'non_trovata' end);
       return jsonb_build_object('esito', case when v_cancellata then 'gia_cancellata' else 'non_trovata' end);

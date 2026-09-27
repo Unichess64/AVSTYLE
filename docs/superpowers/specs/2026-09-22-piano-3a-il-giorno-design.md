@@ -1,7 +1,12 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 18 — scrive in §4.4 le **righe 6 e 7** per i due esiti che il Task 6 del piano 3a-1 ha creato:
+**Revisione:** 19 — scrive in §4.4, fra le regole comuni dopo «Controlla», che **`non_trovata` non autorizza a dire
+«non esiste più» se la lettura trova la visita**. Misurato il 27/09/2026 sul Task 6 del piano 3a-1: le tre funzioni di
+scrittura registrano `non_trovata` anche quando è caduto il solo **permesso di leggere** la visita, e con l'account
+riattivato entro le 24 ore la riga 6 avrebbe affermato l'assenza di una visita presente. Vince la prima regola
+dell'elenco — lo dice la lettura — e il caso si tratta come **riga 1**. Il Task 7 la presidia con una prova;
+**revisione 18** — scrive in §4.4 le **righe 6 e 7** per i due esiti che il Task 6 del piano 3a-1 ha creato:
 `gia_cancellata` entra nell'elenco della riga 6, che è letteralmente il suo caso («un esito che non ha scritto»), e
 `cancellata` prende la **riga 7**, analoga della 2 per «Elimina visita». Il contratto di «Controlla» passa da
 `riga: 1..6` a **`riga: 1..7`**. Il contenuto lo diceva già il capoverso «Elimina visita» incerta: mancava la forma,
@@ -515,6 +520,23 @@ dopo la riga 1 si riaccende **«Togli»**, non «Elimina». «Togli» sull'unico
 - **Riga del codice non visibile** (per esempio un account chiuso fra il ricontrollo e la lettura) → *«Non so»*,
   **mai** la riga 1; «Controlla» ricontrolla l'account anche dopo la lettura. Se l'account risulta chiuso, **uscita
   forzata** senza affermazioni sulla visita.
+- ⚠︎ **`non_trovata` non autorizza a dire «non esiste più», se la lettura trova la visita.** Scritto il 27/09/2026
+  (revisione 19) dopo una misura sull'esecuzione del Task 6 del piano 3a-1. Tutte e tre le funzioni di scrittura
+  registrano `non_trovata` anche quando la visita **c'è** e ciò che è caduto è il **permesso di leggerla**:
+  l'operatrice disattivata mentre l'invio è in coda perde le sessioni (chiusura immediata, §4.7) e la sicurezza per
+  riga le nasconde tutto — misurato, la visita resta in `visit` con i suoi appuntamenti. Se viene riattivata e rientra
+  entro le 24 ore del punto 3 qui sotto, il ricontrollo dell'account **riesce**, e la riga 6 prenderebbe il secondo
+  messaggio di `non_trovata` — «questa visita non esiste più» — su una visita che è lì. Vale la **prima** regola di
+  questo elenco: lo dice la lettura. Quindi, con esito `non_trovata`:
+  - la lettura **trova** la visita → si tratta come la **riga 1**, «Non risulta salvata: l'invio non ha scritto nulla»
+    (ed è vero: `non_trovata` non scrive niente), con lo **stato letto** che diventa quello di partenza della scheda,
+    così il «Salva» successivo non rimbalza per versioni vecchie;
+  - la lettura **non** la trova ed è fra le cancellate → **riga 4**; non la trova e non è fra le cancellate → **riga 5**.
+
+  Il messaggio «questa visita non esiste più» si usa **solo** quando la lettura conferma l'assenza. Per
+  `cancellata_altrove` e `gia_cancellata` la questione non si pone: quegli esiti affermano l'assenza per definizione.
+  **Il Task 7 presidia questa regola con una prova**, e senza di essa la riga 6 contraddirebbe la prima regola di
+  questo elenco.
 - **`esiste_gia` con la visita sparita prima della rilettura** → la rilettura si tratta come riga 4 o 5.
 - **«Crea di nuovo»** usa `id` **nuovi** per la visita e per gli appuntamenti, e un codice d'invio nuovo; la cliente
   si passa come esistente. Riusare l'`id` della visita darebbe `cancellata_altrove` per sempre.
