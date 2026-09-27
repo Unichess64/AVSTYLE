@@ -1,0 +1,29 @@
+CORREZIONE del 27/09/2026, dalla revisione mirata (due revisore avversariali, che l'hanno trovata da lati diversi).
+
+L'affermazione «l'asimmetria fra tre funzioni gemelle costava al Task 7 la riga
+sbagliata» è FALSA, e lo era già alla data di questo commit: in spec §4.4
+`modificata_altrove` e `non_trovata` cadono ENTRAMBI nella riga 6. La
+correzione non cambia la riga di «Controlla»: cambia il MESSAGGIO dentro la riga
+6, perché `non_trovata` porta con sé il ricontrollo dell'account di §4.3 passo 7
+mentre `modificata_altrove` dice «mostra lo stato corrente». Con la revisione 18
+anche `gia_cancellata` entra nella riga 6: nessuno dei quattro esiti in gioco
+cambia riga.
+
+E DUE COSE CHE QUESTO COMMIT NON SAPEVA.
+
+1. In questo scenario la visita C'È ANCORA: è caduto il permesso di leggerla.
+   Quindi `non_trovata` è un'affermazione più forte del vero, e prima della
+   correzione `sposta_visita_a` e `cancella_visita` registravano
+   `modificata_altrove`, che su quel percorso era CORRETTO. La simmetria è stata
+   ottenuta portando due funzioni su tre al livello della terza, che sbaglia.
+   Risolto dal lato di «Controlla» in spec §4.4 revisione 19.
+2. Il ramo `case when v_cancellata` dentro il ramo aggiunto è CODICE MORTO:
+   cinque mutazioni a 0 rosse su 375, e nessuna porta per raggiungerlo.
+
+Il resto del messaggio regge: i numeri sono stati rimisurati con zero
+scostamenti, e le due prove sono stabili (11 passate di suite, 9 del solo file)
+e precise fra le due funzioni. Non è stato usato --amend perché questo SHA è
+l'indice dell'appendice e dei due rapporti di revisione.
+
+⚠︎ Una git note NON viaggia con un `git push` normale: serve
+`git push origin refs/notes/commits`. La correzione è comunque nei file.
