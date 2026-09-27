@@ -1,6 +1,15 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
+**Revisione:** 20 — due cose che la revisione del **Task 7** del piano 3a-1 ha misurato il 27/09/2026, e che
+riguardano il **consumatore** di «Controlla», cioè l'app del piano 3a-2. In **§4.3 passo 8**: «Controlla» ha una
+politica d'errore **propria**, perché un SQLSTATE di «Controlla» non prova niente sull'invio — e **`55P03`**, che la
+prova (c) del Task 7 misura, non è fra i sei con un messaggio proprio, quindi un involucro fedele al criterio del
+passo 8 darebbe *«Non sono riuscita a salvare, riprova»* dove §4.4 impone *«Non so se è stata salvata»*. In **§4.4**:
+la **riga 1 è sovraccarica** — le arrivano `annullato` e `non_trovata` con la visita trovata, che vogliono versioni
+**opposte** — quindi il contratto da leggere è la coppia **`(riga, esito_invio)`**, non `riga`; e `non_trovata` esce
+dall'elenco della riga 6, dove la revisione 19 l'aveva lasciato per distrazione.
+
 **Revisione:** 19 — scrive in §4.4, fra le regole comuni dopo «Controlla», che **`non_trovata` non autorizza a dire
 «non esiste più» se la lettura trova la visita**. Misurato il 27/09/2026 sul Task 6 del piano 3a-1: le tre funzioni di
 scrittura registrano `non_trovata` anche quando è caduto il solo **permesso di leggere** la visita, e con l'account
@@ -413,6 +422,26 @@ scrivere tutto. «Nessuna visita vuota» all'inserimento la garantisce solo `sav
    *SQLSTATE assente*, e dentro il primo caso cercare i sei che hanno un messaggio proprio. Un involucro che
    enumerasse riaprirebbe esattamente la lacuna che questa revisione chiude.
 
+   ⚠︎ **«Controlla» ha la politica opposta, e non è un'eccezione al criterio: è un soggetto diverso** (revisione 20,
+   27/09/2026). Il criterio qui sopra parla di un **invio**, dove un SQLSTATE prova l'annullamento *della scrittura*.
+   Un SQLSTATE di **«Controlla»** non prova niente sull'invio, che può ancora arrivare: vale §4.4, «la risposta è
+   **sempre** di nuovo *«Non so se è stata salvata»* con «Controlla» disponibile», **mai** «non risulta», **mai**
+   «riprova a salvare». Codici **misurati** di `controlla_invio` (`0018_controlla_invio.sql`):
+
+   | Codice | Da dove | Che cosa mostra |
+   |---|---|---|
+   | `42501` | il ricontrollo dell'account, **prima** di registrare e **dopo** la lettura | §4.4: **uscita forzata**, senza affermazioni sulla visita |
+   | `55P03` | attesa sulla chiave d'invio oltre `lock_timeout` | *«Non so se è stata salvata»* |
+   | `57014` | la stessa attesa oltre `statement_timeout` | idem |
+   | `22P02` | argomento che non è un uuid | errore di programmazione: il passo 2 lo impedisce |
+   | `P0003` | la riga dell'invio sparita fra inserimento e lettura | **non raggiungibile**: l'unico cancellatore è la pulizia a 30 giorni, e §4.4 butta i codici a 24 ore |
+
+   **`40P01` non è raggiungibile** da `controlla_invio`: prende un solo blocco e ogni chiamata è la sua transazione.
+   ⚠︎ **`55P03` non è fra i sei** con un messaggio proprio, quindi un involucro che applicasse il criterio di questo
+   passo anche a «Controlla» darebbe *«Non sono riuscita a salvare, riprova»* a un «Controlla» scaduto sul blocco: la
+   frase che §4.4 vieta. **L'involucro distingue per soggetto prima che per codice**: un errore dell'invio contro un
+   errore di «Controlla».
+
 La **decisione** dei passi 2, 3, 5, 6, 7, 8, data la lettura del database, e la traduzione degli esiti sono **logica
 pura** (§8.1).
 
@@ -478,12 +507,12 @@ salvare». Un «Controlla» fallito non brucia nulla, e l'invio può ancora arri
 
 | # | Stato del codice | Che cosa trova | Che cosa mostra |
 |---|---|---|---|
-| 1 | annullato (da «Controlla» o dall'invio stesso) | — | «Non risulta salvata: l'invio non ha scritto nulla». «Salva» si riaccende con un codice nuovo e con le **versioni di partenza della scheda**, mai con versioni rilette: se nel frattempo una collega ha cambiato la visita, il nuovo «Salva» riceverà `modificata_altrove` e nulla sarà tolto in silenzio |
+| 1 | annullato (da «Controlla» o dall'invio stesso) **oppure `non_trovata` con la visita trovata** (vedi le regole comuni) | — | «Non risulta salvata: l'invio non ha scritto nulla». ⚠︎ **Le versioni dipendono dall'esito, non dalla riga:** con `annullato`, «Salva» si riaccende con un codice nuovo e con le **versioni di partenza della scheda**, mai con versioni rilette — se nel frattempo una collega ha cambiato la visita, il nuovo «Salva» riceverà `modificata_altrove` e nulla sarà tolto in silenzio; con `non_trovata` la scheda **adotta lo stato letto** e le sue versioni |
 | 2 | `salvata` | visita uguale alla scheda | «✓ Risulta salvata» |
 | 3 | `salvata` | visita diversa dalla scheda | *«È diversa da come l'avevi lasciata: ecco com'è ora»*, con lo stato corrente e le sue versioni, che diventano quelle di partenza della scheda |
 | 4 | `salvata` | visita assente e fra le cancellate | «È stata cancellata dopo il salvataggio»; **«Crea di nuovo»** solo se la cliente esiste ancora (codici nuovi, cliente come esistente) |
 | 5 | `salvata` | visita assente e **non** fra le cancellate | non deve accadere (ogni cancellazione passa dalla tabella): errore, e l'agenda si ricarica |
-| 6 | un esito che non ha scritto (`esiste_gia`, `modificata_altrove`, `cancellata_altrove`, `non_trovata`, **`gia_cancellata`**) | — | il messaggio di quell'esito (§4.1); per `esiste_gia`, la visita si rilegge e si mostra come riga 2 o 3; per `gia_cancellata`, «Era già stata cancellata», **lo stesso messaggio** della risposta diretta |
+| 6 | un esito che non ha scritto (`esiste_gia`, `modificata_altrove`, `cancellata_altrove`, **`gia_cancellata`**). ⚠︎ **`non_trovata` è uscito da questo elenco** alla revisione 20: lo governa la regola dedicata fra le regole comuni, che lo manda su 1, 4 o 5 e **mai** su 6 | — | il messaggio di quell'esito (§4.1); per `esiste_gia`, la visita si rilegge e si mostra come riga 2 o 3; per `gia_cancellata`, «Era già stata cancellata», **lo stesso messaggio** della risposta diretta |
 | 7 | **`cancellata`** | — | «✓ Risulta cancellata». È l'analogo della riga 2 per «Elimina visita»: l'invio **ha** scritto, e il risultato voluto c'è |
 
 ⚠︎ **Le righe 6 e 7 sono state scritte il 27/09/2026 (revisione 18)**, dopo che l'esecuzione del **Task 6** del piano
@@ -536,7 +565,22 @@ dopo la riga 1 si riaccende **«Togli»**, non «Elimina». «Togli» sull'unico
   Il messaggio «questa visita non esiste più» si usa **solo** quando la lettura conferma l'assenza. Per
   `cancellata_altrove` e `gia_cancellata` la questione non si pone: quegli esiti affermano l'assenza per definizione.
   **Il Task 7 presidia questa regola con una prova**, e senza di essa la riga 6 contraddirebbe la prima regola di
-  questo elenco.
+  questo elenco. ⚠︎ Presidiate **anche** le due metà «non la trova»: togliere il ramo dà 2 rosse, e portare il suo
+  sotto-ramo della riga 4 sulla 7 ne dà 1 (misurato il 27/09/2026 — prima non ne dava nessuna).
+
+- ⚠︎ **La riga 1 è sovraccarica: il contratto è la coppia `(riga, esito_invio)`, non `riga`.** Scritto il 27/09/2026
+  (revisione 20), perché la regola qui sopra le ha mandato un secondo esito e le due prescrizioni sulle versioni sono
+  **opposte**:
+  - `esito_invio = annullato` → «Salva» riparte con le **versioni di partenza della scheda**, mai rilette (riga 1 della
+    tabella): se una collega ha cambiato la visita, il nuovo «Salva» **deve** ricevere `modificata_altrove`;
+  - `esito_invio = non_trovata` con la lettura che trova la visita → la scheda **adotta lo stato letto** e le sue
+    versioni, **e con esso vale la regola «La scheda aggiornata»** qui sopra: le modifiche non inviate dell'operatrice
+    si perdono e si rifanno a mano, guardando la visita com'è ora.
+
+  Chi decide sul solo `riga` sbaglia uno dei due casi, e nel verso `annullato` sbaglia **in silenzio**, togliendo il
+  lavoro della collega (famiglia B5, R6-1) — che è esattamente ciò che la riga 1 della tabella esiste per impedire.
+  ⚠︎ E `controlla_invio` **non restituisce mai `riga: 3`**: la distinzione fra 2 e 3 la fa l'app confrontando `stato`
+  con la scheda, quindi l'immagine della funzione è `{1, 2, 4, 5, 6, 7}`.
 - **`esiste_gia` con la visita sparita prima della rilettura** → la rilettura si tratta come riga 4 o 5.
 - **«Crea di nuovo»** usa `id` **nuovi** per la visita e per gli appuntamenti, e un codice d'invio nuovo; la cliente
   si passa come esistente. Riusare l'`id` della visita darebbe `cancellata_altrove` per sempre.

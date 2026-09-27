@@ -3213,6 +3213,10 @@ dell'**istruzione**, non della transazione: in un'istruzione successiva vede il 
 - Produce: `public.controlla_invio(p_codice uuid, p_visita uuid) returns jsonb`, che risponde
   `{"riga": 1..7, "esito_invio": …, "stato": …}` dove `stato` è quello di `public.stato_visita` oppure `null`.
   ⚠︎ **1..7 e non 1..6 dal 27/09/2026** (spec revisione 18): il Task 6 ha creato `cancellata` e `gia_cancellata`.
+  ⚠︎ **E `riga` non è sufficiente da sola** (spec revisione 20, dalla revisione del Task 7): la riga 1 arriva da **due**
+  esiti — `annullato` e `non_trovata` con la visita trovata — che §4.4 manda su versioni **opposte**, quindi l'app decide
+  sulla coppia **`(riga, esito_invio)`**. ⚠︎ E la funzione **non restituisce mai `riga: 3`**: la distinzione 2/3 la fa
+  l'app confrontando `stato` con la scheda, quindi l'immagine è `{1, 2, 4, 5, 6, 7}`.
 
 **Le sette righe** (design 3a §4.4, revisione 18): 1 codice annullato; 2 `salvata` e visita uguale alla scheda;
 3 `salvata` e visita diversa; 4 `salvata` e visita assente ma fra le cancellate; 5 `salvata` e visita assente e **non**
@@ -3591,7 +3595,9 @@ obbligo tecnico (misurato).
 
 - [x] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/controlla-invio.test.ts`,
   **13 verdi** (10 del Passo 1, due per le righe 6 e 7, una per la regola su `non_trovata` di §4.4 revisione 19; era
-  «10 verdi» prima del 27/09/2026). La prova (b) e la (b bis) devono **durare** circa mezzo secondo: se finiscono subito, «Controlla» non sta
+  «10 verdi» prima del 27/09/2026). ⚠︎ **Consegnate 23**, e il numero di questo passo resta 13 perché è l'atteso *di
+  questo passo*: il Passo 5 ne fa aggiungere altre, e la revisione altre ancora. Il conto vero sta nell'appendice del
+  Task 7. La prova (b) e la (b bis) devono **durare** circa mezzo secondo: se finiscono subito, «Controlla» non sta
   aspettando e il meccanismo non regge. Scrivi nel resoconto la durata misurata.
 
 - [x] **Passo 5: sonde di mutazione**
@@ -6220,9 +6226,9 @@ scostamenti su dieci**. È la prima volta in questo piano.
 | 3 | via il confronto dell'insieme in `cancella_visita` | **3** | |
 | 4 | `gia_cancellata` → `cancellata` | **1** | |
 | 5 | via il trigger delle cancellate (**0013**, la sola migrazione che lo definisce) | **9** | 2 qui + 5 `invii` + 2 `salva-visita` |
-| R1 | versioni in `stato_visita` → costante | **2 → 4** | le 2 in più sono i due giri nuovi |
+| R1 | versioni in `stato_visita` → costante | **2 → 4** | le 2 in più sono i due giri nuovi. ⚠︎ **4 è il numero della forma STRETTA** (costante solo sulle versioni degli appuntamenti): la forma **larga**, costante anche sulla versione della *visita*, ne dà **6** — misurato dalla revisione del Task 7, che ha dovuto indovinare quale delle due l'appendice intendesse |
 | R2 | `operatrice`/`servizio` in `stato_visita` → null | **1 → 3** | idem |
-| 6 | via il blocco della regola 2 in `cancella_visita` | **0 → 1**, e **→ 2** dal 27/09/2026 | senza la riga l'esito è **`cancellata`**; la seconda rossa è la prova del ramo dello stato vuoto, che passa dallo stesso blocco |
+| 6 | via il blocco della regola 2 in `cancella_visita` | **0 → 1**, **→ 2** dal 27/09/2026, **→ 3** con il Task 7 | senza la riga l'esito è **`cancellata`**; la seconda rossa è la prova del ramo dello stato vuoto, che passa dallo stesso blocco; la **terza**, misurata dalla revisione del Task 7, è *«riga 1: un non_trovata la cui visita la lettura TROVA…»*, che passa dallo stesso `for update` (`expected 'cancellata' to be 'non_trovata'`) |
 | 6b | la stessa riga in `sposta_visita_a` | **0 → 1**, e **→ 2** dal 27/09/2026 | senza la riga l'esito è **`salvata`** |
 | 6c | la stessa riga in **`0016`** | **0** | **resta scoperta**, non è di questo task |
 | N13/N1/N15 | il registro degli invii, tre forme | **0 → 1** ciascuna | il reperto qui sopra |
@@ -6478,3 +6484,240 @@ quindi chi legge una rossa capisce quale delle tre cose ha rotto. **Ma la promes
   sul vincolo delle funzioni `stable` di §4.4): il commento nuovo del ramo cita §4.4, ma il vincolo sulle `stable` resta
   scritto solo in `0016`.
 - **Non** è stato anticipato niente del Task 7.
+
+## Appendice — Esecuzione del Task 7 e revisione (27 settembre 2026)
+
+Scritta da chi ha eseguito il Task 7, dopo due revisioni indipendenti avversariali **in parallelo** — una **empirica**
+(proprietaria esclusiva del database e di Vitest, 37 mutazioni con `db reset` e suite intera per ognuna, più tre banchi
+usa-e-getta in Node) e una **a secco** (sola lettura, nessun comando sul database, dieci **ipotesi falsificabili** con
+il comando e l'esito in numeri). Sostituisce il resoconto di chat: **la chat del Task 8 legge questa.**
+
+**Consegnato in due commit:** `16e3025` (consegna, 18 prove) e quello di remediation che porta questa appendice
+(**23 prove**). Esistono ora `public.controlla_invio(uuid, uuid)` (invoker, **volatile**, `search_path = ''`) e
+`app.apri_invio_come_annullato(uuid)` (**definer**). La spec 3a è a **revisione 20**.
+
+**Gate finale, in serie:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **25 file, 398 prove
+verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
+
+### ⚠︎ I due reperti che cambiano il Task 8, e che nascono dal Task 7
+
+**1. `modificata_altrove` e `cancellata_altrove` erano i due esiti della riga 6 che nessuna prova esercitava.** Trovato
+dalla revisione empirica con il mandato «una mutazione invisibile oggi e letale al task successivo»:
+
+| Mutazione | Alla consegna | Dopo la remediation |
+|---|---|---|
+| `elsif v_esito = 'modificata_altrove' then v_riga := 2;` prima dell'`else` | **0 rosse su 393** | **1** |
+| `elsif v_esito in ('cancellata','cancellata_altrove') then` (riga 7) | **0 rosse su 393** | **1** |
+| controprova: lo stesso spostamento su `esiste_gia` | **1** | — |
+
+Il codice consegnato era **corretto** — cadono nell'`else`, che è la riga 6 giusta —, ma il ramo era un catch-all senza
+presidio: **è la stessa lacuna che al Task 6 è costata la spec revisione 18** per `cancellata`/`gia_cancellata`. Danno
+di una regressione: riga 2 è «✓ Risulta salvata» per un invio che non ha scritto una riga, e §4.4 impone dopo ogni
+`modificata_altrove` che «il contenuto della scheda diventa lo stato corrente» — con la riga 2 la scheda tiene la bozza
+e il «Salva» successivo porta le sue versioni, **togliendo in silenzio il lavoro della collega** (famiglia B5, R6-1).
+⚠︎ **Al Task 8 il danno diventa asimmetrico**: il cambiamento della collega viene trasmesso via `annuncio` a ogni altro
+telefono, che si ridisegna, e l'unico schermo fermo su un giorno vecchio è quello dell'operatrice a cui «Controlla» ha
+detto «✓ Risulta salvata». Il danno è **già del Task 7**; il Task 8 lo rende osservabile da fuori.
+
+**2. La riga 1 è sovraccarica, e il contratto è la coppia `(riga, esito_invio)`.** Trovato dalla revisione a secco dal
+lato del contratto. La regola della revisione 19 manda `non_trovata` con la visita trovata sulla **riga 1**, che già
+portava `annullato` — e le due prescrizioni sulle versioni sono **opposte**: `annullato` vuole le versioni **di
+partenza**, `non_trovata` quelle **rilette**. Un'app che decide sul solo `riga` — che è il campo su cui questo piano
+costruisce «le sette righe» — sbaglia uno dei due casi, e nel verso `annullato` sbaglia in silenzio. **Scritto in spec
+revisione 20** (§4.4, fra le regole comuni) e nelle Interfaces del Task 7. ⚠︎ **Il piano 3a-2 legge la coppia, non il
+numero.** E `controlla_invio` **non restituisce mai `riga: 3`**: l'immagine è `{1, 2, 4, 5, 6, 7}`.
+
+### Le sonde, con il numero di rosse MISURATO
+
+Baseline finale **398**. Le otto del Passo 5 sono state rimisurate **dopo** la remediation, perché due di esse avevano
+perso validità (vedi «Il criterio di durata era vacuo»).
+
+| # | Mutazione | Alla consegna | **Finale** | Nota |
+|---|---|---|---|---|
+| 1 | registrazione e lettura nella **stessa istruzione** | 1 | **1** | (b), `expected 5 to be 2`. ⚠︎ La forma **letterale del piano** (`with ins as (insert …)`) **non è misurabile**: dà 14 rosse su 18 per `permission denied for table invio`, perché `controlla_invio` è `invoker` e `0013` lascia ad `authenticated` la sola SELECT |
+| 2 | `volatile` → `stable` | 3 | **3** | (b) `5 to be 2`; il ricontrollo dopo la lettura diventa **cieco** (`'{"riga":1,…}'` invece di `42501`); il catalogo `'s' to be 'v'` |
+| 3 | via il **primo** ricontrollo dell'account | **0** | **1** | `expected '55P03' to be '42501'` — vedi «La sonda 3 non era senza vittime» |
+| 4 | via il **secondo** ricontrollo | 1 | **1** | `'{"riga":1,"stato":null,…}' to be 'ERRORE 42501'` |
+| 5 | `on conflict do nothing` → `exception when unique_violation` | 0 | **0** | **senza vittime, e la divergenza è ora MISURATA**: vedi sotto |
+| 6 | riga 4 → riga 1 nel ramo `salvata` | 1 | **1** | `expected 1 to be 4` |
+| 7 | `in ('cancellata','gia_cancellata') → riga 2` (forma pre-27/09) | 2 | **2** | `2 to be 7` e `2 to be 6` |
+| 8 | via l'intero ramo `elsif v_esito = 'non_trovata'` | 1 | **2** | `6 to be 1` e `6 to be 4`: la seconda è la prova nuova del sotto-ramo |
+| M1 | `modificata_altrove` → riga 2 | **0** | **1** | `expected 2 to be 6` |
+| M2 | `cancellata_altrove` → riga 7 | **0** | **1** | `expected 7 to be 6` |
+| N1 | sotto-ramo riga 4 del ramo `non_trovata` → 7 | **0** | **1** | `expected 7 to be 4` |
+| R2 | riga 5 resa irraggiungibile (→ 4 in entrambi i rami) | **0** | **1** | `expected 4 to be 5` |
+| P1 | via il **solo** `grant execute … to authenticated` | — | **19** | ⚠︎ **NON è ridondante qui**: vedi sotto |
+| P2 | via il **solo** `revoke execute … from public, anon` | — | **2** | la prova dei privilegi e quella da `anon`, che senza il revoke risponde `nessun errore` |
+| C1 | rimetti il `coalesce`, via il `raise P0003` | — | **0** | **resta non presidiato**, e non è raggiungibile in `read committed` |
+| N2 | il secondo ricontrollo spostato **prima** della lettura | — | **0** | §4.4 lo vuole «anche **dopo** la lettura»; fra la lettura e il ritorno non c'è punto di attesa da cui pilotare una disattivazione. **Reperto aperto** |
+| N3 | `controlla_invio` `invoker` → `definer` | — | **1** | solo la prova a mano: `catalogue-audit` filtra su `prosecdef` e non la vede |
+| P3/P4 | via `set search_path = ''` da `controlla_invio` / dalla gemella | — | **1** / **2** | la gemella `definer` **è** coperta dall'audit permanente (`pins search_path on every security definer function`) |
+| P5 | `apri_invio_come_annullato` `definer` → `invoker` | — | **15** | `permission denied for function` |
+| G1/G2 | `0017`: `chiudi_invio(…,'cancellata')` → `'salvata'`; `'gia_cancellata'` → `'non_trovata'` | 1 / 1 | **2** / **3** | ⚠︎ **le prove del Task 7 se ne accorgono**: il buco «0 rosse su 369» dell'appendice del Task 6 è ora chiuso da due lati |
+| G3 | `stato_visita` restituisce un oggetto anche per una visita assente | — | **6** | fra cui `expect(r.stato).toBeNull()` della riga 7, che è la **sola** a cadere dentro quella prova |
+
+**La divergenza della sonda 5, misurata sul codice vero e non più argomentata** (banco usa-e-getta, due connessioni, `pg`
+da Node):
+
+| | `read committed` | `repeatable read` |
+|---|---|---|
+| forma vera (`on conflict do nothing`) | `'salvata'` | **`40001 could not serialize access due to concurrent update`** |
+| variante con `exception when unique_violation` | `'salvata'` | **`null`** |
+
+In `read committed` — il livello che questo piano fissa — le due varianti sono indistinguibili, quindi **0 rosse** è una
+misura, non una disattenzione. A tenere in piedi la riga è la prova di catalogo sull'isolamento del **Task 9**: senza
+quella, la variante restituirebbe `null` e il chiamante lo tratterebbe come `annullato`, cioè **riga 1 per un invio che
+ha salvato**.
+
+### ⚠︎ La sonda 3 non era senza vittime, e le due revisioni divergevano
+
+La consegna aveva misurato **0 rosse** togliendo il primo dei due ricontrolli, e ne aveva concluso che fosse
+«ridondante per il risultato, giustificato solo dal costo». La revisione **empirica ha confermato**, misurando le tre
+sole strade che renderebbero `is_active_operator()` falsa alla prima chiamata e vera alla seconda: riattivazione →
+`sessioni = 0` (0015 le uccide anche al `false → true`); riga gemella in `operator` → **`23505`** su
+`operator_auth_user_id_key`; `auth_user_id` azzerato e rimesso → `sessioni = 0`.
+
+La revisione **a secco descriveva un percorso diverso**, che non passa da quell'asimmetria. Misurato nella sua forma
+letterale, e ha ragione:
+
+| | risposta misurata |
+|---|---|
+| con il primo ricontrollo, su un codice **occupato** da un invio in volo | **`42501`** |
+| **senza** il primo ricontrollo, stesso scenario | **`55P03`** (`expected '55P03' to be '42501'`) |
+
+Senza il primo ricontrollo l'`insert … on conflict` si mette in coda sulla chiave e muore di `lock_timeout`: **il
+secondo ricontrollo non viene mai eseguito**. E §4.4 manda i due codici su comportamenti **opposti** — `42501` →
+*uscita forzata senza affermazioni sulla visita*; `55P03` → *«Non so se è stata salvata»* con «Controlla» disponibile —
+quindi l'operatrice disattivata **non verrebbe mai buttata fuori** e ritenterebbe, fino a 8 s per volta. Raggiungibile:
+il token d'accesso sopravvive alla morte della sessione (fino a un'ora), e §4.4 punti 2 e 4 mandano un «Controlla»
+proprio in quel momento (`pagehide` con `keepalive`, «Esci»).
+
+**Lezione di metodo, la più importante di questo giro:** l'empirica aveva risposto a una domanda **diversa** da quella
+che l'a secco poneva, e le due «conferme» sembravano parlarsi. Quando due revisioni divergono si misura la **forma
+letterale** che una delle due ha scritto — qui `expect(esito).toBe('42501')` su un codice occupato — non «il rimedio».
+
+### ⚠︎ Il criterio di durata del Passo 4 era vacuo, e con lui due sonde
+
+Il Passo 4 chiede che (b) e (b bis) «durino circa mezzo secondo: se finiscono subito, «Controlla» non sta aspettando».
+**Il criterio non discrimina**, perché il `setTimeout(500)` è dentro la misura: 589 ms è «500 di sonno più 89 di tutto
+il resto», identico sia che «Controlla» si sia messa in coda sia che sia arrivata **dopo** il commit (e anche allora
+legge `salvata` e risponde riga 2). Misurato:
+
+| | esito |
+|---|---|
+| (b) e (b bis) con `setTimeout(1)` invece di 500 | **verdi** |
+| **sonda 1** applicata, con `setTimeout(1)` | **0 rosse**, non 1 |
+
+Cioè le sonde 1 e 2 misuravano la **temporizzazione fortunata**. La revisione empirica aveva risposto al dubbio della
+consegna con **63 letture** (b: 577-597 ms; b bis: 606-647 ms, intervalli non sovrapposti) — numeri solidi, ma della
+**grandezza sbagliata**: ripetere la stessa misura non la rende pertinente. Le due prove usano ora `attendiBlocco`, che
+prova la **condizione** (è ferma sulla chiave *prima* che il commit arrivi), e le due sonde sono state rimisurate: 1 e
+3, invariate ma ora **valide**.
+
+### ⚠︎ Il `grant execute … to authenticated` NON è ridondante qui: 19 rosse
+
+La misura dei Task 4, 5 e 6 — «il grant è ridondante, porta il `revoke`» — vale per le funzioni di **`public`**, dove un
+`alter default privileges` di Supabase (da **due** concedenti) concede EXECUTE ad `anon`, `authenticated` e
+`service_role` su ogni funzione nuova. **`app.apri_invio_come_annullato` sta nello schema `app`**, dove quei default non
+arrivano, e `revoke … from public` le toglie anche l'EXECUTE predefinito di PostgreSQL a PUBLIC. Togliere il solo grant
+dà **19 rosse** con `permission denied for function apri_invio_come_annullato`: «Controlla» si rompe per intero. La
+consegna aveva scritto il contrario in un commento, generalizzando una misura di `public`: **corretto, con il numero
+accanto**. ⚠︎ **Chi scrive una funzione in `app` non riusi la misura di `public`.**
+
+### Punti deboli dichiarati che la misura ha SMENTITO
+
+Servono alla prossima revisione quanto i reperti. La consegna ne aveva dichiarati sette; **tre sono stati smentiti**,
+uno riqualificato, due sono diventati reperti, uno confermato e colmato.
+
+- **«`expect(r.stato).toBeNull()` nella prova della riga 7 è un candidato ad asserzione inerte»**: **smentito**. Con
+  `stato_visita` che restituisce un oggetto anche per una visita assente (G3), quella riga è la **sola** che fallisce
+  dentro quella prova (`expected { data: null, visita: null, …(2) } to be null`). È capace di fallire.
+- **«La prova `non_trovata` è sovradeterminata»**: **confermato e quantificato, ma non è un reperto**. Su 37 mutazioni
+  **6** la fanno arrossire, e leggendo i messaggi: **1 sola** tocca l'asserzione bersaglio, **2** rompono la *premessa*
+  (che la prova **asserisce** invece di assumere), **3** sono cadute di permesso che uccidono 14-15 prove insieme. In
+  direzione inversa è **precisa**: la sonda 8 fa 1 rossa sola sulla sua asserzione.
+- **«La trappola dell'irrobustimento non è stata esercitata»**: **smentito nel merito**. Costruito il «prima» che
+  mancava — le 8 prove non del Passo 1 messe a `it.skip`, corpus a 10 — le sonde 3, 6 e 1 danno gli stessi numeri sui
+  due corpus. **Nessun disarmo.** E rimisurato dopo la remediation: P2 resta **2** dopo la sostituzione di
+  un'asserzione inerte con una che morde.
+- **«Le 18 prove nuove spostano le sonde dei task precedenti»**: **confermato, con uno scostamento**, e sono tutti
+  **verso l'alto**: sonda 6 del Task 6 da 2 a **3**, G1 da 1 a **2**, G2 da 1 a **3**. `6b`, `R1`, `R2` e `N13`
+  invariate. **Nessun numero sceso.**
+
+### Reperti aperti, con il danno misurato (nessuno bloccante)
+
+1. **Il `raise P0003` della gemella non è presidiato** (C1 → **0 rosse**). Sostituisce il `coalesce(…, 'annullato')`
+   della consegna, che mascherava un `null` in **riga 1** — «l'invio non ha scritto nulla» — per un codice che nessuno
+   aveva registrato come annullato. **Non raggiungibile in `read committed`**: l'unico cancellatore di `invio` è la
+   pulizia a 30 giorni di `app.chiudi_invio`, e §4.4 butta i codici a 24 ore. Lo renderebbero raggiungibile
+   `repeatable read` o una pulizia con finestra più corta della vita di un codice.
+2. **La posizione del secondo ricontrollo non è presidiata** (N2: spostato **prima** della lettura → **0 rosse**).
+   §4.4 lo vuole «anche **dopo** la lettura»; fra la lettura e il ritorno non c'è **alcun punto di attesa** da cui
+   pilotare una disattivazione, quindi la prova esiste per «c'è un ricontrollo dopo la registrazione», non «dopo la
+   lettura».
+3. **`controlla_invio` è appesa a un'asserzione sola**: `invoker → definer` e `via search_path` danno **1 rossa
+   ciascuna**, sempre la prova di catalogo a mano, perché `catalogue-audit.test.ts` enumera `pg_class.relacl` e filtra
+   le funzioni su `prosecdef`. La gemella `definer` **è** coperta dall'audit permanente. Lo stringimento è del
+   **Task 9**; **nessun audit su `pg_proc.proacl`** esiste ancora.
+4. **`controlla_invio` non restituisce `cancellata`** — decisione dell'utente del 27/09/2026: **non si aggiunge**.
+   §4.4 impone all'app di trattare `esiste_gia` con la visita sparita «come riga 4 o 5», e l'unico booleano che le
+   separa resta dentro la funzione. `authenticated` ha `select` su `visita_cancellata` (`0013`), quindi l'app **può**
+   leggerla con una seconda chiamata — ma con un'altra fotografia, mentre tutto §4.4 è costruito sul principio che la
+   lettura di «Controlla» sia l'autorità, in una transazione sola. **Se il piano 3a-2 trova la seconda lettura scomoda,
+   il campo si aggiunge lì con una prova che lo rimandi indietro** (senza quella nascerebbe muto).
+5. **Le tre letture stanno in tre istruzioni dove §4.4 ne prescrive una** («poi, in un'istruzione successiva, legge lo
+   stato del codice, la visita e la tabella delle cancellate»). `v_stato` e `v_cancellata` possono quindi venire da due
+   fotografie: una `delete from visit` che committa fra loro darebbe `v_stato` non nullo **e** `v_cancellata` vero, e
+   la riga 2 mostrerebbe lo stato di una visita che non c'è più. **Non misurabile**: fra le due istruzioni non c'è punto
+   di attesa da cui pilotare il commit. Danno piccolo — il ✓ è vero, è lo `stato` a essere vecchio di millisecondi.
+6. **L'asserzione `expect(quanti).toBe(0)` della prova sulla sessione chiusa è INERTE**, e non per l'errore ma per
+   l'imbracatura: `asOperator` chiude **sempre** con un `rollback`, quindi il conteggio legge 0 qualunque cosa la
+   funzione faccia. Provato su banco: con il grant rimesso `anon` esegue la gemella e **il COMMIT tiene la riga**; col
+   rollback si legge 0 comunque. Lasciata con il commento che la dichiara; la gemella nella prova `anon` è stata
+   **sostituita** con `has_function_privilege`, che sopravvive al rollback.
+7. **`expect(esito).toBe('42501')` della stessa prova è CIECA ALLA CAUSA**: resta verde anche sotto un
+   `permission denied`, che è `42501` pure lui — ed è per questo che è fra le 4 prove che restano verdi sotto la forma
+   letterale della sonda 1. È presidiata solo **congiuntamente** con la sua gemella: via tutte e due le guardie → 2
+   rosse.
+8. **`in_corso` cade nella riga 6** e non è nell'elenco di §4.4. **Non raggiungibile**: ogni ritorno delle tre funzioni
+   di scrittura passa da `app.chiudi_invio` e ogni `raise` annulla la riga, quindi un `in_corso` committato vorrebbe una
+   chiamata diretta ad `app.apri_invio` — lo stesso percorso che §4.1 dichiara non raggiungibile per `P0003`, e per la
+   stessa ragione (`config.toml` non espone lo schema `app`).
+9. **`invio` non porta né la visita né l'operatrice.** §4.4 punto 3 affida al `localStorage` la coppia codice↔visita e
+   la regola «i codici di un'altra operatrice si controllano quando rientra lei»: nel database **nulla** la difende, e
+   `controlla_invio(p_codice, p_visita)` accetta qualunque coppia. Non sfruttabile a indovinare (i codici sono
+   `crypto.randomUUID()`); lo renderebbero raggiungibile un dispositivo condiviso o un `localStorage` mescolato. Lo
+   chiuderebbe una colonna su `invio`, che è del **Task 1**: fuori dal Task 7.
+10. **La riga 3 di §4.4 non è osservabile dal database**: la decide l'app confrontando lo stato con la scheda. Misurato
+    solo che la riga 2 è presidiata (riga 2 → 3 dà 2 rosse).
+11. **`0017` chiama `stato_visita` due volte senza la riga di commento** sul vincolo delle funzioni `stable`
+    (reperto 3 dell'appendice del Task 6): **ancora aperto per `0017`**, chiuso per `0018`, che la riga la porta.
+12. Dai task precedenti: il blocco della regola 2 in `0016` (0 rosse), i tre trigger su `operator`, le prove negative
+    senza gemella, l'audit cieco a `(select …) or true` (S4-6, Task 9), nessun audit su `pg_proc.proacl` (Task 9).
+    **Non toccarli.**
+
+### Trappole di processo, confermate e nuove
+
+1. ⚠︎ **La forma letterale di una sonda del piano può essere non misurabile.** La sonda 1 prescriveva
+   `with ins as (insert into public.invio …)` **dentro** `controlla_invio`, che è `security invoker`: muore su
+   `42501 permission denied for table invio` in 14 prove su 18, perché `0013` lascia ad `authenticated` la sola SELECT.
+   La sonda è stata rifatta in una forma che misura lo stesso vizio (registrazione e lettura nella **stessa
+   istruzione**), **dichiarando** il fallimento della prima. Non aggiustare in silenzio una sonda che non gira.
+2. ⚠︎ **Un criterio di misura può essere vacuo, e ripetere la misura non lo salva.** Vedi «Il criterio di durata era
+   vacuo»: 63 letture di una grandezza che contiene il proprio sonno non dicono più di due. Prima di ripetere una
+   misura, chiedersi se la grandezza **discrimina**.
+3. ⚠︎ **Due revisioni possono «confermare» e «smentire» la stessa tesi perché rispondono a domande diverse.** Vedi «La
+   sonda 3 non era senza vittime». Si misura la **forma letterale**.
+4. **Il ripristino di un file non ripristina il database**: confermato come disciplina, `db reset` dopo ogni ripristino.
+   E il ripristino si fa **da copia di scorta** fatta *dopo* aver scritto la mutazione — mai `git checkout --`, che sui
+   file **non tracciati** li cancella.
+5. **`grep -c` esce con 1 quando conta zero**, e in una catena `&&` la spezza in silenzio.
+6. ⚠︎ **Una revisione a secco può vedere il disco cambiare sotto le mani** mentre l'empirica muta. Quella di questo giro
+   se ne è accorta (la riga 42 di `0018` era `stable`) e ha proseguito con `git show 16e3025:<file>`, dichiarandolo. La
+   partizione della risorsa non basta: chi legge dichiari **da quale versione** legge.
+
+### Che cosa NON è stato fatto, per decisione dell'utente
+
+- **Non** è stato aggiunto il campo `cancellata` alla risposta (reperto aperto 4).
+- **Non** è stato anticipato niente del Task 8 né del Task 9, compreso l'audit su `pg_proc.proacl`.
+- I dodici reperti aperti qui sopra restano aperti, con il danno misurato accanto.

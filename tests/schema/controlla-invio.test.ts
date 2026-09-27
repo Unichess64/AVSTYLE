@@ -198,7 +198,16 @@ describe('le sette righe', () => {
         return (e as { code?: string }).code
       }
     })
+    // ⚠︎ `expect(esito).toBe('42501')` è CIECA ALLA CAUSA: resta verde anche
+    // sotto un `permission denied`, che è 42501 pure lui. Misurato il 27/09/2026:
+    // con la sonda 1 nella forma letterale del piano questa prova è fra le 4 che
+    // restano verdi su 18, per quella ragione. È presidiata solo CONGIUNTAMENTE
+    // con la sua gemella: via tutte e due le guardie → 2 rosse.
     expect(esito).toBe('42501')
+    // ⚠︎ E questa è INERTE: `asOperator` chiude sempre con un rollback, quindi
+    // il conteggio legge 0 qualunque cosa la funzione faccia. Resta perché
+    // documenta l'intenzione, non perché misuri: ciò che misura la bruciatura è
+    // la prova «(a) «Controlla» prima dell invio», che committa.
     const quanti = await asOwner(async (c) => Number((await c.query('select count(*) as n from invio')).rows[0].n))
     expect(quanti).toBe(0)
     // Senza questo, le quattro prove di concorrenza che seguono userebbero la
@@ -335,10 +344,27 @@ describe('concorrenza, con due connessioni', () => {
     expect((r as { esito: string }).esito).toBe('annullato')
   })
 
+  // ⚠︎ RISCRITTA il 27/09/2026 con `attendiBlocco`. Qui c'era
+  // `const inCorso = controlla(cod); await new Promise(r => setTimeout(r, 500))`,
+  // e la prova era verde in TUTTI E DUE i casi: sia quando «Controlla» si metteva
+  // in coda sulla chiave, sia quando arrivava DOPO il commit e non aspettava
+  // niente — perché anche allora legge `salvata` e risponde riga 2. Misurato:
+  // portando il sonno a 1 ms la prova resta verde, e la sonda 1 del Passo 5
+  // scende da 1 rossa a ZERO. Cioè quelle sonde misuravano la temporizzazione
+  // fortunata, non il difetto.
+  //
+  // E il criterio del piano non lo smascherava: «se finiscono subito, «Controlla»
+  // non sta aspettando» guarda la durata della PROVA, che contiene il sonno per
+  // costruzione — 589 ms è «500 di sonno più 89 di tutto il resto», identico nei
+  // due casi. 63 letture di quella grandezza non dicono niente di più di due.
+  // `controlla()` è `asOperatorCommit`: apre una connessione, accede a GoTrue se
+  // la cache è fredda, `begin`, `set_config`, `set local role`, e solo dopo arriva
+  // all'insert che deve mettersi in coda.
   it('(b) invio in volo: «Controlla» aspetta e vede salvata', async () => {
     const cod = codice()
     const sessione = await sessioneDi(VERA_AUTH)
     const scrittore = await connect()
+    const lettore = await connect()
     try {
       await scrittore.query('begin')
       await scrittore.query("select set_config('request.jwt.claims', $1, true)", [
@@ -352,16 +378,29 @@ describe('concorrenza, con due connessioni', () => {
         DAY_ONE,
         JSON.stringify([{ id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 }]),
       ])
-      // «Controlla» parte SENZA aspettarlo: deve mettersi in coda sulla chiave.
-      const inCorso = controlla(cod)
-      await new Promise((r) => setTimeout(r, 500))
+
+      // «Controlla» su una connessione propria, così `attendiBlocco` può provare
+      // che è ferma sulla chiave PRIMA che il commit arrivi: è la CONDIZIONE, non
+      // un tempo.
+      await lettore.query('begin')
+      await lettore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: sessione.userId, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await lettore.query('set local role authenticated')
+      const inCorso = lettore
+        .query<{ r: Esito }>('select controlla_invio($1, $2) as r', [cod, V1])
+        .then((x) => x.rows[0].r)
+      await attendiBlocco(lettore)
       await scrittore.query('commit')
+
       const r = await inCorso
       expect(r.esito_invio).toBe('salvata')
       expect(r.riga).toBe(2)
     } finally {
       await scrittore.query('rollback').catch(() => {})
       await scrittore.end()
+      await lettore.query('commit').catch(() => {})
+      await lettore.end()
     }
   })
 
@@ -369,6 +408,7 @@ describe('concorrenza, con due connessioni', () => {
     const cod = codice()
     const sessione = await sessioneDi(VERA_AUTH)
     const scrittore = await connect()
+    const lettore = await connect()
     try {
       await scrittore.query('begin')
       await scrittore.query("select set_config('request.jwt.claims', $1, true)", [
@@ -382,14 +422,25 @@ describe('concorrenza, con due connessioni', () => {
         DAY_ONE,
         JSON.stringify([{ id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 }]),
       ])
-      const inCorso = controlla(cod)
-      await new Promise((r) => setTimeout(r, 500))
+      // La CONDIZIONE e non un tempo: vedi il commento della (b) qui sopra.
+      await lettore.query('begin')
+      await lettore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: sessione.userId, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await lettore.query('set local role authenticated')
+      const inCorso = lettore
+        .query<{ r: Esito }>('select controlla_invio($1, $2) as r', [cod, V1])
+        .then((x) => x.rows[0].r)
+      await attendiBlocco(lettore)
       await scrittore.query('rollback')
+
       const r = await inCorso
       expect(r.riga).toBe(1)
       expect(r.esito_invio).toBe('annullato')
     } finally {
       await scrittore.end()
+      await lettore.query('commit').catch(() => {})
+      await lettore.end()
     }
   })
 
@@ -509,12 +560,21 @@ describe('permessi delle due funzioni nuove', () => {
   const FIRMA_CONTROLLA = 'public.controlla_invio(uuid, uuid)'
   const FIRMA_APRI = 'app.apri_invio_come_annullato(uuid)'
 
-  // ⚠ E il `grant execute … to authenticated` della migrazione è RIDONDANTE
-  // (misurato ai Task 4, 5 e 6): in `public` c'è un `alter default privileges`
-  // di Supabase, da due concedenti, che concede EXECUTE ad anon, authenticated
-  // e service_role su ogni funzione nuova. La riga che porta davvero è il
-  // `revoke … from public, anon`, ed è quella che le due righe negative qui
-  // sotto presidiano.
+  // ⚠⚠ QUI IL `grant execute … to authenticated` NON È RIDONDANTE, e il
+  // contrario era scritto in questo commento fino al 27/09/2026.
+  //
+  // La misura dei Task 4, 5 e 6 — «il grant è ridondante, porta il revoke» —
+  // vale per le funzioni di `public`, dove un `alter default privileges` di
+  // Supabase (da DUE concedenti, `postgres` e `supabase_admin`) concede EXECUTE
+  // ad anon, authenticated e service_role su ogni funzione nuova.
+  // `app.apri_invio_come_annullato` sta nello schema **`app`**, dove quei
+  // default NON arrivano, e `revoke … from public` le toglie anche l'EXECUTE
+  // predefinito di PostgreSQL a PUBLIC. Misurato: togliere il solo
+  // `grant … to authenticated` dà **15 rosse**, con 25 occorrenze di
+  // `permission denied for function apri_invio_come_annullato` — «Controlla» si
+  // rompe per intero. Chi «semplifica» fidandosi della misura di `public` lo
+  // scopre subito, ed è il motivo per cui questo commento porta il numero.
+  // Togliere il solo `revoke … from public, anon` dà invece 2 rosse.
   it('nega EXECUTE ad anon e a public su tutte e due, e lo concede ad authenticated', async () => {
     const privilegi = await asOwner(async (c) => {
       const r = await c.query<{ f: string; ruolo: string; puo: boolean }>(
@@ -574,11 +634,21 @@ describe('permessi delle due funzioni nuove', () => {
     const apriDaAnon = await prova('select app.apri_invio_come_annullato($1)', [codice()])
     expect(controllaDaAnon).toBe('42501')
     expect(apriDaAnon).toBe('42501')
-    // E il registro è rimasto vuoto: nessuna delle due ha scritto.
-    const quanti = await asOwner(async (c) =>
-      Number((await c.query('select count(*) as n from invio')).rows[0].n),
+    // ⚠︎ Qui c'era `expect(quanti).toBe(0)` su `count(*) from invio`, ed era
+    // INERTE: `asAnon` è `inRole`, che chiude SEMPRE con un rollback, quindi il
+    // conteggio legge 0 anche se la funzione ha scritto. Misurato su banco:
+    // rimettendo il grant, `anon` esegue `app.apri_invio_come_annullato` e con
+    // un COMMIT la riga RESTA; con il rollback dell'imbracatura si legge 0
+    // comunque. Non è l'errore a renderla inerte, è l'imbracatura.
+    // Ciò che sopravvive a un rollback è il catalogo, e si asserisce là.
+    const puoAnon = await asOwner(async (c) =>
+      (
+        await c.query<{ p: boolean }>(`select has_function_privilege('anon', $1, 'EXECUTE') as p`, [
+          FIRMA_APRI,
+        ])
+      ).rows[0].p,
     )
-    expect(quanti).toBe(0)
+    expect(puoAnon).toBe(false)
   })
 
   // La gemella POSITIVA delle due prove qui sopra: senza, revocare EXECUTE
@@ -626,5 +696,220 @@ describe('permessi delle due funzioni nuove', () => {
     // ⚠︎ `volatile` e non `stable`: una `stable` leggerebbe con la fotografia
     // presa prima dell'attesa sul codice d'invio (§4.4, misurato).
     expect(righe.find((x) => x.nome === 'controlla_invio')?.volatilita).toBe('v')
+  })
+})
+
+// ⚠︎ LA DIVERGENZA FRA LE DUE REVISIONI DEL 27/09/2026, misurata nella forma
+// letterale che la revisione a secco ha scritto.
+//
+// La sonda 3 (via il PRIMO dei due ricontrolli dell'account) dà 0 rosse, e
+// l'esecutrice ne ha concluso «ridondante per il risultato, giustificato solo
+// dal costo». La revisione empirica ha confermato, cercando uno scenario in cui
+// `is_active_operator()` sia falsa alla prima chiamata e vera alla seconda: non
+// esiste (0015 uccide le sessioni anche al `false → true`, e una riga gemella in
+// `operator` dà 23505).
+//
+// La revisione a secco descrive un percorso diverso, che non passa da quella
+// asimmetria: se il codice è GIÀ OCCUPATO da un invio in volo, senza il primo
+// ricontrollo l'insert di `apri_invio_come_annullato` si mette in coda sulla
+// chiave e muore di `lock_timeout` — quindi il secondo ricontrollo non viene
+// MAI eseguito, e la risposta è 55P03, non 42501. §4.4 li manda su comportamenti
+// opposti: 42501 → «uscita forzata senza affermazioni sulla visita»;
+// 55P03 → «Non so se è stata salvata» con «Controlla» disponibile. L'operatrice
+// disattivata non verrebbe mai buttata fuori.
+describe('la posizione del primo ricontrollo, contro un codice occupato', () => {
+  it('un account chiuso riceve 42501 anche quando il codice è occupato, non un tempo scaduto', async () => {
+    const cod = codice()
+    const sessione = await sessioneDi(VERA_AUTH)
+    const occupante = await connect()
+    const lettore = await connect()
+    let esito = 'nessun errore'
+    try {
+      await occupante.query('begin')
+      await occupante.query("insert into invio (codice, esito) values ($1, 'in_corso')", [cod])
+      await asOwner((c) => c.query('update operator set is_active = false where id = $1', [VERA]))
+
+      await lettore.query('begin')
+      await lettore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: VERA_AUTH, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await lettore.query('set local role authenticated')
+      // Corto, così la prova non dura otto secondi quando il rifiuto NON arriva.
+      await lettore.query("set local lock_timeout = '300ms'")
+      try {
+        await lettore.query('select controlla_invio($1, $2)', [cod, V1])
+      } catch (e) {
+        esito = pgCode(e) ?? 'ignoto'
+      }
+    } finally {
+      await occupante.query('rollback').catch(() => {})
+      await occupante.end()
+      await lettore.query('rollback').catch(() => {})
+      await lettore.end()
+      await asOwner((c) => c.query('update operator set is_active = true where id = $1', [VERA]))
+      dimenticaSessioni()
+    }
+    // 42501 e non 55P03: il rifiuto arriva PRIMA dell'attesa sulla chiave.
+    expect(esito).toBe('42501')
+  })
+})
+
+// ⚠︎ LE RIGHE CHE NESSUNA DELLE 393 PROVE PRODUCEVA, scritte il 27/09/2026 dopo
+// le due revisioni avversariali. Tutte e quattro presidiano rami il cui
+// comportamento era GIÀ CORRETTO: sono presìdi di regressione, e ciascuna nasce
+// da una mutazione misurata a ZERO rosse.
+//
+//   • `modificata_altrove` → riga 2 e `cancellata_altrove` → riga 7: 0 rosse su
+//     393 ciascuna, con controprova che la forma sa arrossire (lo stesso
+//     spostamento su `esiste_gia` ne dà 1). Sono due dei cinque esiti
+//     dell'elenco della riga 6 di §4.4, prodotti oggi da tutte e tre le funzioni
+//     di scrittura, e il ramo `else` che li raccoglie era un catch-all senza
+//     presidio. ⚠︎ È ESATTAMENTE la lacuna che al Task 6 è costata la spec
+//     revisione 18 per `cancellata`/`gia_cancellata`: allora la tabella non li
+//     copriva, qui le prove non li nominavano.
+//   • la riga 5 «non deve accadere» e il sotto-ramo riga 4 del ramo
+//     `non_trovata`: renderli irraggiungibili, o scambiarli, dava 0 rosse. Il
+//     commento di `0018` dichiarava il ramo «presidiato dalla prova riga 4» —
+//     falso: quella prova passa dal ramo `salvata`.
+//
+// Danno che presidiano, misurato: riga 2 è «✓ Risulta salvata» per un invio che
+// non ha scritto una riga, e §4.4 impone dopo ogni `modificata_altrove` che «il
+// contenuto della scheda diventa lo stato corrente». Con la riga 2 la scheda
+// tiene la bozza dell'operatrice, e il «Salva» successivo porta le sue versioni:
+// il lavoro della collega sparisce in silenzio (famiglia B5, R6-1).
+describe('le righe che nessuna prova produceva', () => {
+  it('riga 6: un modificata_altrove non ha scritto, e non risulta salvato', async () => {
+    const creata = await creaDue()
+    // Una collega tocca la visita: le versioni attese non valgono più.
+    await asOwner((c) => c.query('update appointment set start_cell = 160 where id = $1', [A2]))
+    const cod = codice()
+    const risposta = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const r = await c.query<{ r: Risposta }>(
+        'select salva_visita($1,$2,$3,null,$4::date,$5,$6,$7) as r',
+        [
+          cod,
+          V1,
+          CLIENT_MARIA,
+          DAY_ONE,
+          JSON.stringify([
+            { id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 },
+            { id: A2, operatrice: ALESSANDRA, servizio: SERVICE_MASSAGE, inizio: 140, durata: 10 },
+          ]),
+          creata.visita,
+          JSON.stringify(creata.appuntamenti),
+        ],
+      )
+      return r.rows[0].r
+    })
+    // La premessa, asserita e non assunta.
+    expect(risposta.esito).toBe('modificata_altrove')
+    const r = await controlla(cod)
+    expect(r.esito_invio).toBe('modificata_altrove')
+    expect(r.riga).toBe(6)
+    // E lo stato c'è: §4.4 impone alla scheda di ridisegnarsi da lì.
+    expect(r.stato).not.toBeNull()
+  })
+
+  it('riga 6: un cancellata_altrove non ha scritto, e non risulta cancellato da questo invio', async () => {
+    const creata = await creaDue()
+    await cancellaCon(codice(), creata)
+    const cod = codice()
+    // Creazione su un id che è fra le cancellate: §4.1 regola 4.
+    const risposta = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const r = await c.query<{ r: Risposta }>(
+        'select salva_visita($1,$2,$3,null,$4::date,$5,null,null) as r',
+        [
+          cod,
+          V1,
+          CLIENT_MARIA,
+          DAY_ONE,
+          JSON.stringify([{ id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 }]),
+        ],
+      )
+      return r.rows[0].r
+    })
+    expect(risposta.esito).toBe('cancellata_altrove')
+    const r = await controlla(cod)
+    expect(r.esito_invio).toBe('cancellata_altrove')
+    // La 6 e non la 7: questo invio non ha cancellato niente, l'aveva già fatto
+    // un altro. La 7 è «✓ Risulta cancellata», cioè un ✓ che qui sarebbe falso.
+    expect(r.riga).toBe(6)
+  })
+
+  it('riga 5: visita assente e NON fra le cancellate, che non deve accadere', async () => {
+    const cod = codice()
+    await salvaCon(cod)
+    await asOwner((c) => c.query('delete from visit where id = $1', [V1]))
+    // La premessa: il trigger di 0013 l'aveva registrata. Senza questa riga la
+    // prova non distinguerebbe «tolta dalle cancellate» da «mai registrata».
+    const registrate = await asOwner(async (c) =>
+      Number(
+        (await c.query('select count(*) as n from visita_cancellata where id = $1', [V1])).rows[0].n,
+      ),
+    )
+    expect(registrate).toBe(1)
+    // Si toglie la registrazione: è l'unico modo di separare le due cause di
+    // `v_stato is null` su una lettura che NON blocca — ed è la differenza per
+    // cui qui il ramo è vivo mentre in 0016/0017 è codice morto.
+    await asOwner((c) => c.query('delete from visita_cancellata where id = $1', [V1]))
+    const r = await controlla(cod)
+    expect(r.esito_invio).toBe('salvata')
+    expect(r.stato).toBeNull()
+    expect(r.riga).toBe(5)
+  })
+
+  // Il sotto-ramo che il commento di `0018` dichiarava presidiato e non era:
+  // `non_trovata` + visita assente + fra le cancellate → riga 4, con «Crea di
+  // nuovo». Percorso raggiungibile: l'operatrice è disattivata durante l'invio
+  // (che registra `non_trovata` benché la visita ci sia), viene riattivata entro
+  // le 24 ore, e nel frattempo la collega cancella la visita davvero.
+  it('riga 4: un non_trovata la cui visita è stata poi cancellata davvero', async () => {
+    const creata = await creaDue()
+    const guardiano = await connect()
+    const scrittore = await connect()
+    const sessione = await sessioneDi(VERA_AUTH)
+    const cod = codice()
+    let risposta: Risposta = { esito: 'nessuna risposta' }
+    try {
+      await guardiano.query('begin')
+      await guardiano.query('update appointment set start_cell = 160 where id = $1', [A2])
+
+      await scrittore.query('begin')
+      await scrittore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: VERA_AUTH, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await scrittore.query('set local role authenticated')
+      const inCoda = scrittore
+        .query('select cancella_visita($1,$2,$3,$4) as r', [
+          cod,
+          V1,
+          creata.visita,
+          JSON.stringify(creata.appuntamenti),
+        ])
+        .then((r) => (r.rows[0] as { r: Risposta }).r)
+        .catch((e) => ({ esito: 'ERRORE ' + pgCode(e) }) as Risposta)
+
+      await attendiBlocco(scrittore)
+      await asOwner((c) => c.query('update operator set is_active = false where id = $1', [VERA]))
+      await guardiano.query('commit')
+      risposta = await inCoda
+      await scrittore.query('commit')
+    } finally {
+      await guardiano.end()
+      await scrittore.end()
+      await asOwner((c) => c.query('update operator set is_active = true where id = $1', [VERA]))
+      dimenticaSessioni()
+    }
+    expect(risposta.esito).toBe('non_trovata')
+    // Ora la collega la cancella davvero: il trigger la registra fra le
+    // cancellate, e la lettura di «Controlla» CONFERMA l'assenza.
+    await asOwner((c) => c.query('delete from visit where id = $1', [V1]))
+    const r = await controlla(cod)
+    expect(r.esito_invio).toBe('non_trovata')
+    expect(r.stato).toBeNull()
+    // La 4 e non la 5: «È stata cancellata dopo il salvataggio», con «Crea di
+    // nuovo». E non la 1: qui la lettura NON trova la visita, quindi la regola
+    // di §4.4 revisione 19 non si applica.
+    expect(r.riga).toBe(4)
   })
 })

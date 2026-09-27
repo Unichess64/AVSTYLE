@@ -10,8 +10,17 @@
 -- assente, visita vecchia — e direbbe «non risulta salvata» di un salvataggio
 -- avvenuto. Per lo stesso motivo la funzione è `volatile`, non `stable`.
 --
--- Il ricontrollo dell'account viene PRIMA di bruciare: un account chiuso
--- vedrebbe zero righe ovunque e riceverebbe un falso «non risulta».
+-- Il ricontrollo dell'account viene PRIMA di bruciare, e la ragione NON è un
+-- falso «non risulta»: quello lo impedisce già il ricontrollo in coda, che
+-- solleva lo stesso 42501 e annulla la transazione — misurato il 27/09/2026,
+-- togliere questo non fa arrossire niente da solo. La ragione è lo SQLSTATE.
+-- Senza di lui, un account chiuso il cui codice è OCCUPATO da un invio in volo
+-- si mette in coda sulla chiave e muore di `lock_timeout` con 55P03, senza mai
+-- arrivare al secondo ricontrollo: misurato, `expected '55P03' to be '42501'`.
+-- §4.4 manda 42501 sull'USCITA FORZATA e 55P03 su «Non so se è stata salvata»,
+-- quindi l'operatrice disattivata non verrebbe mai buttata fuori e ritenterebbe,
+-- fino a 8 s per volta. Presidiato dalla prova «un account chiuso riceve 42501
+-- anche quando il codice è occupato».
 
 -- Gemella di app.apri_invio: registra il codice come 'annullato' se non c'è,
 -- e restituisce l'esito già registrato se c'è. `on conflict do nothing` più il
@@ -33,6 +42,22 @@ begin
     return 'annullato';
   end if;
   select i.esito into v_esito from public.invio i where i.codice = p_codice;
+  if v_esito is null then
+    -- Gemello di `app.apri_invio` (0013:115-119): la riga c'era — il conflitto
+    -- lo prova — e non c'è più. Qui stava un `coalesce(..., 'annullato')' nel
+    -- chiamante, che rispondeva riga 1, «l'invio non ha scritto nulla», per un
+    -- codice che NESSUNO ha registrato come annullato: l'invio tardivo avrebbe
+    -- potuto ancora scrivere, e «Non risulta salvata» non sarebbe stato
+    -- definitivo. Per §4.4 un «Controlla» che solleva dà «Non so», che qui è la
+    -- risposta vera. Misurato il 27/09/2026: togliere il coalesce non fa
+    -- arrossire niente (0 rosse su 393), quindi era un mascheratore puro.
+    -- ⚠︎ In `read committed` questo ramo non è raggiungibile: l'unico
+    -- cancellatore è la pulizia a 30 giorni di `app.chiudi_invio`, e §4.4 butta
+    -- i codici a 24 ore. Lo è in `repeatable read`, dove la variante con
+    -- `exception when unique_violation` restituisce `null` (misurato).
+    raise exception 'invio % sparito fra inserimento e lettura', p_codice
+      using errcode = 'P0003';
+  end if;
   return v_esito;
 end
 $$;
@@ -53,7 +78,7 @@ begin
     raise exception 'controlla_invio: chi chiama non è un operatrice attiva' using errcode = '42501';
   end if;
 
-  v_esito := coalesce(app.apri_invio_come_annullato(p_codice), 'annullato');
+  v_esito := app.apri_invio_come_annullato(p_codice);
 
   -- Istruzione SEPARATA dalla registrazione: qui la fotografia è nuova.
   --
@@ -134,8 +159,12 @@ $$;
 -- `controlla_invio` legge SENZA bloccare. Quindi `v_stato is null` ha due cause
 -- vere e distinte — visita davvero cancellata e visita mai esistita — e
 -- `v_cancellata` è ciò che le separa: è la riga 4 contro la riga 5. Il ramo è
--- raggiungibile e presidiato (la prova «riga 4: la visita è stata cancellata
--- dopo il salvataggio»). Due di quelle mutazioni morte altrove sono letali qui:
+-- raggiungibile, e la prova «riga 4: la visita è stata cancellata dopo il
+-- salvataggio» lo esercita — ⚠︎ ma SOLO nel ramo `salvata`. Il sotto-ramo
+-- gemello del ramo `non_trovata` (riga 96) NON era presidiato: misurato il
+-- 27/09/2026, portarlo a 7 dava 0 rosse su 393. Ora ha la sua prova, e così la
+-- riga 5, che nessuna delle 393 prove produceva. Due di quelle mutazioni morte
+-- altrove sono letali qui:
 -- `cancellata` è la riga 7 e `salvata` la riga 2, cioè un ✓ per un invio che
 -- non ha scritto una riga.
 
