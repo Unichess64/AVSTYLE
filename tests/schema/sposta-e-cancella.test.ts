@@ -497,6 +497,76 @@ describe('sposta_visita_a', () => {
     expect(ok.esito).toBe('salvata')
     expect((await inizi()).map((x) => x.s)).toEqual([126, 146])
   })
+
+  // ⚠︎ IL RAMO DELLO STATO VUOTO, copiato da `0016:171-177` il 27/09/2026 dopo
+  // che la misura ha mostrato l'asimmetria fra le tre funzioni gemelle.
+  //
+  // La forma: il guardiano cambia un appuntamento e ne tiene il blocco, così
+  // l'insieme differirà e la funzione arriverà al ramo della regola 6; la
+  // funzione supera il `for update` sulla VISITA — quindi `v_trovata` è già
+  // `true` e il ramo «visita assente» non la prende — e si ferma su quello
+  // degli APPUNTAMENTI; mentre è ferma l'operatrice viene disattivata, e la
+  // disattivazione committata cancella le sue sessioni (`0015`), quindi la
+  // sicurezza per riga le nasconde tutto. Al risveglio `stato_visita` torna
+  // NULL.
+  //
+  // Misurato PRIMA del ramo: `salva_visita` rispondeva `non_trovata` e queste
+  // due `modificata_altrove` con `stato: null` — nello stesso istante e con la
+  // stessa forma. La scheda avrebbe dovuto ridisegnarsi «dallo stato corrente»
+  // (§4.4) senza avere niente da mostrare, e soprattutto in `invio` restava
+  // registrato `modificata_altrove`, che è il campo su cui «Controlla» (Task 7)
+  // decide la riga.
+  it('quando la visibilità cade dopo i confronti non risponde modificata_altrove con lo stato vuoto', async () => {
+    const creata = await crea()
+    const guardiano = await connect()
+    const scrittore = await connect()
+    const sessione = await sessioneDi(VERA_AUTH)
+    const cod = codice()
+    let risposta: Risposta = { esito: 'nessuna risposta' }
+    try {
+      await guardiano.query('begin')
+      await guardiano.query('update appointment set start_cell = 160 where id = $1', [A2])
+
+      await scrittore.query('begin')
+      await scrittore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: VERA_AUTH, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await scrittore.query('set local role authenticated')
+      const inCoda = scrittore
+        .query('select sposta_visita_a($1,$2,$3::date,$4,$5,$6) as r', [
+        cod,
+        V1,
+        DAY_ONE,
+        JSON.stringify([{ id: A1, inizio: 126 }, { id: A2, inizio: 146 }]),
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+        ])
+        .then((r) => (r.rows[0] as { r: Risposta }).r)
+        .catch((e) => ({ esito: 'ERRORE ' + pgCode(e) }) as Risposta)
+
+      // Si aspetta la CONDIZIONE e non un tempo: con un `setTimeout` fisso la
+      // disattivazione può precedere la funzione, che risponderebbe `42501`
+      // dalla guardia in testa — prova rossa senza nessun difetto sotto.
+      await attendiBlocco(scrittore)
+      await asOwner((c) => c.query('update operator set is_active = false where id = $1', [VERA]))
+      await guardiano.query('commit')
+      risposta = await inCoda
+      await scrittore.query('commit')
+    } finally {
+      await guardiano.end()
+      await scrittore.end()
+      await asOwner((c) => c.query('update operator set is_active = true where id = $1', [VERA]))
+      dimenticaSessioni()
+    }
+    // Il valore misurato, non «qualcosa che non sia modificata_altrove»: una
+    // prova che accettasse qualunque altro esito resterebbe verde anche se il
+    // ramo rispondesse a caso.
+    expect(risposta.esito).toBe('non_trovata')
+    expect(risposta.stato).toBeUndefined()
+    // E la riga che conta per il Task 7: nel registro finisce lo stesso esito,
+    // non `modificata_altrove`.
+    expect(await esitiDi(cod)).toEqual(['non_trovata'])
+  })
 })
 
 describe('cancella_visita', () => {
@@ -682,6 +752,74 @@ describe('cancella_visita', () => {
     const seconda = await cancella(creata, cod2)
     expect(seconda.esito).toBe('gia_cancellata')
     expect(await esitiDi(cod2)).toEqual(['gia_cancellata'])
+  })
+
+  // ⚠︎ IL RAMO DELLO STATO VUOTO, copiato da `0016:171-177` il 27/09/2026 dopo
+  // che la misura ha mostrato l'asimmetria fra le tre funzioni gemelle.
+  //
+  // La forma: il guardiano cambia un appuntamento e ne tiene il blocco, così
+  // l'insieme differirà e la funzione arriverà al ramo della regola 6; la
+  // funzione supera il `for update` sulla VISITA — quindi `v_trovata` è già
+  // `true` e il ramo «visita assente» non la prende — e si ferma su quello
+  // degli APPUNTAMENTI; mentre è ferma l'operatrice viene disattivata, e la
+  // disattivazione committata cancella le sue sessioni (`0015`), quindi la
+  // sicurezza per riga le nasconde tutto. Al risveglio `stato_visita` torna
+  // NULL.
+  //
+  // Misurato PRIMA del ramo: `salva_visita` rispondeva `non_trovata` e queste
+  // due `modificata_altrove` con `stato: null` — nello stesso istante e con la
+  // stessa forma. La scheda avrebbe dovuto ridisegnarsi «dallo stato corrente»
+  // (§4.4) senza avere niente da mostrare, e soprattutto in `invio` restava
+  // registrato `modificata_altrove`, che è il campo su cui «Controlla» (Task 7)
+  // decide la riga.
+  it('quando la visibilità cade dopo i confronti non risponde modificata_altrove con lo stato vuoto', async () => {
+    const creata = await crea()
+    const guardiano = await connect()
+    const scrittore = await connect()
+    const sessione = await sessioneDi(VERA_AUTH)
+    const cod = codice()
+    let risposta: Risposta = { esito: 'nessuna risposta' }
+    try {
+      await guardiano.query('begin')
+      await guardiano.query('update appointment set start_cell = 160 where id = $1', [A2])
+
+      await scrittore.query('begin')
+      await scrittore.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: VERA_AUTH, role: 'authenticated', session_id: sessione.sessionId }),
+      ])
+      await scrittore.query('set local role authenticated')
+      const inCoda = scrittore
+        .query('select cancella_visita($1,$2,$3,$4) as r', [
+        cod,
+        V1,
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+        ])
+        .then((r) => (r.rows[0] as { r: Risposta }).r)
+        .catch((e) => ({ esito: 'ERRORE ' + pgCode(e) }) as Risposta)
+
+      // Si aspetta la CONDIZIONE e non un tempo: con un `setTimeout` fisso la
+      // disattivazione può precedere la funzione, che risponderebbe `42501`
+      // dalla guardia in testa — prova rossa senza nessun difetto sotto.
+      await attendiBlocco(scrittore)
+      await asOwner((c) => c.query('update operator set is_active = false where id = $1', [VERA]))
+      await guardiano.query('commit')
+      risposta = await inCoda
+      await scrittore.query('commit')
+    } finally {
+      await guardiano.end()
+      await scrittore.end()
+      await asOwner((c) => c.query('update operator set is_active = true where id = $1', [VERA]))
+      dimenticaSessioni()
+    }
+    // Il valore misurato, non «qualcosa che non sia modificata_altrove»: una
+    // prova che accettasse qualunque altro esito resterebbe verde anche se il
+    // ramo rispondesse a caso.
+    expect(risposta.esito).toBe('non_trovata')
+    expect(risposta.stato).toBeUndefined()
+    // E la riga che conta per il Task 7: nel registro finisce lo stesso esito,
+    // non `modificata_altrove`.
+    expect(await esitiDi(cod)).toEqual(['non_trovata'])
   })
 })
 

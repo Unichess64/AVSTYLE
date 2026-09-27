@@ -6122,8 +6122,9 @@ trovare un'affermazione falsa**. Una sola mezza frase è inesatta ed è corretta
 
 **Gate finale a `d894f57`, in serie:** `npx supabase db reset` senza righe `Skipping migration`; `npm test` → **24 file,
 373 prove verdi**; `npm run test:fuso` → 4 file, **96 verdi**; `npx tsc --noEmit` → uscita 0.
-`tests/schema/sposta-e-cancella.test.ts` ha **22 prove**: 10 dal Passo 1 del piano, 8 dalla consegna, 4 dalla
-remediation. La spec 3a è a **revisione 17**.
+`tests/schema/sposta-e-cancella.test.ts` ha **24 prove**: 10 dal Passo 1 del piano, 8 dalla consegna, 4 dalla prima
+remediation e 2 dalla seconda. La spec 3a è a **revisione 17**. ⚠︎ **Il gate finale del Task 6 è
+24 file, 375 prove verdi**; 373 è il numero di `d894f57`, superato dalla seconda remediation.
 
 ### ⚠︎ Il reperto che cambia il Task 7, e che le due revisioni hanno trovato da due lati diversi
 
@@ -6241,9 +6242,14 @@ transazione è fresca, perché il vincolo è già differito per dichiarazione. V
 
    Danno: la scheda riceve `modificata_altrove` e §4.4 le impone di ridisegnarsi «dallo stato corrente», che è vuoto —
    e in `invio` resta registrato `modificata_altrove` dove la gemella registrerebbe `non_trovata`. ⚠︎ **Conta doppio
-   dal Task 7**, che su quel campo decide la riga di «Controlla». Mitigato ma non chiuso da §4.3 passo 7, che impone al
-   server di ricontrollare l'account su ogni esito diverso da `salvata`/`cancellata`. **Non corretto: la decisione è
-   dell'utente**, e il rimedio è copiare il ramo di `0016:171-177` in tutti e due i punti, con la prova che lo pianta.
+   dal Task 7**, che su quel campo decide la riga di «Controlla».
+
+   ✅ **CHIUSO il 27/09/2026**, per decisione dell'utente, nel commit di remediation che porta questa riga. Il ramo di `0016:171-177` è copiato in tutti e
+   due i punti di `0017`, con gli esiti degradati coerenti al ramo «visita assente» di ciascuna funzione —
+   `cancellata_altrove` per `sposta_visita_a`, `gia_cancellata` per `cancella_visita`. Due prove lo piantano, una per
+   funzione, e sono **precise**: togliere il ramo da `sposta_visita_a` fa arrossire **solo** la sua (1 rossa su 375), e
+   lo stesso per `cancella_visita`. Rimisurate dopo l'aggiunta, come impone la trappola dell'irrobustimento: R1 resta a
+   **4** e R2 a **3**, nessun disarmo. Le tre funzioni gemelle ora rispondono `non_trovata` nello stesso scenario.
 3. **`0017` chiama `stato_visita` due volte senza la riga di commento che rimanda al vincolo di §4.4** sulle funzioni
    `stable` («istruzione propria, dopo l'attesa»). La copia è corretta **per accidente**, e chi scriverà `0018`
    copierà la forma di `0017`, dove la regola non c'è.
@@ -6287,7 +6293,16 @@ ha INSERT, UPDATE e DELETE **diretti** su `visit`, `appointment` e `client`.
    verde). Quando due revisioni divergono, si misura la forma **letterale** che una delle due ha scritto.
 3. **`grep -c` esce con 1 quando conta zero**, e in una catena `&&` la spezza in silenzio. Un gate che sembra
    interrotto può essere solo un conteggio a zero.
-4. **Una misura presa nella finestra in cui un'altra persona usa il database è falsa in silenzio.** Il Passo 2 di
+4. ⚠︎ **`git checkout --` cancella anche la modifica NON COMMITTATA di un file TRACCIATO.** La trappola 2 registrava
+   il caso del file non tracciato; questa è la variante che è costata di più. Il 27/09/2026 uno script di sonde
+   finiva con `git checkout -- <migrazione>` per «ripristinare», e ha cancellato il ramo appena scritto e non ancora
+   committato: **sette sonde di seguito hanno girato su codice senza la modifica che dovevano misurare**, e le due
+   prove nuove arrossivano in ognuna. Il sintomo somigliava a due prove **instabili** — verdi da sole, rosse nella
+   suite — e la diagnosi sbagliata era a un passo. Lo smaschera un `grep -c` sulla riga mutata, non uno `shasum`: il
+   file «ripristinato» ha lo shasum di HEAD, che è quello giusto per un ripristino e quello sbagliato per la misura.
+   **Il ripristino si fa SEMPRE da copia di scorta**, tracciato o no, e la copia si fa **dopo** aver scritto la
+   modifica, non prima.
+5. **Una misura presa nella finestra in cui un'altra persona usa il database è falsa in silenzio.** Il Passo 2 di
    questa esecuzione cadeva in quella finestra ed è stato **rifatto** sul file finale: **18 rosse**, tutte per
    l'assenza delle due funzioni, poi ripristino verificato per `shasum` e **18 verdi**.
 

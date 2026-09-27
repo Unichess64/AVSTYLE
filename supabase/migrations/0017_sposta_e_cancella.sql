@@ -65,6 +65,27 @@ begin
   if v_versione is distinct from p_visita_attesa
      or coalesce(p_attesi, '[]'::jsonb) is distinct from v_correnti then
     v_stato := public.stato_visita(p_visita);
+    -- ⚠︎ Il ramo che `0016:171-177` aveva e che questo file non aveva copiato,
+    -- portato qui il 27/09/2026 dopo che la misura ha mostrato l'asimmetria.
+    -- Se nel frattempo la visita non è più leggibile — cancellata da una
+    -- collega, o account chiuso — `stato` è NULL e la scheda non ha niente da
+    -- mostrare, mentre §4.4 le impone di ridisegnarsi «dallo stato corrente»:
+    -- l'esito giusto è l'altro.
+    --
+    -- Misurato il 26/09/2026 su banco usa e getta, PRIMA di questo ramo: con il
+    -- guardiano che blocca un appuntamento, la funzione supera il `for update`
+    -- sulla visita (quindi `v_trovata` è già true), si ferma su quello degli
+    -- appuntamenti, e mentre è ferma l'operatrice viene disattivata — la
+    -- disattivazione committata cancella le sue sessioni (0015), quindi la
+    -- sicurezza per riga le nasconde tutto. Nello STESSO istante e con la STESSA
+    -- forma, `salva_visita` rispondeva `non_trovata` e queste due
+    -- `modificata_altrove` con `stato: null`. E quell'esito finisce in `invio`,
+    -- che è il campo su cui «Controlla» (Task 7) decide la riga: l'asimmetria
+    -- fra tre funzioni gemelle costava al Task 7 la riga sbagliata.
+    if v_stato is null then
+      perform app.chiudi_invio(p_codice, case when v_cancellata then 'cancellata_altrove' else 'non_trovata' end);
+      return jsonb_build_object('esito', case when v_cancellata then 'cancellata_altrove' else 'non_trovata' end);
+    end if;
     perform app.chiudi_invio(p_codice, 'modificata_altrove');
     return jsonb_build_object('esito', 'modificata_altrove', 'stato', v_stato);
   end if;
@@ -186,6 +207,27 @@ begin
   if v_versione is distinct from p_visita_attesa
      or coalesce(p_attesi, '[]'::jsonb) is distinct from v_correnti then
     v_stato := public.stato_visita(p_visita);
+    -- ⚠︎ Il ramo che `0016:171-177` aveva e che questo file non aveva copiato,
+    -- portato qui il 27/09/2026 dopo che la misura ha mostrato l'asimmetria.
+    -- Se nel frattempo la visita non è più leggibile — cancellata da una
+    -- collega, o account chiuso — `stato` è NULL e la scheda non ha niente da
+    -- mostrare, mentre §4.4 le impone di ridisegnarsi «dallo stato corrente»:
+    -- l'esito giusto è l'altro.
+    --
+    -- Misurato il 26/09/2026 su banco usa e getta, PRIMA di questo ramo: con il
+    -- guardiano che blocca un appuntamento, la funzione supera il `for update`
+    -- sulla visita (quindi `v_trovata` è già true), si ferma su quello degli
+    -- appuntamenti, e mentre è ferma l'operatrice viene disattivata — la
+    -- disattivazione committata cancella le sue sessioni (0015), quindi la
+    -- sicurezza per riga le nasconde tutto. Nello STESSO istante e con la STESSA
+    -- forma, `salva_visita` rispondeva `non_trovata` e queste due
+    -- `modificata_altrove` con `stato: null`. E quell'esito finisce in `invio`,
+    -- che è il campo su cui «Controlla» (Task 7) decide la riga: l'asimmetria
+    -- fra tre funzioni gemelle costava al Task 7 la riga sbagliata.
+    if v_stato is null then
+      perform app.chiudi_invio(p_codice, case when v_cancellata then 'gia_cancellata' else 'non_trovata' end);
+      return jsonb_build_object('esito', case when v_cancellata then 'gia_cancellata' else 'non_trovata' end);
+    end if;
     perform app.chiudi_invio(p_codice, 'modificata_altrove');
     return jsonb_build_object('esito', 'modificata_altrove', 'stato', v_stato);
   end if;
