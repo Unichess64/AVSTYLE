@@ -3211,12 +3211,20 @@ dell'**istruzione**, non della transazione: in un'istruzione successiva vede il 
 **Interfaces:**
 - Consuma: Task 1, 5, 6.
 - Produce: `public.controlla_invio(p_codice uuid, p_visita uuid) returns jsonb`, che risponde
-  `{"riga": 1..6, "esito_invio": …, "stato": …}` dove `stato` è quello di `public.stato_visita` oppure `null`.
+  `{"riga": 1..7, "esito_invio": …, "stato": …}` dove `stato` è quello di `public.stato_visita` oppure `null`.
+  ⚠︎ **1..7 e non 1..6 dal 27/09/2026** (spec revisione 18): il Task 6 ha creato `cancellata` e `gia_cancellata`.
 
-**Le sei righe** (design 3a §4.4): 1 codice annullato; 2 `salvata` e visita uguale alla scheda; 3 `salvata` e visita
-diversa; 4 `salvata` e visita assente ma fra le cancellate; 5 `salvata` e visita assente e **non** fra le cancellate
-(non deve accadere); 6 un esito che non ha scritto. Il confronto «uguale alla scheda» lo fa **l'app**, perché conosce
-la scheda: la funzione restituisce lo stato e l'app decide fra la riga 2 e la 3.
+**Le sette righe** (design 3a §4.4, revisione 18): 1 codice annullato; 2 `salvata` e visita uguale alla scheda;
+3 `salvata` e visita diversa; 4 `salvata` e visita assente ma fra le cancellate; 5 `salvata` e visita assente e **non**
+fra le cancellate (non deve accadere); 6 un esito che non ha scritto, **`gia_cancellata` compreso**; 7 **`cancellata`**,
+«✓ Risulta cancellata». Il confronto «uguale alla scheda» lo fa **l'app**, perché conosce la scheda: la funzione
+restituisce lo stato e l'app decide fra la riga 2 e la 3.
+
+⚠︎ **Le righe 6 e 7 sono nuove, e il Passo 1 qui sotto NON le prova.** Le dieci prove sono state scritte quando
+`cancella_visita` non esisteva: nessuna chiama quella funzione. **Aggiungi due prove**, una per la riga 7
+(cancellazione riuscita, poi «Controlla») e una per la riga 6 con `gia_cancellata` (due cancellazioni, poi «Controlla»
+sul secondo codice), e porta l'atteso del Passo 4 da 10 a **12**. Senza, il ramo corretto il 27/09/2026 nasce senza
+presidio: la forma sbagliata — tutti e due gli esiti sulla riga 2 — **non farebbe arrossire niente**.
 
 **Misurato al sesto giro** (banco `rev6_invii`): con `read committed`, istruzioni separate e il codice registrato per
 primo, «Controlla» aspetta la fine del commit dell'invio — parte differita compresa — e poi vede l'esito vero; se
@@ -3496,10 +3504,17 @@ begin
     else
       v_riga := 5;            -- non deve accadere: ogni cancellazione passa dalla tabella
     end if;
-  elsif v_esito in ('cancellata', 'gia_cancellata') then
-    v_riga := 2;
+  elsif v_esito = 'cancellata' then
+    -- ⚠︎ CORRETTO il 27/09/2026 (spec revisione 18). Qui c'era
+    -- `elsif v_esito in ('cancellata','gia_cancellata') then v_riga := 2;`,
+    -- e la riga 2 è «✓ Risulta salvata»: una cancellazione riuscita avrebbe
+    -- detto all'operatrice che la visita è SALVATA, e un `gia_cancellata` pure.
+    -- §4.4 dà ora a `cancellata` la riga 7 («✓ Risulta cancellata», l'analoga
+    -- della 2 per «Elimina visita») e lascia `gia_cancellata` alla riga 6, che
+    -- è letteralmente il suo caso: un esito che non ha scritto.
+    v_riga := 7;
   else
-    v_riga := 6;
+    v_riga := 6;            -- compreso `gia_cancellata` (§4.4, revisione 18)
   end if;
 
   -- Il ricontrollo dell'account anche DOPO la lettura: se la sessione è stata
@@ -3552,7 +3567,7 @@ Scrivi `app.apri_invio_come_annullato` **prima** di `controlla_invio` nel file, 
 obbligo tecnico (misurato).
 
 - [ ] **Passo 4: applica ed esegui** — `npx supabase db reset && npx vitest run tests/schema/controlla-invio.test.ts`,
-  10 verdi. La prova (b) e la (b bis) devono **durare** circa mezzo secondo: se finiscono subito, «Controlla» non sta
+  **12 verdi** (10 del Passo 1 più le due delle righe 6 e 7; era «10 verdi» prima del 27/09/2026). La prova (b) e la (b bis) devono **durare** circa mezzo secondo: se finiscono subito, «Controlla» non sta
   aspettando e il meccanismo non regge. Scrivi nel resoconto la durata misurata.
 
 - [ ] **Passo 5: sonde di mutazione**
@@ -3565,6 +3580,7 @@ obbligo tecnico (misurato).
 | 4 | togli il secondo ricontrollo | aggiungi la prova: sessione chiusa **fra** la registrazione e la lettura (chiudila da una terza connessione) |
 | 5 | in `app.apri_invio_come_annullato`, `on conflict do nothing` → un blocco `exception when unique_violation` | nessuna prova arrossisce con questi dati, e **la dichiarazione regge** — riverificata il 24/09/2026 su banco usa-e-getta (la funzione non esiste ancora): in `read committed`, il livello che questo piano fissa, le due varianti danno lo **stesso** risultato, `'in_corso'`. ⚠︎ Ma quando la differenza si vede non è sottile: in `repeatable read` la variante `on conflict` **aborta con `40001`**, mentre quella con `exception` **restituisce `null` in silenzio** — la fotografia presa prima dell'attesa non vede la riga dell'altra transazione, e il chiamante riceve un valore che il contratto di §4.4 non prevede. Quindi **dichiarala**, ma sapendo che a tenerla in piedi è la prova di catalogo del Task 9 sull'isolamento: senza quella, questa riga è una scommessa |
 | 6 | riga 4 → riga 1 quando la visita è assente e cancellata | *«riga 4: la visita è stata cancellata dopo il salvataggio»* |
+| 7 | `v_riga := 7` → `v_riga := 2` per `cancellata`, e `gia_cancellata` spostato sulla riga 2 | la forma che il piano aveva prima del 27/09/2026: devono arrossire **le due prove nuove** delle righe 6 e 7. Se non arrossiscono, quelle prove non presidiano il ramo che dicono di presidiare |
 
 - [ ] **Passo 6: gate e commit**
 
@@ -6225,8 +6241,18 @@ transazione è fresca, perché il vincolo è già differito per dichiarazione. V
 
 ### Reperti aperti, con il danno misurato (nessuno bloccante)
 
-1. **Le sei righe di §4.4 non coprono `cancellata` né `gia_cancellata`** — vedi sopra. **È del Task 7 e va chiuso nella
-   spec prima di `0018`.**
+1. ✅ **Le righe di §4.4 ora coprono `cancellata` e `gia_cancellata`** — **CHIUSO il 27/09/2026** per decisione
+   dell'utente, con la spec a **revisione 18**: `gia_cancellata` entra nell'elenco della **riga 6**, che è letteralmente
+   il suo caso («un esito che non ha scritto»), e `cancellata` prende la **riga 7**, analoga della 2 per «Elimina
+   visita». Il contratto di «Controlla» passa da `riga: 1..6` a **`riga: 1..7`**.
+
+   ⚠︎ **E chiudendolo è venuto fuori un difetto vero nel piano, non solo nella spec.** Il Task 7 mappava **tutti e due**
+   gli esiti sulla **riga 2** (`elsif v_esito in ('cancellata','gia_cancellata') then v_riga := 2;`), e la riga 2 è
+   «✓ Risulta salvata»: trascrivendo il piano alla lettera, una **cancellazione riuscita** avrebbe detto
+   all'operatrice che la visita è **salvata**, e un `gia_cancellata` pure — l'esatto contrario del capoverso «Elimina
+   visita» incerta, che la spec porta da sempre. Corretto in sede nel Task 7, insieme al contratto `1..7`, all'atteso
+   del Passo 4 (da 10 a **12** verdi) e a una **settima sonda** che presidia il ramo nuovo. La lacuna era di forma, il
+   difetto che ci stava sotto no.
 2. ⚠︎ **Il ramo `if v_stato is null` di `0016:174` non è stato copiato in `0017`** (righe 67 e 173).
    **MISURATO il 26/09/2026 su banco usa e getta, non più un'ipotesi.** Forma: il guardiano cambia un appuntamento e
    ne tiene il blocco; la funzione supera il `for update` sulla **visita** (quindi `v_trovata` è già `true`) e si ferma

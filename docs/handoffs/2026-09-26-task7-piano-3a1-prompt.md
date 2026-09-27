@@ -39,32 +39,46 @@ tua iniziativa: lo decide l'utente, ed è un'azione su un repo pubblico.
 Se una qualunque riga diverge, fermati e dillo: non eseguire il Passo 1 e non proporre alternative finché non ti
 rispondono.
 
-## ⚠︎⚠︎ UNA DECISIONE CHE NON È TUA, E CHE VA PRESA PRIMA DI SCRIVERE `0018`
+## ⚠︎⚠︎ LE DUE DECISIONI DEL TASK 6 SONO PRESE — e una ti ha già cambiato il piano
 
-Non è un difetto da correggere né un dettaglio da interpretare: è il punto su cui il Task 6 si è fermato apposta,
-lasciandolo all'utente. **Portalo all'utente nel tuo primo messaggio, prima del Passo 1**, e non proseguire oltre il
-Passo 1 finché non rispondono. Sta per esteso nell'appendice del Task 6.
+Il Task 6 si era fermato su due punti, lasciandoli all'utente. **Sono stati decisi tutti e due il 27/09/2026**, e li
+trovi già applicati in spec e nel piano. Non devi riaprirli: devi sapere che cosa è cambiato, perché tocca il codice
+che trascriverai.
 
-*(Il Task 6 ne aveva lasciate due. La seconda — il ramo `if v_stato is null` che `0017` non aveva copiato da `0016` —
-è stata **chiusa il 27/09/2026**: il ramo è nelle due funzioni con due prove che lo piantano, e le tre gemelle ora
-rispondono `non_trovata` nello stesso scenario. Non ti riguarda più, se non come precedente da imitare.)*
-
-### La decisione — le sei righe di §4.4 non coprono due esiti che ORA esistono
-
-È il reperto su cui le due revisioni avversariali del Task 6 sono convergute **da lati diversi**, ed è quello che ti
-riguarda più di ogni altra cosa: **tu codifichi quelle righe come `riga: 1..6`.**
+### 1. Le righe di §4.4 sono SETTE, e il piano ti dava il ramo sbagliato
 
 `cancella_visita` (Task 6) immette in `invio` due esiti che prima non esistevano, **`cancellata`** e
-**`gia_cancellata`**, e la tabella delle sei righe di spec §4.4 non ne copre nessuno:
+**`gia_cancellata`**, e la tabella delle righe di §4.4 non ne copriva nessuno. Deciso, **spec revisione 18**:
 
-* le righe **2-5** pretendono tutte `esito = 'salvata'`;
-* la riga **6** è «un esito che **non** ha scritto», e ne elenca quattro (`esiste_gia`, `modificata_altrove`,
-  `cancellata_altrove`, `non_trovata`). **`cancellata` HA scritto**, e `gia_cancellata` non è nell'elenco.
+* **`gia_cancellata` entra nell'elenco della riga 6** — è letteralmente il suo caso, «un esito che non ha scritto» —
+  e mostra «Era già stata cancellata», lo stesso messaggio della risposta diretta;
+* **`cancellata` prende la riga 7**, «✓ Risulta cancellata»: ha scritto, ed è l'analoga della riga 2 per «Elimina
+  visita».
 
-La prosa di §4.4 li tratta, ma in un capoverso separato («**«Elimina visita»** incerta») che la tabella non nomina. Le
-due strade sono: **una riga 7** («esito `cancellata` → ✓ Risulta cancellata»), oppure **allargare la riga 6** a
-`gia_cancellata` e trattare `cancellata` come le righe 2/3 sul «è ancora lì?». **Proponi, non decidere.** Chiuderlo
-dopo vuol dire scoprirlo con l'interfaccia già scritta.
+Il tuo contratto è quindi **`riga: 1..7`**, non `1..6`.
+
+⚠︎ **E qui c'era un difetto vero, non solo una lacuna di forma.** Il Passo 3 del Task 7 conteneva
+`elsif v_esito in ('cancellata','gia_cancellata') then v_riga := 2;` — e la riga 2 è «✓ Risulta salvata». Trascrivendo
+il piano alla lettera, una **cancellazione riuscita** avrebbe detto all'operatrice che la visita è **salvata**.
+Corretto in sede: il ramo ora è `elsif v_esito = 'cancellata' then v_riga := 7;` con `gia_cancellata` che ricade
+nell'`else` della riga 6. **Il commento nel piano spiega perché: non "semplificarlo".**
+
+⚠︎ **Le due righe nuove NON sono provate dal Passo 1**, perché le sue dieci prove sono state scritte quando
+`cancella_visita` non esisteva e nessuna la chiama. **Devi aggiungere due prove** — una per la riga 7 (cancellazione
+riuscita, poi «Controlla») e una per la riga 6 con `gia_cancellata` (due cancellazioni, poi «Controlla» sul secondo
+codice) — e l'atteso del Passo 4 è già stato portato da 10 a **12**. La **settima sonda** del Passo 5 esiste apposta
+per verificarle: rimette la forma sbagliata e le due prove nuove devono arrossire.
+
+### 2. Il ramo `if v_stato is null` è ORA nelle due funzioni del Task 6
+
+Chiuso il 27/09/2026. `0016:171-177` degrada un `modificata_altrove` con `stato` non leggibile a `non_trovata`, e
+`0017` non aveva quel ramo: misurato, nello stesso istante e con la stessa forma, `salva_visita` rispondeva
+`non_trovata` e le altre due `modificata_altrove` con `stato: null` — e quell'esito finiva in `invio`, cioè nel campo
+su cui **tu** decidi la riga. Ora le tre gemelle rispondono uguale, e due prove lo piantano, una per funzione.
+
+⚠︎ **Ti riguarda come precedente da imitare:** anche `controlla_invio` legge `stato_visita`, e deve decidere che fare
+quando torna NULL. È la differenza fra la **riga 4** e la **riga 5**, e §4.4 aggiunge che una riga del codice non
+visibile → *«Non so»*, **mai** la riga 1.
 
 ## Che cosa leggere, prima di toccare qualunque cosa
 
@@ -226,7 +240,7 @@ ad `anon`, `authenticated` e `service_role` su ogni funzione nuova. Conseguenze:
   `npm run test:fuso`, `npx tsc --noEmit`.
 * **Le sonde di mutazione si eseguono davvero**: si applica la mutazione, si lancia, si verifica che sia rossa, si
   ripristina, si rilancia e si verifica che sia di nuovo verde. Una sonda «ragionata» non vale. Il Passo 5 ne elenca
-  **sei**; se una non fa vittime, dichiaralo e di' che cosa farebbe davvero in produzione.
+  **sette**; se una non fa vittime, dichiaralo e di' che cosa farebbe davvero in produzione.
 * Se Docker non risponde: `open -a OrbStack`, ~30 s, poi `npx supabase start`.
 
 ## Le trappole misurate prima di te — non ripeterle
@@ -282,7 +296,7 @@ ad `anon`, `authenticated` e `service_role` su ogni funzione nuova. Conseguenze:
 dello stato vuoto, che chiude il reperto 2).
 
 Esistono ora `public.sposta_visita_a(uuid,uuid,date,jsonb,text,jsonb)` e `public.cancella_visita(uuid,uuid,text,jsonb)`,
-con **24 prove** in `tests/schema/sposta-e-cancella.test.ts`. La spec 3a è a **revisione 17**: §4.1 dichiara
+con **24 prove** in `tests/schema/sposta-e-cancella.test.ts`. La spec 3a è a **revisione 18**: §4.4 ha le righe 6 e 7 per gli esiti di «Elimina visita», e §4.1 dichiara
 `move_visit_to` **esente** dalla parte della regola 8 sugli aggiornamenti condizionali, con la misura che lo obbliga e
 il prezzo che si paga.
 
@@ -291,7 +305,8 @@ il prezzo che si paga.
 
 **Presìdi che restano scoperti, con il danno misurato** (tutti nell'appendice del Task 6, nessuno bloccante):
 
-1. **Le sei righe di §4.4 non coprono `cancellata` né `gia_cancellata`** — è la **decisione A** qui sopra, ed è tua.
+1. ✅ **Le righe di §4.4 coprono ora `cancellata` e `gia_cancellata`** (spec revisione 18) — vedi l'avvertimento in
+   testa: il contratto è `riga: 1..7` e il ramo del piano è stato corretto.
 2. ✅ **Il ramo `if v_stato is null` è ORA in `0017`** (chiuso il 27/09/2026): le tre funzioni gemelle rispondono
    `non_trovata` nello stesso scenario, e due prove lo piantano — una per funzione, 1 rossa ciascuna. **Imita quella
    forma**: `controlla_invio` deve decidere che fare quando `stato_visita` torna NULL, ed è la differenza fra la riga 4
@@ -317,9 +332,9 @@ il prezzo che si paga.
   decisioni in testa potrebbero farti toccare la spec — **nominali uno per uno**. Un `git add` largo porta dentro
   modifiche che non hai dichiarato. Le caselle `- [ ]` del piano che spunti sono una modifica al piano: va nel commit,
   nominata.
-* **Il Passo 4 attende «10 verdi».** Le `it(` del Passo 1 sono **10**, contate il 26/09/2026 — ma contale tu: se non
-  fanno 10, **non aggiustare il numero, dillo**. E ricorda che il Passo 5 te ne fa aggiungere almeno una, più quelle
-  sui permessi.
+* **Il Passo 4 attende «12 verdi»**: le `it(` del Passo 1 sono **10**, contate il 26/09/2026, più le **due** delle
+  righe 6 e 7 che l'avvertimento in testa ti fa aggiungere. Contale tu: se non fanno 12, **non aggiustare il numero,
+  dillo**. E ricorda che il Passo 5 te ne fa aggiungere almeno un'altra, più quelle sui permessi.
 
 ## Come chiudere
 

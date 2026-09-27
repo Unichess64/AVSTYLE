@@ -1,7 +1,13 @@
 # Piano 3a — Il giorno: documento di design
 
 **Data:** 22 settembre 2026
-**Revisione:** 17 — dichiara `move_visit_to` **esente** dalla parte della regola 8 sugli aggiornamenti condizionali
+**Revisione:** 18 — scrive in §4.4 le **righe 6 e 7** per i due esiti che il Task 6 del piano 3a-1 ha creato:
+`gia_cancellata` entra nell'elenco della riga 6, che è letteralmente il suo caso («un esito che non ha scritto»), e
+`cancellata` prende la **riga 7**, analoga della 2 per «Elimina visita». Il contratto di «Controlla» passa da
+`riga: 1..6` a **`riga: 1..7`**. Il contenuto lo diceva già il capoverso «Elimina visita» incerta: mancava la forma,
+ed è la forma che il Task 7 codifica. ⚠︎ Il piano 3a-1 li mappava tutti e due sulla **riga 2** — «✓ Risulta salvata»
+per una cancellazione riuscita — ed è stato corretto in sede;
+**revisione 17** — dichiara `move_visit_to` **esente** dalla parte della regola 8 sugli aggiornamenti condizionali
 (§4.1), con la misura che lo obbliga e il prezzo che si paga: la regola 8 e il riesame della regola 11 non sono
 conciliabili con una WHERE sul solo `id`, e fra le due vince la 11. Scritta dopo le due revisioni avversariali
 dell'esecuzione del **Task 6** del piano 3a-1, che erano arrivate alla stessa divergenza da lati diversi;
@@ -472,7 +478,16 @@ salvare». Un «Controlla» fallito non brucia nulla, e l'invio può ancora arri
 | 3 | `salvata` | visita diversa dalla scheda | *«È diversa da come l'avevi lasciata: ecco com'è ora»*, con lo stato corrente e le sue versioni, che diventano quelle di partenza della scheda |
 | 4 | `salvata` | visita assente e fra le cancellate | «È stata cancellata dopo il salvataggio»; **«Crea di nuovo»** solo se la cliente esiste ancora (codici nuovi, cliente come esistente) |
 | 5 | `salvata` | visita assente e **non** fra le cancellate | non deve accadere (ogni cancellazione passa dalla tabella): errore, e l'agenda si ricarica |
-| 6 | un esito che non ha scritto (`esiste_gia`, `modificata_altrove`, `cancellata_altrove`, `non_trovata`) | — | il messaggio di quell'esito (§4.1); per `esiste_gia`, la visita si rilegge e si mostra come riga 2 o 3 |
+| 6 | un esito che non ha scritto (`esiste_gia`, `modificata_altrove`, `cancellata_altrove`, `non_trovata`, **`gia_cancellata`**) | — | il messaggio di quell'esito (§4.1); per `esiste_gia`, la visita si rilegge e si mostra come riga 2 o 3; per `gia_cancellata`, «Era già stata cancellata», **lo stesso messaggio** della risposta diretta |
+| 7 | **`cancellata`** | — | «✓ Risulta cancellata». È l'analogo della riga 2 per «Elimina visita»: l'invio **ha** scritto, e il risultato voluto c'è |
+
+⚠︎ **Le righe 6 e 7 sono state scritte il 27/09/2026 (revisione 18)**, dopo che l'esecuzione del **Task 6** del piano
+3a-1 ha creato i due esiti che le popolano. `cancella_visita` immette in `invio` **`cancellata`** e
+**`gia_cancellata`**, e prima di questa revisione la tabella non ne copriva nessuno: le righe 2-5 pretendono tutte
+`salvata`, e l'elenco della riga 6 non li nominava. Il contratto di «Controlla» passa quindi da `riga: 1..6` a
+**`riga: 1..7`**. Il contenuto non è nuovo — il capoverso «**«Elimina visita»** incerta» qui sotto lo dice da sempre —
+ma la **forma** sì, ed è la forma che il Task 7 codifica. ⚠︎ Il piano 3a-1 mappava tutti e due gli esiti sulla
+**riga 2**, cioè «✓ Risulta salvata» per una cancellazione riuscita: corretto in sede lo stesso giorno.
 
 **«Uguale alla scheda»**: stessa data, stessa cliente, stesso insieme di appuntamenti con, per ciascuno, stessa
 operatrice, servizio, inizio e durata.
@@ -480,9 +495,9 @@ operatrice, servizio, inizio e durata.
 **«Elimina visita»** incerta: codice annullato e visita presente → si mostra **la visita letta** e, se è uguale a
 quella di partenza, «Elimina» si riaccende con le versioni di partenza; se è diversa, vale la regola della scheda
 aggiornata qui sotto; codice annullato e visita assente → «È stata cancellata nel frattempo» (il risultato voluto c'è,
-ma non per mano propria); codice con esito `cancellata` → «✓ Risulta cancellata»; con esito `gia_cancellata` → «Era già
-stata cancellata», lo **stesso messaggio** della risposta diretta; con esito `modificata_altrove` o `non_trovata` → il
-messaggio di quell'esito.
+ma non per mano propria); codice con esito `cancellata` → «✓ Risulta cancellata» (**riga 7**); con esito
+`gia_cancellata` → «Era già stata cancellata», lo **stesso messaggio** della risposta diretta (**riga 6**); con esito
+`modificata_altrove` o `non_trovata` → il messaggio di quell'esito (**riga 6**).
 
 **«Togli»** su un servizio che non è l'ultimo passa da `save_visit` e segue **le sei righe della tabella principale**;
 dopo la riga 1 si riaccende **«Togli»**, non «Elimina». «Togli» sull'unico servizio è «Elimina visita».
