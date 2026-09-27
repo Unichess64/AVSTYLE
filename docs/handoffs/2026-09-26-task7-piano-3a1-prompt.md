@@ -7,9 +7,9 @@ Lavori in `/Users/nadiaottavi/Desktop/Git/salon-scheduler`, ramo `main`.
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
-git merge-base --is-ancestor 7b2f085bda068c30cc05dc5ca07f822097d08bf4 HEAD \
+git merge-base --is-ancestor 23adacaef8bc5e059199c042167d6123568b4a5c HEAD \
   && echo "storia lineare" || echo "STORIA RISCRITTA — questo prompt è invalido"
-git diff --stat 7b2f085..HEAD -- supabase tests src
+git diff --stat 23adaca..HEAD -- supabase tests src
 git status --short
 git branch --show-current
 git log --oneline -1 origin/main
@@ -17,17 +17,18 @@ git log --oneline -1 origin/main
 
 Atteso, una riga per comando:
 
-* il primo stampa `storia lineare`: il commit che chiude il reperto 2 del Task 6 è ancora nella storia di questo ramo.
-  È «fix(3a-1): il ramo dello stato vuoto, copiato da 0016 nelle due gemelle», e `git log --oneline -1 7b2f085` lo
-  conferma;
+* il primo stampa `storia lineare`: il commit che chiude la revisione mirata del ramo dello stato vuoto è ancora nella
+  storia di questo ramo. È «fix(3a): la revisione mirata del ramo dello stato vuoto, e una ragione falsa», e
+  `git log --oneline -1 23adaca` lo conferma;
 * il secondo **non stampa niente**: dopo la fine del Task 6 nessuno ha toccato `supabase/`, `tests/` o `src/`. Se
   stampa qualcosa, qualcuno ha lavorato sul codice dopo di me e questo prompt è vecchio;
 * il terzo non stampa niente tranne `?? .superpowers/` e i **due** file più vecchi sotto `docs/handoffs/` (datati
   2026-09-18 e 2026-09-22), che sono preesistenti e non si toccano;
 * il quarto stampa `main`;
-* il quinto: ⚠︎ **il ramo è avanti di sei commit sul remoto** (`3182cd6`, `d894f57`, `737d9bc`, `c8cba5c`, `7b2f085`, più
-  il commit che aggiorna questo file). `origin/main` dovrebbe essere a `1173eb3` o più avanti se nel frattempo l'utente
-  ha pushato. Se è **più avanti di HEAD**, qualcuno ha pushato o resettato: fermati.
+* il quinto: `origin/main` dovrebbe essere a `d3cff27` (pushato il 27/09/2026) o più avanti, se nel frattempo l'utente
+  ha pushato anche `7b2f085`, `23adaca` e il commit che aggiorna questo file. Se è **più avanti di HEAD**, qualcuno ha
+  pushato o resettato: fermati. ⚠︎ Le `git note` (su `79574fe` e su `7b2f085`) **non viaggiano** con un push normale:
+  si leggono con `git log --notes` solo in locale.
 
 Il controllo non nomina l'ultimo commit apposta: il commit che introduce questo file sposterebbe HEAD e renderebbe il
 controllo impossibile da superare. Il SHA è scritto per esteso perché nel prompt del Task 2 un segnaposto era costato
