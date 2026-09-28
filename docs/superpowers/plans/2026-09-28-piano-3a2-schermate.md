@@ -1,5 +1,48 @@
 # Piano 3a-2 — Le schermate
 
+**Revisione 4** — 28 settembre 2026, dopo il **secondo giro avversariale**, partizionato in modo diverso dal primo:
+un revisore sulle **sedici correzioni** della revisione 2, uno su **ciò che non era stato corretto**. Tutti e due in
+sola lettura, tutti e due leggendo da `git show 17ee3ec:…` invece che dal disco, perché altre quattro chat
+scrivevano nello stesso repo.
+
+**Sei bloccanti, tutti corretti.** Quattro verificati a lettura dall'orchestratrice prima di essere accolti.
+
+| # | Reperto | Chi l'ha trovato |
+|---|---|---|
+| 1 | **`EMAIL_DI` è indicizzato per uuid, non per nome**: `EMAIL_DI.vera` è `undefined`, e `Record<string,string>` senza `noUncheckedIndexedAccess` lo tipizza `string` — **`tsc` resta verde** e sette prove muoiono a runtime | correzioni |
+| 2 | Il blocco del **Task 3 riscriveva la CSP** con il jolly `*.supabase.co` che il Task 1 vieta, più una `CSP()` duplicata e un capoverso residuo che invitava a riaprire una decisione già presa | correzioni |
+| 3 | `new URL(process.env…!)` **a livello di modulo**: senza `.env.local` — che il Task 1 non crea — il middleware lancia a modulo e risponde **500 su ogni rotta**, e `npm run build` esce 0 perché compila senza eseguire | correzioni |
+| 4 | `statoDiProva({ versioneVisita: … })`: `StatoVisita` ha `visita`, non `versioneVisita`. **TS2353**, trenta righe sotto una riga sorella scritta giusta | correzioni |
+| 5 | **«Togli» su un'operatrice disattivata fallisce per sempre**: passa da `salva_visita` con l'elenco completo, e un `operatriceId: null` dà `23502`, fuori dai sei, cioè «riprova» su un'operazione impossibile | copertura |
+| 6 | **Il Task 10 non nominava `stato_visita`**: la decisione sulle versioni era stata presa nel Task 5 e non era arrivata dove si trascina | **tutti e due, da lati diversi** |
+
+⚠️ **Due correzioni della revisione 2 ricadevano nell'errore che stavano chiudendo.** La 4 (`accedi(EMAIL_DI.vera)`)
+aveva letto che il simbolo esiste senza leggerne le chiavi — che è **esattamente** il difetto che chiudeva. La 10
+(`clienteEsisteAncora`) aveva chiuso un `TS2353` e ne aveva aperto un altro trenta righe sotto. Due giri di
+revisione non bastano contro un **modo** di sbagliare.
+
+⚠️ **E il dato di metodo, più utile dei singoli reperti:** delle dodici correzioni della revisione 2, le **cinque
+che dovevano attraversare un confine di task** sono rimaste **tutte e cinque** nel task dove il reperto era stato
+trovato. Una correzione che cambia un contratto si cerca con `grep` su tutte le righe, non si scrive dove fa male.
+
+**Chiusa anche la famiglia dei tipi**: otto tipi usati nelle firme e mai definiti (`ServizioInScheda`,
+`ClienteScelta`, `ClienteNuova`, `SchedaSerializzata`, `MessaggioSpostamento`, `MessaggioAnnulla`,
+`OperatriceInColonna`, `Settimana`), più `StatoVisita` della revisione 2: **nove tipi, tre bloccanti**. La sezione
+«Coerenza dei tipi» elencava gli otto **definiti** e taceva sugli otto mancanti — un inventario che elenca ciò che
+c'è non trova mai ciò che manca.
+
+**Un mio sospetto SMENTITO dalla misura**: temevo che `chiIsiede` rispondesse 503 alla prima visita.
+`AuthSessionMissingError` porta `status: 400` (`@supabase/auth-js/dist/main/lib/errors.js:117`) e `_getUser` lo
+**restituisce** invece di lanciarlo: la prima visita va all'accesso. La correzione regge.
+
+**Restano aperti e dichiarati**, con la riga che li nomina nella tabella di copertura: il **segnale periodico di
+connessione** (§10.3), il **selettore dei servizi** di spec §8.1, l'**aggancio del tocco**, e una dozzina di minori
+dei due rapporti.
+
+**Revisione 3** — 28 settembre 2026, composizione con il piano 3b: la prova statica di §4.8 scritta per **permessi**
+e non per divieti, e il «+» flottante passato al 3b con D3b-13. ⚠︎ Quella prova **non esisteva**: era nominata una
+volta sola come «prova statica da scrivere» dentro una sonda. Trovata da una chat vicina, non da un revisore.
+
 **Revisione 2** — 28 settembre 2026, dopo **due revisioni avversariali indipendenti in parallelo**. Il database e
 Vitest erano della chat che eseguiva il Task 8 del piano 3a-1, quindi la partizione consueta «empirica + a secco» non
 era possibile: due revisioni **entrambe a lettura** concordano sullo stesso errore e sembrano una conferma. Sono
@@ -444,27 +487,75 @@ redirect). Così ogni task resta provabile da sé.
 La CSP prende l'origine del progetto dall'ambiente, mai un jolly:
 
 ```ts
-// L'origine del progetto, non `*.supabase.co`: §4.9 scrive
-// `https://<progetto>.supabase.co`, e un jolly renderebbe ogni progetto
-// Supabase del mondo una destinazione ammessa — cioè toglierebbe alla CSP la
-// metà che conta contro la XSS che §4.9 dichiara possibile.
-const SUPABASE = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin
+/**
+ * L'origine del progetto, non `*.supabase.co`: §4.9 scrive
+ * `https://<progetto>.supabase.co`, e un jolly renderebbe ogni progetto
+ * Supabase del mondo una destinazione ammessa — cioè toglierebbe alla CSP la
+ * metà che conta contro la XSS che §4.9 dichiara possibile.
+ *
+ * ⚠︎ PIGRA E DIFENSIVA, e non è pignoleria. Scritta come
+ * `const SUPABASE = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin` a
+ * livello di modulo — la forma della prima stesura — una variabile mancante
+ * fa lanciare `TypeError: Invalid URL` DURANTE LA VALUTAZIONE DEL MODULO, e un
+ * middleware che fallisce a modulo risponde 500 su OGNI rotta del matcher,
+ * `/accesso` compresa. ⚠︎ E `npm run build` COMPILA il middleware senza
+ * eseguirlo, quindi esce 0: il gate non lo vedrebbe. Reperto bloccante del
+ * secondo giro di revisione.
+ */
+function origineSupabase(): { https: string; wss: string } | null {
+  const grezza = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (grezza === undefined || grezza === '') return null
+  try {
+    const origine = new URL(grezza).origin
+    return { https: origine, wss: origine.replace(/^http/, 'ws') }
+  } catch {
+    return null
+  }
+}
 
 function CSP(nonce: string): string {
+  const s = origineSupabase()
+  if (s === null) {
+    // Degrada invece di spegnere l'applicazione, e lo dice a chi sviluppa.
+    console.warn('NEXT_PUBLIC_SUPABASE_URL assente o non valida: connect-src ristretto a self')
+  }
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self'",
     "img-src 'self' data:",
     "font-src 'self'",
-    `connect-src 'self' ${SUPABASE} ${SUPABASE.replace(/^http/, 'ws')}`,
+    s === null ? "connect-src 'self'" : `connect-src 'self' ${s.https} ${s.wss}`,
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "object-src 'none'",
     "form-action 'self'",
   ].join('; ')
 }
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|webp)$).*)'],
+}
 ```
+
+⚠︎ **`new URL('https://x.supabase.co').origin` dà `'https://x.supabase.co'`, e `.replace(/^http/, 'ws')` dà
+`'wss://x.supabase.co'`** — l'ancora `^` sostituisce solo `http` in testa, e la `s` di `https` resta. Verificato
+carattere per carattere dal secondo giro di revisione.
+
+- [ ] **Passo 4b: crea l'ambiente locale, che il middleware pretende**
+
+```bash
+cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
+cat > .env.local.esempio <<'FINE'
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+# La chiave anonima locale: `npx supabase status` la stampa come «anon key».
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<da `npx supabase status`>
+FINE
+cp .env.local.esempio .env.local   # poi si incolla la chiave vera
+```
+
+⚠︎ `.env.local` è in `.gitignore` (Passo 6); `.env.local.esempio` **si committa**. ⚠︎ E **nessun `SERVICE_ROLE`**:
+la prova del Passo 2 lo cerca.
 
 ⚠︎ **`style-src 'self'` senza nonce è da misurare al Passo 7**: `next/font/google` in App Router emette `<style>`
 in linea, e se il browser li blocca la pagina arriva senza caratteri. Se morde, **è un reperto del Task 1**, non una
@@ -551,6 +642,27 @@ npm run build
 ```
 Atteso: prove verdi; `npm run build` esce 0. ⚠︎ Il build fallisce se `src/app/pagina-di-prova/page.tsx` non esiste:
 Next vuole almeno una pagina. È provvisoria e la cancella il Task 3.
+
+⚠️⚠️ **E poi CHIEDI UNA PAGINA, che è la sola cosa che prova ciò che questo task dichiara di produrre.**
+
+```bash
+npm run dev &
+sleep 4
+curl -sS -i http://127.0.0.1:3000/pagina-di-prova | head -20
+kill %1
+```
+
+Atteso: **200**, e nell'intestazione un `Content-Security-Policy` che contiene `'nonce-` e **non** contiene
+`*.supabase.co`.
+
+**Perché non basta il build.** `npm run build` **compila** il middleware e non lo esegue: un errore a livello di
+modulo esce 0 al gate e 500 al primo visitatore. Le `Interfaces` di questo task promettono «un'applicazione che
+risponde su `http://127.0.0.1:3000`», e senza questa riga quella promessa resta **non verificata fino al Task 12**.
+Reperto bloccante del secondo giro di revisione.
+
+⚠︎ Questo `curl` è anche la **vittima della sonda 6 del Task 3** («`senzaCache` legge un'intestazione della
+richiesta»): quella sonda nominava «la prova del Task 1 che legge l'intestazione vera della risposta», e prima di
+questo passo **quella prova non esisteva in nessun task**.
 
 - [ ] **Passo 8: sonde di mutazione**
 
@@ -1289,7 +1401,7 @@ MESSAGGIO
   ```ts
   // src/server/supabase.ts
   export async function clientServer(): Promise<SupabaseClient>       // con i cookie della richiesta
-  export async function operatriceCorrente(): Promise<Operatrice>     // solleva se non è attiva
+  export async function operatriceCorrente(client: SupabaseClient): Promise<Operatrice>
   export interface Operatrice { readonly authUserId: string; readonly operatorId: string
                                 readonly nome: string; readonly colore: string }
   ```
@@ -1314,9 +1426,9 @@ che buttasse fuori il salone sarebbe peggio del disservizio.
 // tests/app/identita.test.ts
 import { createClient } from '@supabase/supabase-js'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { ALESSANDRA, VERA, asOwner, resetData } from '../helpers/db'
+import { ALESSANDRA, OUTSIDER_AUTH, VERA, VERA_AUTH, asOwner, resetData } from '../helpers/db'
 import { seedFixture } from '../helpers/fixtures'
-import { EMAIL_DI, accedi, preparaAccountLocali, rinnovoRiesce } from '../helpers/sessioni'
+import { preparaAccountLocali, rinnovoRiesce, sessioneDi } from '../helpers/sessioni'
 
 const URL = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const ANON = process.env.SUPABASE_ANON_KEY ?? '…' // la stessa costante di annunci.test.ts
@@ -1329,7 +1441,7 @@ beforeEach(async () => { await resetData(); await seedFixture() })
 
 describe('chi è chi, §4.2 e §4.4', () => {
   it('un operatrice attiva legge la propria riga e il proprio colore', async () => {
-    const sessione = await accedi(EMAIL_DI.vera)
+    const sessione = await sessioneDi(VERA_AUTH)
     const { data, error } = await conToken(sessione.accessToken)
       .from('operator').select('id, name, color').eq('id', VERA).single()
     expect(error).toBeNull()
@@ -1338,13 +1450,13 @@ describe('chi è chi, §4.2 e §4.4', () => {
   })
 
   it('un account autenticato che NON è operatrice non legge nessuna operatrice', async () => {
-    const sessione = await accedi(EMAIL_DI.outsider)
+    const sessione = await sessioneDi(OUTSIDER_AUTH)
     const { data } = await conToken(sessione.accessToken).from('operator').select('id')
     expect(data).toEqual([])
   })
 
   it('un operatrice disattivata mentre la sessione è viva non legge più niente, e il rinnovo fallisce', async () => {
-    const sessione = await accedi(EMAIL_DI.vera)
+    const sessione = await sessioneDi(VERA_AUTH)
     // La disattivazione da proprietario: è la forma di spec §13.4 e di §8.3.
     await asOwner(async (c) => {
       await c.query('update public.operator set is_active = false where id = $1', [VERA])
@@ -1355,7 +1467,7 @@ describe('chi è chi, §4.2 e §4.4', () => {
   })
 
   it('la gemella positiva: un operatrice che resta attiva legge le clienti e rinnova', async () => {
-    const sessione = await accedi(EMAIL_DI.vera)
+    const sessione = await sessioneDi(VERA_AUTH)
     await asOwner(async (c) => {
       // un cambio che NON deve chiudere niente (§4.7)
       await c.query('update public.operator set sort_order = 9 where id = $1', [ALESSANDRA])
@@ -1373,7 +1485,7 @@ sbagliata»: sarebbero emersi come «le prove non girano», che è il modo più 
 
 | Errore della prima stesura | La forma vera | Dove sta scritta |
 |---|---|---|
-| `accedi('vera')` | `accedi(EMAIL_DI.vera)` — vuole un'**email**, e `'vera'` fa rispondere 400 a GoTrue, che `accedi` trasforma in un `throw` | `tests/helpers/sessioni.ts`, `EMAIL_DI` e la firma `accedi(email, password?)` |
+| `accedi('vera')` | **`sessioneDi(VERA_AUTH)`** — vedi il riquadro qui sotto: la prima correzione era a sua volta sbagliata | `tests/helpers/sessioni.ts`, `tests/helpers/db.ts` |
 | `const { access_token, refresh_token } = …` | `Sessione` è **camelCase**: `{ accessToken, refreshToken, sessionId, userId }` | `tests/helpers/sessioni.ts:77` |
 | `rinnovoRiesce(refresh_token)` | vuole la **`Sessione` intera**, non la stringa | idem |
 | `.select('id, full_name, color')` | la colonna è **`name`**: `operator` non ha `full_name`, che è di `client` | `0001_access_control.sql:15`, `0003_client.sql:16` |
@@ -1382,6 +1494,32 @@ sbagliata»: sarebbero emersi come «le prove non girano», che è il modo più 
 `undefined`, GoTrue risponderebbe 400 e `rinnovoRiesce` darebbe **`false`** — cioè la prova **negativa** sarebbe
 rimasta **verde per la ragione sbagliata**, e solo la gemella positiva sarebbe stata rossa. È la forma esatta della
 «guardia muta» che questo progetto ha già pagato due volte.
+
+⚠︎⚠︎ **LA PRIMA CORREZIONE ERA A SUA VOLTA SBAGLIATA, ed è il reperto più istruttivo di tutto il piano.** La
+revisione 2 aveva sostituito `accedi('vera')` con **`accedi(EMAIL_DI.vera)`**. Il secondo giro di revisione l'ha
+misurato il 28/09/2026: **`EMAIL_DI` è indicizzato per uuid dell'account, non per nome**
+(`tests/helpers/sessioni.ts`):
+
+```ts
+export const EMAIL_DI: Record<string, string> = {
+  '00000000-0000-4000-8000-000000000001': 'vera@example.test',
+  …
+  '00000000-0000-4000-8000-000000000009': 'outsider@example.test',
+}
+```
+
+`EMAIL_DI.vera` è **`undefined`**. E `Record<string, string>` più l'assenza di `noUncheckedIndexedAccess` in
+`tsconfig.json` fanno sì che TypeScript lo tipizzi `string`: **`npx tsc --noEmit` resta verde**, e le sette prove
+muoiono a runtime con `accesso fallito per undefined: 400`, un messaggio che non nomina la causa.
+
+**È esattamente l'errore che quella correzione stava chiudendo**: aver letto che il simbolo esiste, senza leggerne
+le chiavi. La tabella qui sopra citava perfino `tests/helpers/sessioni.ts, EMAIL_DI` come fonte. Due giri di
+revisione avversariale non bastano contro un modo di sbagliare: bisogna cambiare il modo.
+
+**La forma definitiva usa `sessioneDi(<uuid>)`**, che è l'uso stabilito nel repo
+(`tests/schema/sessioni-imbracatura.test.ts` fa `EMAIL_DI[ANNALISA_AUTH]`), restituisce già una `Sessione` e
+**riusa la cache dei token** — che è anche ciò che il punto debole 7 di questo stesso piano prescriveva, e che la
+correzione sbagliata disattendeva.
 
 ⚠︎ Tolto anche `dimenticaSessioni()` dal `beforeEach`: `resetData()` la chiama già in coda (`tests/helpers/db.ts`),
 e non è `async`.
@@ -1449,8 +1587,7 @@ export interface Operatrice {
  * account è un'operatrice ATTIVA, e la sicurezza per riga la rende vuota per
  * chiunque non lo sia.
  */
-export async function operatriceCorrente(): Promise<Operatrice> {
-  const client = await clientServer()
+export async function operatriceCorrente(client: SupabaseClient): Promise<Operatrice> {
   const { data: utente, error } = await client.auth.getUser()
   if (error !== null || utente.user === null) throw new NonAutenticata()
 
@@ -1477,10 +1614,22 @@ ogni Server Action al passo 1 di §4.3 e la rotta di «Controlla». Un difetto q
 Ed è la ragione per cui il Passo 1 di questo task, che prova il database e non l'app, è insufficiente — vedi il
 Passo 8, sonda 4, che ora ha una prova sua.
 
-- [ ] **Passo 4: scrivi `src/middleware.ts`**
+- [ ] **Passo 4: AGGIUNGI l'identità a `src/middleware.ts`**
+
+⚠️⚠️ **Non si riscrive il file: lo si estende.** `src/middleware.ts` **esiste dal Task 1** e porta già `CSP()`,
+`senzaCache()`, la costante dell'origine di Supabase e il `matcher`. Questo passo aggiunge **soltanto**: i tre
+import, la creazione del client, il calcolo di `pubblica`, i tre rami su `chiIsiede`, e la funzione `chiIsiede`.
+
+⚠️ **NON si riscrive `CSP()` e NON si tocca `connect-src`.** Il blocco qui sotto mostra il file **risultante** per
+leggibilità, ma `CSP()` e `senzaCache()` sono **quelle del Task 1** e vanno lasciate dove sono. Una seconda copia
+di `CSP()` con `https://*.supabase.co` fa arrossire la prova del Task 1 «connect-src nomina il progetto», e la
+reazione sbagliata sotto pressione è allargare la prova invece di togliere la copia. Reperto bloccante del secondo
+giro di revisione: la prima stesura di questo passo mostrava un file intero e autosufficiente, etichettato
+«Modify», con il jolly dentro.
 
 ```ts
-// src/middleware.ts
+// src/middleware.ts — AGGIUNTE di questo task; CSP(), senzaCache() e il
+// matcher restano quelli del Task 1 e non si ripetono qui.
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -1586,31 +1735,14 @@ function senzaCache(r: NextResponse, nonce: string): NextResponse {
   return r
 }
 
-function CSP(nonce: string): string {
-  return [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self'",
-    "img-src 'self' data:",
-    "font-src 'self'",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-    "frame-ancestors 'none'",
-    "base-uri 'none'",
-    "object-src 'none'",
-    "form-action 'self'",
-  ].join('; ')
-}
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|webp)$).*)'],
-}
+// ⚠︎ `CSP()`, `senzaCache()`, la costante dell'origine di Supabase e
+// `export const config` STANNO GIÀ NEL FILE dal Task 1. Non si ricopiano, non
+// si riscrivono, e in particolare NON si tocca `connect-src`.
 ```
 
-⚠︎ **La riga `Content-Security-Policy` qui sopra è scritta male apposta?** No: è scritta **in modo da essere
-sostituita**. Chi esegue la semplifichi in `risposta.headers.set('Content-Security-Policy', CSP(nonce))` e **tolga**
-la riga corrispondente da `next.config.ts` solo se la prova del Task 1 «la CSP vieta unsafe-inline» resta verde
-leggendo il middleware invece del config. **Se la sposta, sposta anche la prova.** Una CSP che si scrive in due
-posti e vince l'ultima è il modo classico di perderla: si misura, chiedendo la pagina e leggendo l'intestazione vera.
+⚠︎ **Il ricontrollo dell'account prima di «Controlla»** (§8.1) lo fa la rotta del Task 9 chiamando
+`operatriceCorrente`, non questo middleware: le due cose si assomigliano e non sono la stessa. La prova che lo
+presidia è al Task 9.
 
 - [ ] **Passo 5: scrivi l'accesso (D2-3)**
 
@@ -1683,33 +1815,50 @@ sarebbe sopravvissuto nove task. Si aggiungono a `tests/app/identita.test.ts`:
 
 ```ts
 describe('l app legge il database nel modo giusto, non solo il database', () => {
+  let sessioneVera: Sessione
+  let sessioneOutsider: Sessione
+  beforeEach(async () => {
+    sessioneVera = await sessioneDi(VERA_AUTH)
+    sessioneOutsider = await sessioneDi(OUTSIDER_AUTH)
+  })
+
   it('operatriceCorrente restituisce nome e colore di chi ha la sessione', async () => {
     // ⚠︎ È la prova che il `full_name` della prima stesura avrebbe reso rossa.
     // Senza di lei, una colonna sbagliata in `operatriceCorrente()` non si vede
     // finché non parte Playwright, nove task più avanti.
-    const o = await conSessioneDi('vera', () => operatriceCorrente())
+    const o = await operatriceCorrente(conToken(sessioneVera.accessToken))
     expect(o.operatorId).toBe(VERA)
     expect(o.nome).toBe('Vera')
     expect(o.colore).toMatch(/^#[0-9A-Fa-f]{6}$/)
   })
 
   it('operatriceCorrente solleva NonOperatrice per un account che non è operatrice', async () => {
-    await expect(conSessioneDi('outsider', () => operatriceCorrente())).rejects.toThrow(NonOperatrice)
+    await expect(operatriceCorrente(conToken(sessioneOutsider.accessToken))).rejects.toThrow(NonOperatrice)
   })
 
   it('operatriceCorrente solleva NonOperatrice per un operatrice disattivata', async () => {
     await asOwner(async (c) => {
       await c.query('update public.operator set is_active = false where id = $1', [VERA])
     })
-    await expect(conSessioneDi('vera', () => operatriceCorrente())).rejects.toThrow(NonOperatrice)
+    await expect(operatriceCorrente(conToken(sessioneVera.accessToken))).rejects.toThrow(NonOperatrice)
   })
 })
 ```
 
-`conSessioneDi(chi, corpo)` è un aiuto locale di questo file che monta i cookie di `@supabase/ssr` attorno a una
-sessione vera presa da `accedi(EMAIL_DI[chi])` ed esegue `corpo` dentro quel contesto. ⚠︎ Se montarlo si rivela più
-costoso di quanto vale, **non si rinuncia alla prova**: si ferma il task e si riporta all'orchestratrice, perché
-senza queste tre righe il Task 3 resta scoperto fino al Task 12, ed è già costato un bloccante.
+⚠️⚠️ **Nessun montaggio di cookie, e per una ragione che la revisione 2 aveva sbagliato.** La prima stesura di
+queste prove passava da un aiuto `conSessioneDi(chi, corpo)` che avrebbe dovuto «montare i cookie di
+`@supabase/ssr` attorno a una sessione vera», e ammetteva che se montarlo fosse costato troppo «si ferma il task» —
+cioè si sarebbe fermata sul reperto appena pagato. **Non è montabile**: `clientServer()` chiama `cookies()` di
+`next/headers`, che fuori da una richiesta lancia.
+
+La soluzione è **cambiare la firma**, non l'imbracatura: `operatriceCorrente(client)` prende il client come
+argomento, e le prove gli passano `conToken(sessione.accessToken)` — lo stesso client che le altre quattro prove di
+questo file usano già. `clientServer()` la chiama chi ha una richiesta vera: il guscio, le Server Actions, la rotta.
+
+⚠︎ **E lo stesso cambio dimezza le andate e ritorni.** Il middleware ha già un client aperto: passandogli il proprio
+invece di farne aprire un secondo a `operatriceCorrente`, una pagina passa da **quattro** letture di identità a due.
+Il numero va comunque **misurato** al Passo 7 e scritto nel resoconto: `getUser()` è una richiesta vera a GoTrue,
+non una lettura di cookie, e D3-9 concede 10 s complessivi.
 
 | # | Mutazione | Prova che deve arrossire | Rosse attese |
 |---|---|---|---|
@@ -2624,6 +2773,16 @@ MESSAGGIO
 - Produce:
   ```ts
   // src/server/lettura-giorno.ts
+  // Una colonna dell'agenda: attiva, oppure disattivata ma con appuntamenti
+  // nel giorno mostrato (spec §9.1).
+  export interface OperatriceInColonna {
+    readonly id: string
+    readonly nome: string
+    readonly colore: string       // da `operator.color`, mai inchiodato
+    readonly attiva: boolean      // false = resta perché ha appuntamenti
+    readonly sonoIo: boolean      // l'etichetta «tu» di §5.1, non un colore
+  }
+
   export interface Giorno {
     readonly data: string
     readonly operatrici: readonly OperatriceInColonna[]   // già ordinate
@@ -2763,7 +2922,7 @@ La prova del Passo 4 **resta**, e cambia di segno: non misura più una speranza,
 ```ts
 // tests/app/lettura-giorno.test.ts
 it('la versione di PostgREST NON è quella di app.versione: le due strade non si mescolano', async () => {
-  const sessione = await accedi(EMAIL_DI.vera)
+  const sessione = await sessioneDi(VERA_AUTH)
   const daRest = (await conToken(sessione.accessToken)
     .from('appointment').select('updated_at').eq('id', A1).single()).data!.updated_at
   const daFunzione = (await conToken(sessione.accessToken)
@@ -2993,7 +3152,19 @@ della prova del Passo 4** sull'uguaglianza delle due versioni, che è un reperto
 **Interfaces:**
 - Consuma: `leggiGiorno` e `componiBlocchi` (Task 5), `sommaGiorni` e `giornoSettimana` (piano 2), `dataReale`
   (Task 2).
-- Produce: `leggiSettimana(operatriceId, lunedi): Promise<Settimana>`, con sette giorni e le sole ore d'inizio.
+- Produce:
+  ```ts
+  export interface GiornoDiSettimana {
+    readonly data: string                      // 'YYYY-MM-DD'
+    readonly inizi: readonly number[]          // le sole ore d'inizio, in celle, crescenti
+  }
+  export interface Settimana {
+    readonly operatriceId: string
+    readonly lunedi: string
+    readonly giorni: readonly GiornoDiSettimana[]   // sempre SETTE, anche i vuoti
+  }
+  export async function leggiSettimana(operatriceId: string, lunedi: string): Promise<Settimana>
+  ```
 
 **Lista (spec §9.2, §5.2).** Tutti gli appuntamenti del giorno in ordine d'ora: pallino dell'operatrice **con bordo
 in inchiostro**, ora, nome, servizio. L'interruttore sta nell'intestazione dell'agenda, ed è ricordato per
@@ -3074,6 +3245,39 @@ mescolarle al percorso di scrittura renderebbe impossibile capire quale delle du
   }
 
   // src/dominio/scheda.ts
+  //
+  // ⚠︎⚠︎ I TIPI CHE LA PRIMA E LA SECONDA STESURA USAVANO SENZA DEFINIRLI.
+  // Il secondo giro di revisione ne ha contati OTTO in tutto il piano, tutti
+  // con zero definizioni: `ServizioInScheda`, `ClienteScelta`, `ClienteNuova`,
+  // `SchedaSerializzata`, `MessaggioSpostamento`, `MessaggioAnnulla`,
+  // `OperatriceInColonna`, `Settimana`. `StatoVisita` era il nono, e la
+  // revisione 2 lo aveva chiuso da solo — uno per uno è il modo in cui ci si
+  // arriva la seconda volta. Qui si chiude la famiglia.
+  export interface ClienteScelta {
+    readonly tipo: 'esistente'
+    readonly id: string            // uuid, l'unica cosa che viaggia
+  }
+  export interface ClienteNuova {
+    readonly tipo: 'nuova'
+    readonly id: string            // crypto.randomUUID() all'apertura (§4.4)
+    readonly nome: string
+    readonly telefono: string | null   // già normalizzato in E.164
+    readonly meseDiNascita: number | null
+    readonly giornoDiNascita: number | null
+  }
+  export interface ServizioInScheda {
+    readonly id: string            // uuid dell'appuntamento
+    readonly nuovo: boolean        // true se l'id non esiste ancora nel database
+    // ⚠︎ Mai `null`. Su un appuntamento di un'operatrice disattivata questo
+    // campo CONSERVA il suo id anche se l'elenco non la mostra (D2-2): un
+    // `null` qui diventa un `23502` che nessuna riprova può risolvere.
+    readonly operatriceId: string
+    readonly servizioId: string
+    readonly inizio: number        // start_cell, 0..287
+    readonly durata: number        // cell_count, ≥ 1
+    readonly durataAMano: boolean  // true = non si ricalcola più (§5.4 punto 3)
+  }
+
   export interface Scheda {
     readonly visitaId: string                  // crypto.randomUUID() all'apertura
     readonly modo: 'creazione' | 'modifica'
@@ -3089,6 +3293,12 @@ mescolarle al percorso di scrittura renderebbe impossibile capire quale delle du
   export function apriSchedaSuVisita(stato: StatoVisita, visitaId: string): Scheda
   export function adottaStato(scheda: Scheda, stato: StatoVisita): Scheda
   export function ugualeAllaScheda(scheda: Scheda, stato: StatoVisita | null): boolean
+
+  // La forma che attraversa il confine client → Server Action. È `Scheda` senza
+  // ciò che non si serializza: `avvisiConfermati` diventa un array.
+  export interface SchedaSerializzata extends Omit<Scheda, 'avvisiConfermati'> {
+    readonly avvisiConfermati: readonly string[]
+  }
   ```
 
 ⚠︎⚠︎ **`StatoVisita` era il buco più grosso della prima stesura.** Compariva nelle firme dei Task 7, 8, 9 e 10 e
@@ -3116,14 +3326,43 @@ offrire «Crea di nuovo», e l'uguaglianza fra scheda e stato non c'entra.
 **D2-2, con la conseguenza scritta.** L'elenco delle operatrici della scheda contiene **solo le attive**. Se
 l'appuntamento aperto appartiene a un'operatrice disattivata, la scheda:
 
-- mostra la riga del servizio con il nome dell'operatrice e la dicitura **«non più attiva»**, e **nessuna**
-  selezione nell'elenco;
+- **conserva l'`operatriceId` originale nel modello** — vedi il riquadro qui sotto, è la parte che conta — e mostra
+  la riga del servizio con il nome dell'operatrice e la dicitura **«non più attiva»**, senza **nessuna** selezione
+  nell'elenco;
 - tiene **«Salva» spento** con una riga ambra: *«Scegli un'operatrice attiva per questo servizio.»* [proposta];
-- lascia **«Elimina visita»** e **«Togli»** accesi, perché non toccano l'operatrice;
+- lascia **«Elimina visita»** e **«Togli»** accesi;
 - non impedisce il **trascinamento** dall'agenda, che passa da `sposta_visita_a` e non cambia l'operatrice.
 
 Questa è la conseguenza che l'utente ha accettato il 28/09/2026 scegliendo «non compare mai»: per cambiare
 l'**orario** dalla scheda bisogna prima riassegnare.
+
+⚠️⚠️ **«Togli» NON è come «Elimina visita», e la prima stesura di questo riquadro diceva il contrario.** Scriveva
+che «Togli» resta acceso «perché non tocca l'operatrice». **È falso**, e §4.4 lo dice testualmente: *«"Togli" su un
+servizio che non è l'ultimo passa da `save_visit`»* — con l'elenco **completo** degli appuntamenti voluti (§4.1
+regola 7), `operatrice` compresa, **anche per gli appuntamenti che non si stanno togliendo**. Quindi:
+
+- se il modello della scheda rappresentasse «nessuna selezione» come `operatriceId: null`, la chiamata partirebbe
+  con `operatrice` assente dall'oggetto JSON;
+- §4.1, censimento **misurato**: quella forma solleva **`23502`**;
+- `23502` è **fuori dai sei**, quindi §4.3 passo 8 dà la frase generica *«Non sono riuscita a salvare, riprova»* —
+  un invito a riprovare su un'operazione che **non riuscirà mai**.
+
+**Raggiungibile** appena una collega lascia il salone con appuntamenti futuri in agenda, cioè esattamente lo
+scenario per cui spec §9.1 fa sopravvivere la sua colonna. Reperto bloccante del secondo giro di revisione.
+
+**La regola, in una riga:** *la selezione nell'interfaccia e il valore nel modello sono due cose diverse.* L'elenco
+non mostra le disattivate; il modello conserva l'`operatriceId` che ha letto, e lo rimanda indietro tale e quale.
+
+Due prove e una sonda, in `tests/dominio/scheda.test.ts`:
+
+| Prova | Che cosa afferma |
+|---|---|
+| «una scheda aperta su un appuntamento di un'operatrice disattivata conserva il suo `operatriceId`» | il modello, non l'elenco |
+| «`togli` su una visita con un servizio di un'operatrice disattivata produce un elenco completo con tutte le operatrici valorizzate» | nessun `null` nell'oggetto che parte |
+
+| Sonda | Prova che deve arrossire | Rosse attese |
+|---|---|---|
+| la scheda azzera l'`operatriceId` quando l'operatrice non è nell'elenco | tutte e due | 2 [da misurare] |
 
 - [ ] **Passo 1: scrivi le prove di `durate.ts`**
 
@@ -3489,7 +3728,7 @@ describe('C1: la riga 1 è sovraccarica, e il contratto è la coppia', () => {
 
 describe('le altre righe di §4.4', () => {
   it('riga 2 con lo stato UGUALE alla scheda: «✓ Risulta salvata»', () => {
-    const uguale = statoDiProva({ inizio: 120, versioneVisita: 'V-NUOVA' })
+    const uguale = statoDiProva({ inizio: 120, visita: 'V-NUOVA' })
     const d = decidiControlla({ riga: 2, esito_invio: 'salvata', stato: uguale }, SCHEDA, 'salva')
     expect(d.testo).toBe('✓ Risulta salvata')
     expect(d.spunta).toBe(true)
@@ -3680,9 +3919,59 @@ describe('un «Controlla» che fallisce dà di nuovo «Non so» (§4.4)', () => 
 })
 ```
 
-⚠︎ `nuovoStatoScheda` è la macchina a stati della scheda, in `src/dominio/scheda-viva.ts`: tiene `generazione`,
-`messaggio`, `versioni` e i pulsanti, e **`applica(generazione, risposta)` scarta ogni risposta la cui generazione
-non è la corrente**. È logica pura, quindi sta in `tests/dominio/` e gira anche sotto `npm run test:fuso`.
+⚠️ **`scheda-viva.ts`, dichiarata per intero** — la revisione 2 l'aveva inventata in dodici righe di prova, con otto
+membri mai tipizzati e due forme di `risposta` di cui non dava l'unione. È la macchina a stati che regge §4.4: se
+chi esegue ne inventa il contratto, è lo stesso errore che `StatoVisita` è già costato.
+
+```ts
+// src/dominio/scheda-viva.ts
+export type RispostaAllaScheda =
+  | { readonly tipo: 'esito'; readonly esito: Esito
+      readonly visita?: string; readonly appuntamenti?: readonly Atteso[]
+      readonly stato?: StatoVisita | null }
+  | { readonly tipo: 'riga'; readonly riga: RispostaControlla['riga']
+      readonly esito_invio: EsitoInvio; readonly stato: StatoVisita | null }
+  | { readonly tipo: 'guasto'; readonly classe: Classe }
+
+export interface SchedaViva {
+  readonly generazione: number
+  readonly messaggio: string
+  readonly versioni: 'partenza' | 'lette'
+  readonly pulsanti: { readonly salva: boolean; readonly controlla: boolean }
+  /** Incrementa la generazione e restituisce quella con cui l'invio parte. */
+  salva(): number
+  /** I 10 s di D3-9 sono scaduti. ⚠︎ NON incrementa: l'invio può ancora arrivare. */
+  scaduto(): void
+  /** Incrementa: da qui in poi le risposte dell'invio precedente si scartano. */
+  controlla(): number
+  /** Scarta se `generazione` non è quella corrente. */
+  applica(generazione: number, risposta: RispostaAllaScheda): void
+}
+export function nuovoStatoScheda(scheda: Scheda): SchedaViva
+```
+
+⚠️ **`scaduto()` non incrementa, e `controlla()` sì.** È la distinzione che decide il caso vero: se a incrementare
+fosse lo scadere dei 10 s, la risposta di un invio **ancora in volo** verrebbe scartata **prima** che «Controlla»
+ne abbia bruciato il codice — e l'operatrice vedrebbe «Non so» su un salvataggio che sta per riuscire. La prova che
+lo pianta:
+
+```ts
+it('lo scadere dei 10 s NON incrementa la generazione: l invio può ancora arrivare', () => {
+  const s = nuovoStatoScheda(SCHEDA)
+  const gen = s.salva()
+  s.scaduto()
+  expect(s.generazione).toBe(gen)
+  // e la risposta tardiva dell'invio, che è ancora la corrente, si applica
+  s.applica(gen, { tipo: 'esito', esito: 'salvata' })
+  expect(s.messaggio).toBe('✓ Salvata')
+})
+```
+
+⚠️ E nella prima prova del blocco qui sopra si aggiunge `expect(s.generazione).toBe(gen)`: così com'era asseriva
+solo `s.messaggio === '✓ Salvata'`, che viene da `messaggioPerEsito` del **Task 4** — cioè provava la traduzione
+almeno quanto la generazione, e si sarebbe rotta ritoccando quella stringa.
+
+È logica pura, quindi sta in `tests/dominio/` e gira anche sotto `npm run test:fuso`.
 
 ⚠︎ **`SCHEDA` e `LETTO` sono costruiti diversi apposta.** È la trappola che questo task può nascondere meglio: con
 una scheda e uno stato identici, «adotta lo stato letto» e «tieni le versioni di partenza» producono lo stesso
@@ -3851,6 +4140,7 @@ asserzioni è **verde**: era un presidio che non poteva mordere, dichiarato «pa
 | 11e | riga 5 è sempre `errore: true` | «riga 5 con `non_trovata` è il caso ordinario» | 1 [da misurare] |
 | 11f | `applica` ignora la generazione e applica sempre | «l invio abbandonato che arriva dopo si scarta» | 1 [da misurare] |
 | 11g | solo «Controlla» incrementa la generazione, non «Salva» | «anche un nuovo «Salva» incrementa la generazione» | 1 [da misurare] |
+| 11h | **`scaduto()` incrementa la generazione** | «lo scadere dei 10 s NON incrementa» — ⚠︎ la sonda che la revisione 2 non aveva: senza di lei le tre prove restavano verdi qualunque cosa incrementasse | 1 [da misurare] |
 | 12 | la scadenza dei codici passa da 24 ore a 30 giorni | «un codice più vecchio di 24 ore si butta SENZA controllarlo» | 1 [da misurare] |
 | 13 | `pagehide` manda «Controlla» anche con `persisted === true` | «`pagehide` con `persisted === true` non manda niente» | 1 [da misurare] |
 | 14 | alla riapertura si controllano i codici di **tutte** le operatrici | «si controllano solo i codici DELLA STESSA operatrice» | 1 [da misurare] |
@@ -3877,17 +4167,76 @@ chiude**: vuol dire che `SCHEDA` e `LETTO` sono troppo simili e le prove non dis
 
 **Interfaces:**
 - Consuma: `public.sposta_visita_a(uuid,uuid,date,jsonb,text,jsonb)` (0017); `public.salva_visita` (0016);
-  `decidiControlla` (Task 9); `proiettaAttesi` (Task 4); `componiBlocchi` (Task 5).
+  **`public.stato_visita(uuid)` (0016)**; `decidiControlla` (Task 9); `proiettaAttesi` (Task 4);
+  `componiBlocchi` (Task 5).
+
+⚠️⚠️ **DA DOVE VENGONO LE VERSIONI, e perché è la prima cosa che questo task deve sapere.** `BloccoAgenda` porta
+`AppuntamentoLetto`, e `AppuntamentoLetto` **non ha versioni**: è una decisione esplicita del Task 5, presa perché
+`appointment.updated_at` di PostgREST e `app.versione()` rendono forme diverse e mescolarle farebbe rimbalzare ogni
+spostamento **per sempre**.
+
+Quindi, **al rilascio di ogni gesto**, prima di chiamare `sposta_visita_a` o `salva_visita`:
+
+```ts
+// 1. leggi lo stato corrente della visita: è l'unica fonte valida di versioni
+const stato = await client.rpc('stato_visita', { p_visita: visitaId })
+// 2. proietta e ordina (C3), altrimenti il confronto posizionale rimbalza
+const attesi = proiettaAttesi(stato.appuntamenti)
+// 3. `stato.visita` è la VERSIONE della visita, non il suo id
+await client.rpc('sposta_visita_a', {
+  p_codice: codice, p_visita: visitaId, p_data: data,
+  p_destinazioni: destinazioni(blocco, scarto),
+  p_visita_attesa: stato.visita, p_attesi: attesi,
+})
+```
+
+**Dal secondo gesto in poi** si possono usare le versioni **restituite** dalla scrittura precedente, che sono già
+nella forma giusta — ed è la regola «dopo ogni ✓ l'agenda adotta le versioni restituite» qui sotto. `stato_visita`
+serve al **primo** gesto di ogni visita, e dopo ogni ricarica del giorno.
+
+⚠︎ La revisione 2 aveva preso questa decisione **nel Task 5** e non l'aveva portata qui: tutti e due i revisori del
+secondo giro l'hanno trovata, da lati diversi. Il danno dichiarato era «l'operatrice non riuscirebbe a spostare
+niente, **mai**».
 - Produce:
   ```ts
   export function destinazioni(blocco: BloccoAgenda, scartoCelle: number):
     readonly { readonly id: string; readonly inizio: number }[]
-  export function messaggioDiSpostamento(esito: Esito | 'errore', letto: StatoVisita | null,
-                                         codice: string | null): MessaggioSpostamento
-  export function messaggioDiAnnulla(esito: Esito | 'errore' | 'riga',
-                                     riga: 1|2|3|4|5|6|7, letto: StatoVisita | null,
+
+  // ⚠︎ L'ingresso è la `Risposta` del Task 8, NON `Esito | 'errore'`. La prima
+  // stesura usava quest'ultima, e `Risposta` ha due varianti che `Esito` non
+  // contiene: `uscita_forzata` e `app_aggiornata`. Cioè il trascinamento non
+  // aveva NESSUN MODO DI TIPO per dire «sei stata disattivata, esci» né «l'app
+  // è stata aggiornata, ricarica» — e `42501` è raggiungibile sul percorso del
+  // gesto (regola 11: visibilità persa durante la scrittura, §4.1), dove §4.3
+  // passo 7 impone il ricontrollo dell'account. Reperto del secondo giro.
+  export interface MessaggioSpostamento {
+    readonly testo: string
+    readonly spunta: boolean
+    readonly posizione: 'nuova' | 'letta' | 'sparisce'   // mai «ricordata»
+    readonly offreAnnulla: boolean
+    readonly apreLaScheda: boolean
+    readonly ricaricaIlGiorno: boolean
+    readonly esciDallApp: boolean          // uscita_forzata
+    readonly ricaricaLaPagina: boolean     // app_aggiornata
+  }
+  export interface MessaggioAnnulla extends Omit<MessaggioSpostamento, 'offreAnnulla'> {}
+
+  export function messaggioDiSpostamento(r: Risposta, letto: StatoVisita | null): MessaggioSpostamento
+  export function messaggioDiAnnulla(r: Risposta, letto: StatoVisita | null,
                                      oraDiPrima: number): MessaggioAnnulla
   ```
+
+⚠️ **La riga che mancava alle due tabelle, e che vale per tutte e due:**
+
+| Caso | Che cosa mostra |
+|---|---|
+| **`42501`**, oppure `uscita_forzata` | **uscita forzata**, senza affermazioni sulla visita (§4.4). Il blocco non si muove e non si commenta: si esce |
+| `app_aggiornata` | «L'app è stata aggiornata, ricarica» (§4.3 passo 8) |
+| **ogni altro SQLSTATE** (`23514`, `23502`, `22023`, `22P02`, `22003`…) | «Non sono riuscita a spostarla»; il blocco va alla posizione **letta**, il giorno si ricarica. È la stessa frase di `57014`/`40P01` esauriti, perché per l'operatrice il fatto è lo stesso: non è stata spostata, ed è certo |
+
+⚠︎ Tre prove in più, una per riga. Senza di loro un `23514` lascia il blocco con «Salvo…» acceso e nessun messaggio
+definitivo — e un'operatrice disattivata a metà gesto **resta dentro l'app**, che è lo stesso danno del bloccante
+sul ricontrollo dell'account, riaperto su un'altra superficie.
 
 **Le regole del gesto (D3-15, §5.1), che non si ridecidono:**
 
@@ -4335,8 +4684,11 @@ tempo vero: se il caso tipico sta nei 10 s, la domanda si chiude da sé.
 | Agenda a colonne, a lista, settimana per operatrice | 5, 6 |
 | Scheda visita: creare, modificare, aggiungere e togliere servizi, cancellare con una conferma | 7, 8 |
 | Trascinamento secondo D3-15 | 10 |
-| Cercare la cliente o crearla, E.164, doppioni per nome simile | 7 (assunzione: Task 10 del 3a-1) |
-| Tutta la spec §10, con il segnale periodico di connessione | 4 (§10.2 versioni, §10.5 ritentativi), 7 (§10.1 conflitti), 8 (§10.4), 9 (§10.3 segnale) |
+| Cercare la cliente o crearla, E.164, doppioni per nome simile | 7 — ⚠︎ **solo prosa**: una riga al Passo 5 e una dipendenza dichiarata, **nessuna prova**. La prima stesura la segnava coperta |
+| ⚠︎ **Il selettore dei servizi di spec §8.1** (per categoria, ciò che l'operatrice fa, «mostra tutti i servizi») | ❌ **NON COPERTO**, e nessuna riga del piano lo nomina. Il database c'è (`service_category`, `operator_service`, `service.is_active`): manca il piano. Resta **aperto e dichiarato** |
+| ⚠︎ **L'aggancio del tocco** (§5.1, e §8.1 lo elenca fra le prove pure) | ❌ **solo prosa** al Task 5. Le altre due voci della stessa riga di §8.1 sono coperte; questa no |
+| Tutta la spec §10 — §10.1 conflitti, §10.2 versioni, §10.4 cancellazione, §10.5 ritentativi | 7, 4, 8, 4+8 |
+| ⚠︎ **§10.3, il segnale periodico di connessione** | ❌ **NON COPERTO.** `src/app/api/battito/route.ts` compare solo nella tabella dei file e nell'elenco `Create` del Task 9: **zero passi, zero periodo, zero tempo limite, zero prove**. La prima stesura di questa tabella lo dichiarava coperto dal Task 9 — **falso**, e il Task 12 gli scrive perfino una prova Playwright («rete assente → striscione») contro una funzione che nessun task costruisce. Resta **aperto e dichiarato** |
 | Aggiornamento in diretta | 11 |
 | Dati di prova (§8.5) | le fixture esistenti, riusate; nessuna modifica |
 
@@ -4378,8 +4730,22 @@ pura. Serve `messaggioPerSqlstate(sqlstate, nomeVincolo)` in `src/dominio/errori
 rami di `23503` si fondono» — le due frasi di `23503` («La cliente è stata cancellata» contro «Il servizio o
 l'operatrice non esiste più») si distinguono **solo** dal nome del vincolo. Assegnato al **Task 4**.
 
-**Coerenza dei tipi.** `Atteso`, `Esito`, `EsitoInvio`, `RispostaControlla`, `Scheda`, `StatoVisita`,
-`AppuntamentoLetto`, `BloccoAgenda` compaiono con lo stesso nome e la stessa forma in ogni task che li nomina.
+**Coerenza dei tipi.** ⚠︎⚠︎ **La prima stesura di questa sezione era un presidio finto, e il secondo giro di
+revisione l'ha smontata.** Elencava otto tipi e ne affermava la coerenza: erano gli otto **definiti**. Taceva su
+**otto tipi usati nelle firme e mai definiti da nessuna riga** — `ServizioInScheda`, `ClienteScelta`,
+`ClienteNuova`, `SchedaSerializzata`, `MessaggioSpostamento`, `MessaggioAnnulla`, `OperatriceInColonna`,
+`Settimana`. È la tecnica per cui `StatoVisita` era sopravvissuto al primo giro: **un inventario che elenca ciò che
+c'è non trova mai ciò che manca**.
+
+**La regola, per chi rivede questa sezione in futuro:** si parte dai tipi **usati** — `grep` sulle `Interfaces` di
+tutti i task — e per ciascuno si cerca la definizione. Mai il contrario.
+
+Tutti e otto sono ora definiti (Task 3, 5, 6, 7, 10), e `ServizioInScheda` in particolare porta il campo
+`operatriceId` non nullabile da cui dipende D2-2. Con `StatoVisita` della revisione 2, la famiglia è chiusa:
+**nove tipi, tre bloccanti**.
+
+`Atteso`, `Esito`, `EsitoInvio`, `RispostaControlla`, `Scheda`, `StatoVisita`, `AppuntamentoLetto`, `BloccoAgenda`
+compaiono con lo stesso nome e la stessa forma in ogni task che li nomina.
 ⚠︎ **`StatoVisita` è ora definito per davvero**, in `src/dominio/stato-visita.ts` (Task 7), trascritto da
 `0016_salva_visita.sql:46-58`. La prima stesura affermava qui che «è definita al Task 7» e il Task 7 la **usava**
 soltanto: non esisteva in nessuna delle 3377 righe. Era il tipo che regge la distinzione riga 2 / riga 3, cioè **C1**.
