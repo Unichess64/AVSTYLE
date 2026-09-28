@@ -3,7 +3,7 @@ import { REALTIME_SUBSCRIBE_STATES, createClient } from '@supabase/supabase-js'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { ANNALISA, OUTSIDER_AUTH, VERA, VERA_AUTH, asOperatorCommit, asOwner, resetData } from '../helpers/db'
 import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, DAY_TWO, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
-import { accedi, dimenticaSessioni } from '../helpers/sessioni'
+import { accedi, dimenticaSessioni, sessioneDi } from '../helpers/sessioni'
 
 const URL = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const ANON =
@@ -91,21 +91,42 @@ const annunci = () =>
  * prova bersaglio resta ROSSA invece di diventare SALTATA (trappola 4).
  */
 beforeAll(async () => {
-  const sessione = await accedi('vera@example.test')
-  const client = createClient(URL, ANON, {
-    global: { headers: { Authorization: `Bearer ${sessione.accessToken}` } },
-  })
-  await client.realtime.setAuth(sessione.accessToken)
-  const canale = client
-    .channel('riscaldamento')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'annuncio' }, () => {})
-  await new Promise<void>((risolvi) => {
-    canale.subscribe((s) => {
-      if (s === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED || s === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) risolvi()
+  // ⚠︎ Tutto dentro un try: un riscaldamento è un TENTATIVO, non una
+  // precondizione. Misurato il 28/09/2026 facendolo lanciare (email
+  // inesistente): senza il try la passata dà `Tests 10 skipped (10)`, cioè
+  // dieci prove SALTATE e non dieci rosse — e una sonda di mutazione che
+  // contasse le rosse leggerebbe zero vittime dove invece la copertura è
+  // sparita del tutto. È la trappola «una mutazione che rompe la fixture dà
+  // prove SALTATE, non rosse», qui nella forma in cui a rompersi è l'accesso.
+  // Raggiungibile davvero: `accedi` lancia su un 429 del GoTrue locale e su un
+  // hash riscritto da una prova precedente.
+  //
+  // E `sessioneDi(VERA_AUTH)` invece di `accedi('vera@example.test')`: passa
+  // dal controllo che la sessione sia DI quell'account (`EMAIL_DI`, Task 2) e
+  // non ripete la costante. ⚠︎ NON risparmia un accesso — il `beforeEach`
+  // chiama `resetData()`, che svuota la cache subito dopo: misurato, questo
+  // file lascia 19 sessioni di Vera per passata, e il riscaldamento ne mette
+  // UNA. Chi cerca il risparmio guardi lì, non qui.
+  try {
+    const sessione = await sessioneDi(VERA_AUTH)
+    const client = createClient(URL, ANON, {
+      global: { headers: { Authorization: `Bearer ${sessione.accessToken}` } },
     })
-    setTimeout(risolvi, 4000)
-  })
-  await client.removeAllChannels()
+    await client.realtime.setAuth(sessione.accessToken)
+    const canale = client
+      .channel('riscaldamento')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'annuncio' }, () => {})
+    await new Promise<void>((risolvi) => {
+      canale.subscribe((s) => {
+        if (s === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED || s === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) risolvi()
+      })
+      setTimeout(risolvi, 4000)
+    })
+    await client.removeAllChannels()
+  } catch {
+    // Il canale resta freddo e la prima prova del telefono sarà rossa: è il
+    // guasto RUMOROSO che si vuole, al posto di dieci saltate silenziose.
+  }
 }, 20000)
 
 beforeEach(async () => {
