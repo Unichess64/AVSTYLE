@@ -2,7 +2,7 @@
 import { REALTIME_SUBSCRIBE_STATES, createClient } from '@supabase/supabase-js'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { ANNALISA, OUTSIDER_AUTH, VERA, VERA_AUTH, asOperatorCommit, asOwner, resetData } from '../helpers/db'
-import { CLIENT_MARIA, DAY_ONE, DAY_TWO, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
+import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, DAY_TWO, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
 import { accedi, dimenticaSessioni } from '../helpers/sessioni'
 
 const URL = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321'
@@ -173,6 +173,109 @@ describe('annunci, dal lato del database', () => {
     expect(giorni).toContain(DAY_TWO)
   })
 
+  // ⚠︎ Le tre prove che seguono nascono dalla revisione empirica del 28/09/2026,
+  // che ha misurato un buco che nessuna delle due revisioni aveva previsto:
+  // QUATTRO trigger su sei si potevano cancellare con ZERO rosse su 408. I due
+  // `_del` erano gli unici con una vittima, e la prendevano per CONTEGGIO (3
+  // invece di 2), non per contenuto. Qui si presidiano i percorsi veri.
+
+  it('annuncia uno spostamento nello STESSO giorno, che è il gesto centrale dell agenda', async () => {
+    // D3-15: il trascinamento è solo VERTICALE, quindi il gesto più comune non
+    // cambia data. Questa prova presidia il PERCORSO — «un'ora diversa deve
+    // annunciare» —, non un trigger: `sposta_visita_a` tocca anche `visit`
+    // (`visit_touch` è incondizionato, 0004:52-53), quindi due rami annunciano
+    // lo stesso giorno e si coprono a vicenda. Misurato il 28/09/2026: togliere
+    // il solo `zz_annuncia_appuntamenti_upd` la lascia VERDE; servono via tutti
+    // e due gli `_upd` perché cada (3 rosse). È lo stesso gemello speculare per
+    // cui la sonda 2 del piano non ha vittime su un ramo solo.
+    // A isolare il trigger degli appuntamenti è la prova dello SCAMBIO, qui
+    // sotto: è l'unico percorso che scrive su `appointment` senza toccare
+    // `visit`.
+    const creata = await asOperatorCommit(VERA_AUTH, async (c) => {
+      const r = await c.query<{ r: { visita: string; appuntamenti: unknown[] } }>(
+        'select salva_visita($1,$2,$3,null,$4::date,$5,null,null) as r',
+        [cod(), V1, CLIENT_MARIA, DAY_ONE, JSON.stringify([{ id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 }])],
+      )
+      return r.rows[0].r
+    })
+    await asOwner((c) => c.query('delete from annuncio'))
+    await asOperatorCommit(VERA_AUTH, (c) =>
+      c.query('select sposta_visita_a($1,$2,$3::date,$4,$5,$6)', [
+        cod(),
+        V1,
+        DAY_ONE, // la STESSA data: cambia solo l'ora
+        JSON.stringify([{ id: A1, inizio: 160 }]),
+        creata.visita,
+        JSON.stringify(creata.appuntamenti),
+      ]),
+    )
+    // Compagna positiva dentro la prova: che sia partito QUALCOSA e che sia il
+    // giorno giusto. Un `length > 0` da solo resterebbe verde con un annuncio
+    // vuoto o con il giorno sbagliato.
+    const righe = await annunci()
+    expect(righe.length).toBeGreaterThan(0)
+    expect([...new Set(righe.flat())]).toEqual([DAY_ONE])
+  })
+
+  it('annuncia uno scambio di operatrici, che non tocca né la data né l orario', async () => {
+    // `swap_appointment_operators` è eseguibile da `authenticated` e scrive solo
+    // `operator_id`: nessuna data cambia e `visit` non viene toccata, quindi
+    // questo è l'UNICO percorso che isola `zz_annuncia_appuntamenti_upd`.
+    // Misurato: togliendo quel solo trigger, questa è l'unica rossa su 412 —
+    // prima di questa prova ne dava ZERO, e il telefono della collega mostrava
+    // l'appuntamento con l'operatrice sbagliata senza che nulla se ne accorgesse. Due appuntamenti alla STESSA
+    // cella con operatrici diverse: `appointment_slot_unique` vincola per
+    // operatrice, non per salone.
+    const A2 = '60000000-0000-4000-8000-0000000000f4'
+    await asOperatorCommit(VERA_AUTH, (c) =>
+      c.query('select salva_visita($1,$2,$3,null,$4::date,$5,null,null)', [
+        cod(),
+        V1,
+        CLIENT_MARIA,
+        DAY_ONE,
+        JSON.stringify([
+          { id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 },
+          { id: A2, operatrice: ANNALISA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 },
+        ]),
+      ]),
+    )
+    await asOwner((c) => c.query('delete from annuncio'))
+    await asOperatorCommit(VERA_AUTH, (c) => c.query('select swap_appointment_operators($1,$2)', [A1, A2]))
+    const righe = await annunci()
+    expect(righe.length).toBeGreaterThan(0)
+    expect([...new Set(righe.flat())]).toEqual([DAY_ONE])
+  })
+
+  it('due visite cancellate con UNA istruzione lasciano un annuncio per istruzione anche sul ramo delle visite', async () => {
+    // La prova della cascata qui sopra cancella UNA visita, e su una riga sola
+    // «per istruzione» e «per riga» coincidono: misurato che portare i tre
+    // trigger di `visit` a `for each row` dà 0 rosse. Servono DUE visite in una
+    // sola istruzione perché i due regimi si separino.
+    const V2 = '50000000-0000-4000-8000-0000000000f5'
+    const A2 = '60000000-0000-4000-8000-0000000000f6'
+    await asOperatorCommit(VERA_AUTH, (c) =>
+      c.query('select salva_visita($1,$2,$3,null,$4::date,$5,null,null)', [
+        cod(), V1, CLIENT_MARIA, DAY_ONE,
+        JSON.stringify([{ id: A1, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 12 }]),
+      ]),
+    )
+    await asOperatorCommit(VERA_AUTH, (c) =>
+      c.query('select salva_visita($1,$2,$3,null,$4::date,$5,null,null)', [
+        cod(), V2, CLIENT_LUCIA, DAY_TWO,
+        JSON.stringify([{ id: A2, operatrice: ANNALISA, servizio: SERVICE_REFILL, inizio: 200, durata: 12 }]),
+      ]),
+    )
+    await asOwner((c) => c.query('delete from annuncio'))
+    await asOwner((c) => c.query('delete from visit where id in ($1,$2)', [V1, V2]))
+    // Il ramo `visit` per istruzione lascia UNA riga con TUTTI E DUE i giorni;
+    // per riga ne lascerebbe due con uno ciascuna. Si asserisce la forma, non
+    // solo il numero: un conteggio da solo non distingue una sorgente spenta e
+    // l'altra raddoppiata.
+    const righe = await annunci()
+    expect(righe.filter((g) => g.includes(DAY_ONE) && g.includes(DAY_TWO)).length).toBe(2)
+    expect(righe.every((g) => g.length === 2)).toBe(true)
+  })
+
   it('non contiene nomi, telefoni né id di cliente', async () => {
     await scrivi()
     // Si legge la RIGA INTERA e si fissa l'elenco delle colonne. Leggendo la
@@ -199,6 +302,29 @@ describe('annunci, dal lato del database', () => {
     expect(testo).not.toContain('Maria')
     expect(testo).not.toContain(CLIENT_MARIA)
     expect(testo).not.toContain('+39')
+  })
+
+  it('la chiusura di un invio porta via gli annunci più vecchi di un ora e lascia i nuovi', async () => {
+    // La terza pulizia di `app.chiudi_invio` (0019) non era presidiata da
+    // niente: toglierla dava 0 rosse su 408. Sta lì e non nel trigger perché il
+    // trigger gira da 2 a 5 volte per salvataggio, `chiudi_invio` una volta per
+    // INVIO.
+    const vecchio = await asOwner(async (c) =>
+      (
+        await c.query<{ id: string }>(
+          `insert into annuncio (giorni, creato)
+           values (array['2020-01-01'::date], now() - interval '2 hours') returning id`,
+        )
+      ).rows[0].id,
+    )
+    await scrivi() // salva_visita → chiudi_invio → la terza delete
+    const rimasti = await asOwner(async (c) =>
+      (await c.query<{ id: string }>('select id from annuncio order by id')).rows.map((x) => x.id),
+    )
+    expect(rimasti).not.toContain(vecchio)
+    // Compagna positiva: senza, la prova resterebbe verde anche se la delete
+    // svuotasse la tabella intera, o se il trigger smettesse di annunciare.
+    expect(rimasti.length).toBeGreaterThan(0)
   })
 
   it('non lascia scrivere gli annunci a un operatrice per via diretta', async () => {
