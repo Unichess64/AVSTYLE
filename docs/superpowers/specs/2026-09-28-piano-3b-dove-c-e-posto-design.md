@@ -1,7 +1,13 @@
 # Piano 3b — Dove c'è posto: documento di design
 
 **Data:** 28 settembre 2026
-**Revisione:** 2 — dopo il **primo giro di revisione avversariale**: cinque revisori indipendenti su Opus, lenti
+**Revisione:** 3 — dopo lo **scambio con la chat del piano 4** (dati personali), che ha verificato le tre
+segnalazioni del 3b contro la revisione 2 e le ha applicate tutte alla sua revisione 3. Due limiti del 3b si
+**chiudono per composizione** (§8), il termine di conservazione è confermato a 12 mesi, e la chat del piano 4 ha
+restituito un reperto sul **trigger di D3b-5** che il 3b non aveva visto: **L30**, chiuso in §5.4 con una funzione
+dedicata. ⚠︎ Il 3b ha verificato L30 alla sede e l'ha trovato **più grave** di come era stato segnalato: non serve la
+colonna nuova del piano 4, perché la collisione esiste già con `last_activity_at`, consegnata dal piano 1.
+**Revisione 2** — dopo il **primo giro di revisione avversariale**: cinque revisori indipendenti su Opus, lenti
 distinte, **dieci bloccanti distinti (uno falso)**, 38 maggiori, 41 minori. Registro completo in
 `docs/superpowers/plans/2026-09-28-piano-3b-giro-1-findings.md`. Quattro bloccanti chiusi da **decisioni dell'utente**
 prese durante il giro (D3b-11…D3b-14), tre da correzioni di prosa, due restano **aperti in attesa del consulente
@@ -307,6 +313,13 @@ fasce ordinate (`proposte.ts:82-85`) e `fasciaPiuLunga` è già un massimo (`:62
 `occupancy` è **la stessa** nelle due chiamate: fuori orario si può prenotare (D18), sopra un appuntamento esistente
 no — la stessa asimmetria di D2-10. Anche `nowCell` è invariato, quindi C2 non propone orari già passati di oggi.
 
+⚠︎ **Il ripiego arriva come argomento, non letto dal modulo:** `cercaPosti` resta puro, e chi lo chiama legge
+`salon_settings`. **E i due confini possono cambiare mentre una lista è aperta** — risposta della chat del 3c, sua
+§4.6: sono una schermata di Impostazioni come le altre, e la sua §6.3 decide che `salon_settings` **non si annuncia**
+sul canale dei giorni. Il telefono con una lista aperta **non lo sa**. Per questo i due confini stanno nell'impronta
+del cursore (§4.3 regola 3): la lista si invalida da sé alla prima rilettura, e la paginazione non mescola due
+ripieghi. **Quello che l'impronta non copre è il limite 13 di §8.**
+
 ⚠︎ **Il riassetto vale ATTRAVERSO il confine:** un appuntamento dentro orario impone il suo `buffer_after_cells` a una
 proposta fuori orario, e la coda propria vale verso l'appuntamento che segue. Il riassetto è fisico, non contrattuale.
 
@@ -535,9 +548,71 @@ della spec (§11.2, §14). L3b-8.
 `app.touch_updated_at()` [misurato: `0004_visit_appointment.sql:41`, `:51`, `:53`]. Quindi il compare-and-set di spec
 §10.2 non ha su che cosa appoggiarsi, e due colleghe si sovrascrivono in silenzio.
 
-**D3b-5:** la migrazione aggiunge `client.updated_at timestamptz not null default clock_timestamp()` e il trigger
+**D3b-5:** la migrazione aggiunge `client.updated_at timestamptz not null default clock_timestamp()` e un trigger
 `before update … for each row`. `clock_timestamp()` e non `now()`: `now()` è fisso per la transazione, quindi due
 update nella stessa transazione confronterebbero uguali [misurato: `0004:39-40`].
+
+#### ⚠︎ Il trigger NON è `app.touch_updated_at()`, ed è il reperto L30
+
+**Che cosa è stato trovato.** La chat del piano 4 ha segnalato che `app.touch_updated_at()` è **incondizionata**:
+scrive `clock_timestamp()` a ogni `update`, senza guardia (`0004:41-47` [misurato]). La revisione 2 del 3b prescriveva
+quel trigger su `client`, e la collisione sarebbe questa: una collega tocca una **colonna derivata** di `client`, il
+trigger bumpa `updated_at`, e la scheda aperta di un'altra collega riceve `modificata_altrove` **senza che nessuno
+abbia toccato un campo della scheda**.
+
+⚠︎ **Verificato alla sede, ed è più grave della segnalazione.** Il piano 4 lo attribuiva alla sua colonna nuova
+`ultimo_contatto`, che non esiste ancora. Ma la collisione **esiste già** con `last_activity_at`, consegnata dal
+piano 1: `0007_client_activity.sql:45-54` esegue `update public.client c set last_activity_at = (…) where c.id =
+any(affected)` **senza nessuna condizione** [misurato], quindi l'`update` su `client` gira a **ogni** insert, update o
+delete di un appuntamento o di una visita di quella cliente — anche quando il valore non cambia. Il percorso vero non
+è raro: **Annalisa prenota una visita a Maria, e Vera che ha la scheda di Maria aperta non può più salvare.** È il
+percorso più frequente del salone, e il compare-and-set di §5.4 sarebbe rotto in pratica, non in un caso limite.
+
+**Il rimedio: una funzione dedicata, che non tocca `app.touch_updated_at()`.** Dei tre rimedi che il piano 4 proponeva,
+il primo (una condizione sul suo `update`) copre solo il suo percorso e lascia aperto quello di `last_activity_at`; il
+terzo (una guardia dentro `touch_updated_at`) ha il costo che il piano 4 nomina — quella funzione serve anche `visit`
+e `appointment`, dove l'incondizionalità è voluta. Quindi:
+
+```sql
+create function app.touch_client_updated_at() returns trigger
+language plpgsql
+as $$
+begin
+  -- Si confronta TUTTO tranne `updated_at` stessa e le colonne DERIVATE, cioè
+  -- quelle che nessuna scheda modifica e che altri percorsi riscrivono da sé.
+  --
+  -- Escludere le derivate per NOME, invece di elencare le colonne sorvegliate,
+  -- è la scelta che sbaglia nel verso giusto: una colonna EDITABILE aggiunta
+  -- domani è sorvegliata per difetto, mentre chi aggiunge una DERIVATA e si
+  -- dimentica di escluderla ottiene un conflitto falso — che l'operatrice vede
+  -- subito — invece di una sovrascrittura silenziosa su un dato personale.
+  if (to_jsonb(new) - 'updated_at' - 'last_activity_at' - 'ultimo_contatto')
+     is distinct from
+     (to_jsonb(old) - 'updated_at' - 'last_activity_at' - 'ultimo_contatto')
+  then
+    new.updated_at := clock_timestamp();
+  end if;
+  return new;
+end
+$$;
+
+create trigger client_touch before update on client
+  for each row execute function app.touch_client_updated_at();
+```
+
+**`ultimo_contatto` è nominata in anticipo**, prima che la colonna esista: `jsonb - text` su una chiave assente
+restituisce il jsonb invariato, quindi la riga è un no-op finché il piano 4 non crea la colonna, e **l'ordine delle due
+migrazioni su `client` diventa indifferente** [da misurare: che `jsonb - 'chiave_assente'` non solleva; è il
+comportamento documentato dell'operatore, ma questo documento non esegue nulla].
+
+⚠︎ **E resta un obbligo sul piano 4**, perché nominare la colonna in anticipo copre il nome e non la scelta del nome:
+se quella colonna nascerà con un nome diverso, la mia esclusione non morde e il difetto torna in silenzio. La prova che
+lo presidia sta dal lato del piano 4 — *«salvare una visita non fa fallire una modifica di scheda cliente aperta»* — e
+arrossisce se i due nomi non coincidono. Il 3b porta la metà simmetrica in §9.2, su `last_activity_at`.
+
+**Conseguenza su §13:** la voce «[da misurare] se un `before update` senza differenze cambi `updated_at`» **è
+risposta, e a lettura**: con `app.touch_updated_at()` **sì, cambia** (`0004:41-47`), ed è esattamente la ragione per
+cui `client` non la usa.
 
 **La scrittura passa da una funzione**, per **la regola 11 del 3a**: «con la sicurezza per riga un account chiuso
 nell'istante della scrittura ne tocca zero **senza errore**, e la funzione registrerebbe un falso *salvata*»
@@ -807,26 +882,44 @@ famiglia dei primi sei: la revisione 1 non li aveva e chiamava «il più serio»
 8. ⚠︎ **L'informativa che §5.5 cita non esiste** fino al piano 4, e spec §14 domanda 4 chiede ancora se una esposta in
    salone basti per chi è registrata **al telefono** — lo scenario di quella schermata. **Il 3c non dichiara il
    rilascio** finché il titolare non ha l'informativa scritta.
-9. ⚠︎ **D3b-6 svuota il presidio su cui il piano 4 costruisce il diritto di opposizione.** Il piano 4 §5.5 legge spec
-   §9.7 come **esclusione** — «la lista è la sua unica fonte; una cliente che compare in lista riceverà gli auguri» —
-   e consegna al 3b: «l'esclusione va presidiata da una prova che diventa rossa se il filtro `no_messages` sparisce»
-   [misurato: spec piano 4 riga 576]. **D3b-6 toglie quel filtro**, e il requisito è insoddisfacibile come scritto.
-   D3b-6 vince perché è una decisione dell'utente; il presidio equivalente è **«la riga con l'opt-out non ha nessuna
-   azione»** più **«il tocco rilegge `no_messages`»** (§6, §9.2). ⚠︎ Il piano 4 §9 fissa il contenuto
-   dell'**informativa esposta in salone**: scritta su §5.5 come sta, direbbe alla cliente una cosa che l'app non fa.
-   **Va mandato alla chat del piano 4**: §5.5, §9.4 e il requisito vanno rifatti.
-10. ⚠︎ **Il pulsante d'export è del 3b, il meccanismo del piano 4** (§5.6): senza quella cucitura non è di nessuno, e
-    nella finestra fra la fine del 3c e il piano 4 **accesso e portabilità** non hanno percorso nell'app, con un
-    termine di un mese per rispondere. La via manuale è la dashboard di Supabase, che legge **da proprietario** — cioè
-    scavalcando la sicurezza per riga — e va composta su cinque tabelle: **il 3c scrive la procedura** nelle sue
-    verifiche prima del rilascio, altrimenti il limite è nominato e non dichiarato.
+9. ✅ **CHIUSO per composizione, 28/09.** Era: «D3b-6 svuota il presidio su cui il piano 4 costruisce il diritto di
+   opposizione», perché il piano 4 §5.5 leggeva spec §9.7 come **esclusione** e consegnava al 3b un requisito di prova
+   sul filtro `no_messages` che D3b-6 rende insoddisfacibile. La chat del piano 4 ha **adottato la forma del 3b** —
+   compaiono tutte, l'opposizione è presidiata dall'**assenza delle azioni** più il fatto che **il tocco rilegge
+   `no_messages`** e rifiuta (§6, §9.2) — e ha **ritirato** il requisito. La sua §9.5 ora scrive che cosa
+   l'informativa può promettere: *«il suo nome resta in agenda, ma il sistema rifiuta di aprire un messaggio verso di
+   lei»*, e **non** l'esclusione dalle liste. Resta il costo di D3b-6, che è in §6: la lista mostra a ogni operatrice
+   chi ha fatto obiezione.
+10. ✅ **CHIUSO per composizione, 28/09.** Era: «il pulsante d'export non è di nessuno». Composto: **il 3b costruisce
+    il posto e lo lascia inerte**, il piano 4 collega e fornisce il meccanismo; la sua §5.6 e la sua L4-2, che dicevano
+    «lo costruisce il piano 4», sono corrette. ⚠︎ **Resta il limite vero, che non era questo:** nella finestra fra la
+    fine del 3c e il piano 4, **accesso e portabilità** non hanno percorso nell'app, con un termine di un mese per
+    rispondere. La via manuale è la dashboard di Supabase, che legge **da proprietario** — scavalcando la sicurezza per
+    riga — e va composta su cinque tabelle: **il 3c scrive la procedura** nelle sue verifiche prima del rilascio,
+    altrimenti il limite è nominato e non dichiarato.
 11. **La conservazione (spec §11.4) e il suo distintivo (spec §9.11) sono del piano 4**, e il 3b legge
     `last_activity_at` senza scriverlo: dal rilascio al piano 4 non esiste né la query di eleggibilità né la
     cancellazione né il distintivo. **Non è urgente** — con `coalesce(last_activity_at, created_at::date)` nessuna
-    cliente matura il termine prima che il piano 4 esista — ma è senza proprietario. ⚠︎ Il termine: la spec dice 24
-    mesi, la spec del piano 4 del 28/09 lo porta a **12** (D4-1): da comporre con quella chat.
+    cliente matura il termine prima che il piano 4 esista — ma è senza proprietario. **Il termine è 12 mesi** (D4-1,
+    confermata dalla chat del piano 4 il 28/09 come decisione dell'utente sul suo perimetro): i 24 mesi della spec
+    originale §11.4 sono superati, e questo limite non li cita più. ⚠︎ E il suo §6 — la passata di conservazione — è
+    dichiarato `[proposta]` da quella chat (D4-11) dopo due giri di lettura sbagliati in due versi opposti: **si
+    stabilisce quando il piano scrive la migrazione ed esegue le prove**. Se `public.cancella_cliente` (§5.6) sarà la
+    sede della cancellazione anche per la passata automatica, quella chat lo confermerà **a prove eseguite**, non a
+    lettura — e il 3b non lo assume.
 12. **Oltre il primo mese il cercaposti può rispondere «assente» su giorni la cui disponibilità non è ancora stata
     inserita**, e non sa distinguerlo da un'assenza vera (§4.6).
+13. ⚠︎ **Una lista aperta può proporre un orario che il salone ha appena escluso dall'agenda.** Nuovo alla revisione 3,
+    dalla risposta del 3c (sua §4.6): i due confini di `salon_settings` cambiano da Impostazioni e **non si annunciano**
+    sul canale, quindi un telefono con la lista già aperta continua a usare il ripiego vecchio. L'impronta del cursore
+    (§4.3) impedisce che *dentro la stessa lista* si mescolino due ripieghi, ma non che la lista sia vecchia. Il danno:
+    il 3c stringe l'agenda a 08:00–20:00, il telefono propone le 07:30 dal ripiego vecchio, il salvataggio **riesce**
+    (D18 permette il fuori orario), e l'appuntamento **non si vede in agenda** — perché restringere `salon_settings`
+    «taglia la finestra che l'agenda disegna e **nasconde** gli appuntamenti fuori» (3c §4.6). Non è frequente: la
+    finestra è fra un cambio di Impostazioni e la prima rilettura del telefono, e il 3c **rifiuta di stringere oltre
+    l'appuntamento più esterno** già esistente [sua §4.6, `[proposta]`] — che protegge il passato, non una proposta
+    ancora da salvare. Si chiuderebbe annunciando `salon_settings` sul canale, che è una decisione del 3c (sua
+    §13.18, che ora ha **un secondo consumatore**).
 
 ---
 
@@ -907,8 +1000,16 @@ e le viste che la applicano rispondono zero righe in silenzio.
   refuso in `p_dati` dà `22023` e non azzera il campo** (mutazione: togliere il controllo delle chiavi);
   **`security invoker`** → un account che non è operatrice attiva non ottiene nulla (mutazione: `definer`); **il
   codice d'invio** registrato prima di ogni scrittura, e «Controlla» che rilegge (D3b-12).
-- **Il trigger `updated_at`**: cambia a ogni update; due update nella stessa transazione danno versioni **diverse**;
-  [da misurare] se un `before update` senza differenze lo cambia — il fatto va scritto in un verso o nell'altro.
+- **Il trigger `updated_at`** (§5.4, L30): cambia quando cambia un campo della scheda; due update nella stessa
+  transazione danno versioni **diverse** (è la ragione di `clock_timestamp()`); ⚠︎ **e NON cambia quando cambia solo una
+  colonna derivata**. Le due prove che contano, entrambe con la loro mutazione:
+  - *«prenotare una visita non fa salire la versione della cliente»*: si salva una visita per Maria — che fa girare il
+    trigger differito di `0007` e quindi un `update client` — e la versione letta prima deve essere ancora valida.
+    **Mutazione: usare `app.touch_updated_at()` al posto di `app.touch_client_updated_at()`**, cioè la forma della
+    revisione 2 di questo documento. È la prova che tiene chiuso L30, e il percorso che presidia è il più frequente
+    del salone.
+  - *«correggere il telefono fa salire la versione»*: il verso opposto, perché una guardia che non bumpa mai passerebbe
+    la prima prova. Mutazione: escludere anche `phone` dal confronto.
 - **`cancella_cliente`**: cascata fino a `appointment_slot`; `non_trovata` la seconda volta; **`40P01` ricevuto dal
   percorso** contro una cancellazione concorrente di un appuntamento della stessa visita (spec §12.1 lo misura 6 su
   6) e il ritentativo **con lo stesso codice d'invio** che lo assorbe.
@@ -1060,17 +1161,50 @@ col telefono in mano.
 | `pg_trgm` in `extensions` | Task 10 | installata, riferimenti qualificati | **basso** |
 | Colori delle operatrici | Task 10 scriverà i valori di **D3-6** | D3-6 è in vigore; **D3c-6 è revocata** [misurato: spec 3c riga 119] | **nullo**, e **verificato** contro il documento fratello — non assunto |
 | Guscio, navigazione, involucro errori, ricariche di ripiego | piano 3a-2 | esistono e **non si ridefiniscono**; il 3b tocca **un solo** file loro, per il «+» di D3b-13 | **medio**: si paga con una revisione del piano 3b prima dell'esecuzione, e con un coordinamento su quel file |
-| La **prova statica** sugli URL | piano 3a-2 | va enunciata **per permessi** (§9.4, L3b-2) | **medio**, e va **mandato** al 3a-2 con la vittima giusta: la lettura per `id`, non un `UPDATE` |
-| Il **requisito sul filtro `no_messages`** | spec piano 4 §5.5, riga 576 [misurato] | **incompatibile** con D3b-6 | **alto sul piano 4**, non sul 3b: §8 limite 9, e va mandato a quella chat |
-| Il **meccanismo dell'export** | spec piano 4 §5.6 | il piano 4 lo costruisce, il 3b costruisce il posto | **alto se nessuno cuce**: §8 limite 10 |
-| Il **termine di conservazione** | il piano 4 lo porta a 12 mesi (D4-1), la spec dice 24 | il 3b non lo implementa | **basso per il 3b**, da comporre |
-| Numeri di migrazione **≥ 0022** | `0020` e `0021` rivendicati dal 3a-1, disco a `0019` [misurato] | ⚠︎ **la mitigazione della revisione 1 non funziona**, ed è la composizione che nessuna delle tre chat vede: 3b e 3c adottano la **stessa** formula («libero sul disco **e** non rivendicato da nessun piano») e **entrambe rimandano** l'assegnazione al momento del proprio piano senza scrivere un numero; il piano 4 non nomina il problema pur avendo migrazioni proprie. Al momento dell'apertura ciascuno vedrà un disco a `0019` e documenti che tacciono per scelta | **alto, probabilità reale.** Due `0022` sono un `db reset` che fallisce, o una migrazione che il CLI salta in silenzio. **L'assegnazione la fa l'orchestratrice, in un posto solo**, non le tre chat |
+| La **prova statica** sugli URL | piano 3a-2 — ⚠︎ **l'unico dei tre che non ha ancora risposto** | va enunciata **per permessi** (§9.4, L3b-2) | **medio**: il messaggio è stato mandato con la vittima giusta — la lettura per `id`, non un `UPDATE` |
+| I **due cancelli privacy**, la **procedura manuale** per accesso e portabilità, il rimando su `salon_settings` | ✅ **accolti** dalla chat del 3c alla sua revisione 4: **§9.2 Z1a/Z1b/Z1d**, **§9.14**, **§4.6** [misurato: spec 3c righe 1121, 1174] | il 3c li possiede | **chiusi**, e la sua risposta su `salon_settings` ha aperto il limite 13 di §8 |
+| Gli **stati vuoti** delle tre schermate del 3b | ✅ il 3c **non se li prende** (sua §5.1); il solo rimando è dal cercaposti al primo avvio, e le **tre condizioni** che il cercaposti interroga per scegliere la frase sono la sua §5.1 | sono del 3b | **chiuso** |
+| Il **requisito sul filtro `no_messages`** | ✅ **ritirato** dal piano 4 il 28/09; la forma del 3b adottata nella sua **§5.5** e **§9.5** | il presidio è «nessuna azione» + «il tocco rilegge» | **chiuso**: §8 limite 9 |
+| Il **meccanismo dell'export** | piano 4 **§5.6** e **L4-2**, corrette il 28/09 | il piano 4 collega, il 3b costruisce il posto | **chiuso**: §8 limite 10 |
+| Il **termine di conservazione** | ✅ **12 mesi**, **D4-1** confermata il 28/09 | il 3b non lo implementa e non cita più i 24 | **chiuso** |
+| La **passata di conservazione** e la sede della cancellazione | piano 4 **§6**, `[proposta]` per **D4-11**: si stabilisce a prove eseguite | il 3b non assume che `cancella_cliente` la serva | **basso**, ma non si chiude a lettura |
+| `client.ultimo_contatto` | piano 4, migrazione futura | il 3b la **nomina in anticipo** nell'esclusione del trigger (§5.4), quindi l'ordine delle migrazioni è indifferente | **medio se il nome cambia**: l'esclusione non morde e il difetto torna in silenzio. La prova che lo presidia è del piano 4 |
+
+⚠︎ **Le maniglie stabili del piano 4 sono le sezioni e gli identificativi `D4-*` / `L*`, non i numeri di riga**: quel
+documento è alla revisione 3 e supera le 2.700 righe, e la revisione 2 di questo citava «riga 576», che non punta più a
+niente. Segnalato da quella chat, ed è la stessa classe del reperto sulle sedi che il primo giro ha censito in §15.
+
+### 12.1 Che cosa il 3b garantisce ad altri piani
+
+⚠︎ **Nuova alla revisione 3.** Tre meccanismi del 3b **chiudono tre limiti dichiarati del piano 4**, e quella chat li
+ha registrati come chiusi: se uno di questi cambia, cambia anche il suo documento. Nessuno dei tre era stato scritto
+per loro, e nessuno si era chiuso da sé — si sono chiusi parlandosi.
+
+| Meccanismo del 3b | Limite del piano 4 che chiude |
+|---|---|
+| **D3b-5**, `client.updated_at` e il compare-and-set (§5.4) | **L8** — una rettifica non lascia traccia |
+| **D3b-12**, `cancella_cliente(p_codice, p_cliente)` con il codice d'invio (§5.6) | **L15** — la cancellazione non passa da «Controlla». Il loro §5.4 diceva il contrario e proponeva una rilettura di ripiego: era lavoro su una premessa sbagliata |
+| La **validazione del telefono in E.164** (§5.4) con la prova di §9.1 | **L23** — il telefono non validato |
+
+E **due requisiti che il piano 4 stava per mandare al 3b erano già presidiati**, quindi li ha ritirati: il ritentativo
+su `40P01` (§5.6, con la stessa misura 6 su 6 di spec §12.1, e la prova in §9.2) e la prova statica su
+`details`/`hint`, che è del 3a-2 al Task 9.
+| Numeri di migrazione | ✅ **assegnati il 28/09: 3b `0022`, 3c `0023`, piano 4 `0024`**; `0020` e `0021` restano del 3a-1, disco a `0019` [misurato]. ⛔ La forma `0023a` è stata **proposta e rifiutata con la misura** (§13) | ⚠︎ **la mitigazione della revisione 1 non funziona**, ed è la composizione che nessuna delle tre chat vede: 3b e 3c adottano la **stessa** formula («libero sul disco **e** non rivendicato da nessun piano») e **entrambe rimandano** l'assegnazione al momento del proprio piano senza scrivere un numero; il piano 4 non nomina il problema pur avendo migrazioni proprie. Al momento dell'apertura ciascuno vedrà un disco a `0019` e documenti che tacciono per scelta | **alto, probabilità reale.** Due `0022` sono un `db reset` che fallisce, o una migrazione che il CLI salta in silenzio. **L'assegnazione la fa l'orchestratrice, in un posto solo**, non le tre chat |
 
 ---
 
 ## 13. Aperto, da decidere o misurare nel piano
 
-- **Il numero della migrazione**, assegnato dall'orchestratrice (§12).
+- ~~Il numero della migrazione.~~ ✅ **ASSEGNATO dall'orchestratrice il 28/09: la migrazione del 3b è `0022`**, il 3c
+  ha `0023`, il piano 4 ha `0024`. ⛔ **E una forma proposta è stata rifiutata con la misura**: `0023a` per distinguere
+  due migrazioni allo stesso posto **non si può usare** — il CLI Supabase salta in silenzio una migrazione il cui nome
+  non corrisponde al modello `<timestamp>_name.sql`, stampa una riga facile da non vedere e `db reset` **esce 0**
+  [misurato dal piano 2, sonda 13, rinominando in `0012b_availability_window.sql`: reset a 0 e 15 prove rosse con
+  `42883`; `2026-09-18-availability-findings.md` divergenza 11]. È anche la ragione per cui nel repo c'è
+  `00051_privilege_baseline.sql` e non `0005b_`. Se servisse infilare una migrazione fra due numeri, la forma è
+  **cifre sole** (`00221_nome.sql` ordina fra `0022` e `0023`), e **si verifica leggendo l'output del reset**, non
+  assumendo — perché l'obbligo 6 dei findings è ancora aperto: **nessuna prova di questo repo coglie una migrazione
+  saltata**.
 - **Pagina di 20** per il cercaposti, **50** per Clienti [proposta], e la **cardinalità vera** della lista a passo 15′
   su 28 giorni con tre operatrici [da misurare]: da essa dipende se la paginazione serva.
 - ⚠︎ **Rimisurare il mutante `cercaposti.ts:69`** dopo l'estensione di §4.5, che invalida il suo argomento di
@@ -1083,7 +1217,16 @@ col telefono in mano.
   la prosa la dichiara aperta.
 - **Se l'opt-out debba comparire nei compleanni o come segno sul blocco in agenda** (§6): la seconda forma serve la
   stessa finalità e mostra l'obiezione solo a chi sta già guardando quell'appuntamento. Decisione dell'utente.
-- **Se un `before update` senza differenze cambi `updated_at`** (§9.2) [da misurare].
+- ~~Se un `before update` senza differenze cambi `updated_at`.~~ ✅ **RISPOSTA a lettura, revisione 3:** con
+  `app.touch_updated_at()` **sì**, è incondizionata (`0004:41-47` [misurato]) — ed è la ragione per cui `client` usa
+  una funzione propria (§5.4, L30).
+- ⚠︎ **Che `to_jsonb(x) - 'chiave_assente'` restituisca il jsonb invariato** (§5.4) [da misurare]: è il comportamento
+  documentato dell'operatore, ed è ciò che rende indifferente l'ordine fra la migrazione del 3b e quella del piano 4 su
+  `client`. Se non fosse così, la migrazione del 3b non si crea finché `ultimo_contatto` non esiste, e l'ordine diventa
+  vincolato.
+- **Il nome della colonna derivata del piano 4** (§5.4): il 3b esclude `ultimo_contatto` per nome, in anticipo. Se
+  quella chat la chiamerà diversamente, l'esclusione non morde: la prova che lo presidia è sua, e il 3b porta la metà
+  simmetrica su `last_activity_at` (§9.2).
 - **Se un testo misto di cifre e lettere dia un ordine controintuitivo** in `cerca_clienti` (§5.2) [da misurare].
 - **Se `client_name_search` vada eliminato** (§5.2).
 - **Se «Elimina cliente» debba nominare le visite future una per una** o solo contarle (§5.6).
@@ -1156,7 +1299,33 @@ soddisfatto: il secondo giro serve.**
 5. **Il capitolo dei compleanni**, se il consulente risponde: le due domande aperte cambiano che cosa si costruisce,
    non solo che cosa si scrive.
 
-**Dove questo documento resta debole, dopo un giro:**
+**Il giro di composizione col piano 4 (28 settembre, dopo la revisione 2).** Non era un giro di revisione: erano tre
+messaggi mandati e una risposta. Ha prodotto più di quanto un terzo revisore avrebbe prodotto sulle stesse sezioni, e
+vale registrare perché.
+
+- **Le tre segnalazioni del 3b sono state applicate tutte**, e una è stata **migliorata**: il piano 4 ha adottato la
+  seconda metà del presidio — «il tocco rilegge `no_messages`» — che chiude una corsa che *nessuno dei due documenti*
+  vedeva: una cliente che alza l'interruttore mentre la lista è già aperta sul telefono di un'operatrice riceveva gli
+  auguri comunque, perché i pulsanti erano già disegnati. È la differenza fra «i pulsanti non erano disegnati» e
+  «l'invio è stato rifiutato».
+- **In cambio è arrivato L30**, che è il reperto più grave trovato su questo documento dopo il primo giro, e che
+  **nessuna delle cinque lenti del primo giro aveva visto** — perché il difetto nasce dall'incrocio fra una colonna che
+  il 3b aggiunge e un trigger che il piano 1 ha consegnato, e nessun revisore guardava entrambi. Il 3b l'ha verificato
+  alla sede e l'ha trovato **più grave della segnalazione**: la collisione non aspetta la colonna del piano 4, è già in
+  essere con `last_activity_at`.
+- **Tre limiti del piano 4 si sono chiusi senza che nessuno li lavorasse** (§12.1), e nessuno dei tre l'ha chiuso il
+  piano 4: li ha chiusi il 3b, e si sono chiusi parlandosi.
+- **L'avviso del 3b sulle note ha funzionato nei due versi.** Quella chat ha riletto la colonna delle note su tutte le
+  decisioni 3c che cita e ne ha trovata una sospesa che il suo censimento dava per ferma; e ha restituito al 3b lo
+  stesso genere di reperto: «riga 576» non punta più a niente, perché il suo documento è cresciuto. Le maniglie stabili
+  sono le sezioni e gli identificativi.
+
+**La lezione, che vale per la prossima spec di questo progetto:** fra documenti scritti in parallelo, **uno scambio di
+messaggi rende più di un giro di revisione**, perché ciascuno dei due possiede la metà del fatto che l'altro non può
+verificare. E i tre messaggi che il 3b ha mandato erano possibili solo perché il primo giro li aveva trovati: il
+canale non sostituisce la revisione, la continua.
+
+**Dove questo documento resta debole, dopo un giro e uno scambio:**
 
 - **Nessun numero è misurato per esecuzione**, e il primo giro l'ha confermato senza poterlo rimediare: 43 citazioni
   `[misurato]` censite, **nessuna** era un numero di esecuzione spacciato per misurato, ma otto avevano la **sede**
@@ -1169,6 +1338,17 @@ soddisfatto: il secondo giro serve.**
   esaurita.
 - **§7 e §9.2 poggiano su una migrazione che nessuno ha eseguito**: la forma del trigger per istruzione con la
   giunzione fra tabelle di transizione è stata **corretta a lettura** e non provata.
-- **Il coordinamento con le altre tre chat è ora scritto ma non concordato**: §8 limiti 9 e 10 e §12 contengono tre
-  messaggi che vanno **mandati**, e finché non arriva risposta il 3b dichiara una composizione che l'altra metà non
-  ha accettato.
+- **Il coordinamento è concordato con due chat su tre.** Il piano 4 ha applicato tutte e tre le segnalazioni e ne ha
+  restituita una peggiore (L30); il **3c** le ha accolte tutte alla sua revisione 4 e ha **risposto** alla domanda su
+  `salon_settings` con un sì che ha aperto il limite 13 di §8 — cioè il canale ha prodotto un reperto anche nel verso
+  della risposta, non solo della domanda. ⚠︎ **Resta il 3a-2**, l'unico che non ha risposto, e la cosa che gli è stata
+  chiesta — la prova statica enunciata per permessi — è quella che decide se le letture su cui §5.3 si regge passano il
+  suo gate.
+- ⚠︎ **L30 è chiuso a lettura, non a prove.** La funzione `app.touch_client_updated_at()` non è mai stata eseguita, e
+  la sua correttezza poggia su due fatti non misurati qui: che `to_jsonb(x) - 'chiave_assente'` sia un no-op, e che
+  `to_jsonb(NEW)` in una funzione `before update` veda i valori attesi. Il primo task del piano le misura prima di
+  qualunque codice dell'app.
+- ⚠︎ **Il canale coi documenti fratelli ha chiuso due limiti e aperto un reperto peggiore.** Non c'è ragione di credere
+  che sia esaurito: il 3c e il 3a-2 non hanno ancora risposto, e il piano 4 ha una sezione — la sua §6, la passata di
+  conservazione — dichiarata `[proposta]` dopo due giri di lettura sbagliati in versi opposti, che tocca la funzione di
+  cancellazione del 3b.
