@@ -151,7 +151,9 @@ Valgono per **ogni** task; non si ripetono task per task.
 - ⛔ **Mai `psql`**: non è installato e da proprietario scavalca la sicurezza per riga. Si misura con `pg` da Node o
   dall'app con la sessione dell'operatrice.
 - **Nessun dato personale in un URL**, né nell'indirizzo della pagina né nella querystring verso PostgREST (§4.8).
-  La data nell'indirizzo sì: è `/agenda?giorno=2026-10-03`, e si **valida prima di usarla**.
+  La data nell'indirizzo sì: è `/agenda?giorno=2026-10-03`, e si **valida prima di usarla**. La prova statica che lo
+  presidia è al **Task 5**, ed è scritta come **elenco di permessi**, non di divieti — vedi lì la ragione, che è
+  misurata.
 - **Nessun `service_role`** nell'ambiente di esecuzione dell'app: né in `.env.local`, né in `next.config.ts`, né in
   CI. Una prova statica lo presidia (Task 1).
 - **Identità sempre con `getUser()`**, mai `getSession()`, mai `getClaims()` (§4.2).
@@ -1644,7 +1646,16 @@ c'è il pulsante del 3c su `public.chiudi_sessioni`.
   bersaglio di almeno **44 punti** (§7), con la voce corrente segnata **anche senza colore** (peso e bordo, non solo
   il rosa: §6.2 dice che la selezione si segna anche con bordo, ombra o sollevamento).
 
-⚠︎ **Nessun «+»** (§3.2): il cercaposti è del 3b, e un «+» che non porta da nessuna parte è peggio di nessun «+».
+⚠︎ **Nessun «+», e nessun segnaposto al suo posto** (§3.2). Il cercaposti è del 3b, e un «+» che non porta da nessuna
+parte è peggio di nessun «+». ⚠︎ **Il confine è ora chiuso da D3b-13** (spec 3b, revisione 2, `69f5dd5`): il «+» lo
+**costruisce il 3b**, sull'agenda, in basso a destra, ≥ 44 punti, deep rose `#C2185B` con il glifo bianco, ombra per
+staccarlo dai blocchi, e **mai sopra la linea dell'ora**. Era un buco di confine vero: 3a §3.1 diceva «nessun +»,
+questo piano scriveva «è del 3b», la spec 3c lo lasciava «non stabilito» — tre piani lo nominavano, **nessuno lo
+prendeva**, e il cercaposti ha **una sola** rotta (spec §9.5, §9.11), cioè era irraggiungibile.
+
+⚠︎ **Per chi esegue:** `src/cliente/agenda-colonne.tsx` è **l'unico file di questo piano che il 3b modificherà**. Non
+si lascia un posto vuoto, un `TODO`, né un pulsante spento: si costruisce l'agenda come se il «+» non esistesse, e il
+3b lo aggiunge. Al momento dell'esecuzione del 3b ci si coordina su quel file.
 La pastiglia del badge su Impostazioni (spec §9.11, clienti eliminabili) è del **piano 4**: qui non si disegna.
 
 Le tre pagine segnaposto portano una riga sola ciascuna, in Cinzel il titolo e in Manrope il testo:
@@ -2603,6 +2614,7 @@ MESSAGGIO
 - Create: `src/dominio/blocchi.ts`
 - Create: `src/cliente/agenda-colonne.tsx`, `src/cliente/striscia-giorni.tsx`, `src/cliente/vista.ts`
 - Create: `tests/dominio/blocchi.test.ts`
+- Create: `tests/dominio/niente-dati-negli-url.test.ts` (**la prova statica di §4.8**)
 - Create: `tests/app/lettura-giorno.test.ts`
 - Modify: `src/app/(salone)/agenda/page.tsx`
 
@@ -2771,6 +2783,136 @@ it('la versione di PostgREST NON è quella di app.versione: le due strade non si
 })
 ```
 
+- [ ] **Passo 4b: la prova statica di §4.8, scritta come ELENCO DI PERMESSI**
+
+**Files:** Create `tests/dominio/niente-dati-negli-url.test.ts`.
+
+⚠︎ **Perché per permessi e non per divieti.** §4.8 la descrive per **enumerazione**: «una prova statica cerca filtri
+su `from('client')`, filtri concatenati dopo `.rpc(...)`, `rpc(..., { get: true })`, `head`, filtri su risorse
+annidate, `.or()`, `.textSearch()`». Un elenco di divieti **si apre da sé su ogni colonna che qualcuno aggiunge
+dopo**, e non è un'ipotesi: la revisione 1 della spec 3b ha provato a enumerare le colonne vietate — `full_name`,
+`phone`, `birth_month`, `birth_day` — e un revisore ha trovato che l'elenco **ometteva `preferred_operator_id`**,
+che spec §6.2 dichiara testualmente *«It is personal data»*, e **`no_messages`**, che registra un'obiezione
+dell'interessata. Il 3b aggiungerà `client.updated_at`, il piano 4 altre colonne ancora. Misurato il 28/09/2026;
+richiesta dalla chat della spec 3b, revisione 2 (`69f5dd5`).
+
+⚠︎ **Che cosa NON è un dato personale, e va lasciato passare.** `client.id` è `gen_random_uuid()`
+(`0003_client.sql:15` [misurato]): è uno **pseudonimo casuale**, ed è la stessa lettura che §4.9 fa già quando
+chiama gli id in `localStorage` «pseudonimi e non anonimi». Senza questa distinzione la prova colpirebbe la
+schermata Clienti del 3b, che legge una cliente con `from('client').eq('id', …)`. Passano anche
+**`.order('full_name')`**, che porta il **nome di una colonna** e non di una persona, e **`.range()`**, che porta
+**posizioni**.
+
+```ts
+// tests/dominio/niente-dati-negli-url.test.ts
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+function sorgenti(radice: string): string[] { /* come in niente-date.test.ts */ }
+
+// I metodi di PostgREST che mettono un VALORE nella querystring. `select`,
+// `order`, `range`, `limit`, `single` e `maybeSingle` non ci sono: portano nomi
+// di colonna o posizioni.
+const FILTRI = ['eq','neq','gt','gte','lt','lte','like','ilike','is','in','contains',
+                'containedBy','overlaps','match','filter','not']
+
+// ⚠︎ L'ELENCO DEI PERMESSI, ed è l'unica riga che si cambia quando il permesso
+// cambia. Non c'è nessun elenco di colonne vietate, da nessuna parte.
+const COLONNE_AMMESSE_SU_CLIENT = new Set(['id'])
+
+describe('§4.8: nessun dato personale in un URL', () => {
+  it('trova almeno un sorgente: altrimenti la prova è vuota e verde', () => {
+    expect(sorgenti('src').length).toBeGreaterThan(0)
+  })
+
+  it('su from(\'client\') è ammesso SOLO il filtro su id', () => {
+    const colpevoli: string[] = []
+    for (const f of sorgenti('src')) {
+      const testo = readFileSync(f, 'utf8')
+      // Dal `from('client')` fino alla fine dell'istruzione: si raccolgono le
+      // coppie `.metodo('colonna'` e si controlla la colonna.
+      for (const m of testo.matchAll(/\.from\(\s*['"]client['"]\s*\)([\s\S]*?)(?=\n\s*\n|$)/g)) {
+        for (const c of m[1].matchAll(/\.(\w+)\(\s*['"]([\w.]+)['"]/g)) {
+          const [, metodo, colonna] = c
+          if (FILTRI.includes(metodo) && !COLONNE_AMMESSE_SU_CLIENT.has(colonna)) {
+            colpevoli.push(`${f}: .${metodo}('${colonna}') su from('client')`)
+          }
+        }
+      }
+    }
+    expect(colpevoli).toEqual([])
+  })
+
+  it('nessun filtro su una colonna di client dentro una risorsa annidata', () => {
+    // §4.8 lo nomina: `client.full_name` in una lettura di `visit`. Stessa
+    // regola, stesso elenco di permessi: dopo `client.` può stare solo `id`.
+    const colpevoli: string[] = []
+    for (const f of sorgenti('src')) {
+      for (const c of readFileSync(f, 'utf8').matchAll(/\.(\w+)\(\s*['"]([\w.]*client\.[\w.]+)['"]/g)) {
+        const [, metodo, percorso] = c
+        const colonna = percorso.split('.').pop()!
+        if (FILTRI.includes(metodo) && !COLONNE_AMMESSE_SU_CLIENT.has(colonna)) {
+          colpevoli.push(`${f}: .${metodo}('${percorso}')`)
+        }
+      }
+    }
+    expect(colpevoli).toEqual([])
+  })
+
+  it('niente .or(), .textSearch(), rpc in GET, head, né filtri dopo .rpc()', () => {
+    const colpevoli: string[] = []
+    for (const f of sorgenti('src')) {
+      const testo = readFileSync(f, 'utf8')
+      for (const forma of [/\.or\(/, /\.textSearch\(/, /get:\s*true/, /head:\s*true/]) {
+        if (forma.test(testo)) colpevoli.push(`${f}: ${forma.source}`)
+      }
+      // Un filtro concatenato dopo `.rpc(...)` finisce nella querystring.
+      for (const c of testo.matchAll(/\.rpc\([^)]*\)\s*\.(\w+)\(/g)) {
+        if (FILTRI.includes(c[1])) colpevoli.push(`${f}: .${c[1]}() dopo .rpc()`)
+      }
+    }
+    expect(colpevoli).toEqual([])
+  })
+
+  it('nessun dato di una cliente finisce nell indirizzo della pagina', () => {
+    // ⚠︎ Nell'idioma dell'App Router una casella di ricerca scrive
+    // nell'indirizzo PER DIFETTO, e quello è un nome nei log della piattaforma
+    // e nella cronologia del telefono. Richiesta dalla chat della spec 3b, che
+    // tiene il testo cercato nello stato del componente e passa SOLO id.
+    const colpevoli: string[] = []
+    const PERSONALI = /full_name|phone|birth_month|birth_day|preferred_operator|no_messages|cliente(Nome|Telefono)/
+    for (const f of sorgenti('src')) {
+      for (const riga of readFileSync(f, 'utf8').split('\n')) {
+        if (/searchParams\.set|router\.(push|replace)|URLSearchParams/.test(riga) && PERSONALI.test(riga)) {
+          colpevoli.push(`${f}: ${riga.trim()}`)
+        }
+      }
+    }
+    expect(colpevoli).toEqual([])
+  })
+
+  it('la gemella positiva: la spia riconosce le forme colpevoli e lascia passare quelle ammesse', () => {
+    // Senza questa, tutte le prove di sopra restano verdi anche con una regex
+    // che non riconosce niente. È la lezione «censimento con spia».
+    const vietata = ".from('client').eq('full_name', nome)"
+    const ammessa = ".from('client').eq('id', clienteId).order('full_name').range(0, 19)"
+    const filtriDi = (s: string) =>
+      [...s.matchAll(/\.(\w+)\(\s*['"]([\w.]+)['"]/g)]
+        .filter((c) => FILTRI.includes(c[1]) && !COLONNE_AMMESSE_SU_CLIENT.has(c[2]))
+    expect(filtriDi(vietata)).toHaveLength(1)
+    expect(filtriDi(ammessa)).toHaveLength(0)   // ⚠︎ order e range NON sono filtri
+  })
+})
+```
+
+⚠︎ **Limite dichiarato.** È una scansione di testo, non un analizzatore sintattico: perde un filtro costruito a
+runtime (`.eq(colonna, valore)` con `colonna` in una variabile) e una catena spezzata su due istruzioni. È un
+presidio **contro la distrazione**, non contro chi vuole aggirarlo — e la difesa vera resta che ogni filtro su dati
+delle clienti passa da una funzione in POST.
+
+⚠︎ **Questa prova sta in `tests/dominio/`**, quindi `npm run test:fuso` la esegue: non ha bisogno del database.
+
 - [ ] **Passo 5: scrivi l'agenda a colonne**
 
 Le misure, tutte da §5.1 e §7:
@@ -2817,7 +2959,11 @@ passati come argomento**, non su quelli letti. Vedi «Dipendenze non ancora cons
 | 4 | `intera` sempre `true` | «un blocco unico porta intera: true; …» | 1 [da misurare] |
 | 5 | `finestraVerticale` restituisce solo i confini del salone | «contiene un appuntamento fuori dagli orari», «contiene anche una fascia …» | 2 [da misurare] |
 | 6 | le colonne si filtrano su `is_active` | ⚠︎ **prova da scrivere in `tests/app/`**: «la colonna di una disattivata con appuntamenti resta» | [da misurare] |
-| 7 | il filtro della lettura diventa `.eq('visit.client.full_name', …)` | «nessun filtro su dati delle clienti» — **prova statica da scrivere**, sul sorgente | [da misurare] |
+| 7 | il filtro della lettura diventa `.eq('visit.client.full_name', …)` | «nessun filtro su una colonna di client dentro una risorsa annidata» | 1 [da misurare] |
+| 7b | in una lettura si aggiunge `.from('client').eq('phone', …)` | «su `from('client')` è ammesso SOLO il filtro su id» | 1 [da misurare] |
+| 7c | `COLONNE_AMMESSE_SU_CLIENT` diventa `new Set(['id', 'full_name'])` | le due prove di sopra, **e** la gemella positiva | 3 [da misurare] |
+| 7d | la gemella positiva perde il caso `ammessa` | ⚠︎ **nessuna**, ed è il punto: senza quel caso l'elenco dei permessi si può stringere fino a vietare tutto e nessuna prova se ne accorge. **Dichiarata**: serve a tenere la gemella onesta nei due versi |
+| 7e | si scrive `router.push(\`/clienti?nome=${clienteNome}\`)` in un componente | «nessun dato di una cliente finisce nell indirizzo della pagina» | 1 [da misurare] |
 | 8 | `validaDocumentoFinestra` non viene chiamata | ⚠︎ **forse nessuna**: la validazione morde solo su dati storti, che il database non produce. Se dà 0, **si dichiara**: il presidio è al Task 2, e qui è il collegamento a essere muto | [da misurare] |
 
 ⚠︎ La sonda **8** è il caso «una guardia ha due assi: la logica e il collegamento». Se dà zero rosse, si aggiunge una
@@ -3992,6 +4138,37 @@ Tre cose non esistevano mentre questo piano veniva scritto. Per ciascuna: che co
 
 ---
 
+## Composizione con il piano 3b, e la conseguenza che nessuna delle due chat vedeva
+
+Scritto il 28/09/2026, dopo la richiesta della chat della spec 3b (revisione 2, `69f5dd5`). Due decisioni loro
+toccano questo piano, e sono state **verificate alla fonte** prima di essere accolte: `client.id` è davvero
+`gen_random_uuid()` (`0003_client.sql:15`), spec §6.2 dice davvero di `preferred_operator_id` *«It is personal
+data»*, `no_messages` esiste davvero, e D3b-13 sta davvero nella spec committata.
+
+**Accolte tutte e due**, e sono migliorie vere: l'elenco di permessi del Passo 4b del Task 5, e il «+» che passa al
+3b senza segnaposto.
+
+⚠︎ **Ma comporre le due decisioni produce una conseguenza che nessuna delle due chat poteva vedere da sola, perché
+sta fra i due piani.** L'elenco dei permessi dice: *«nelle richieste GET a `from('client')` è ammesso solo il filtro
+su `id`»*. La prova che lo impone è **mia** (§4.8 la assegna al 3a) e gira su **tutto `src/`**, quindi vale anche per
+il codice che il 3b e il piano 4 scriveranno. Conseguenza:
+
+| Schermata | Di chi | Su che cosa filtra | Che cosa impone l'elenco dei permessi |
+|---|---|---|---|
+| **Compleanni** (spec §9.7) | 3b | `birth_month`, `birth_day`, e l'esclusione di `no_messages` | **non può** essere un GET su `from('client')`: serve una funzione in POST, che **oggi non esiste** |
+| **Revisione delle conservazioni** (spec §11.4) | piano 4 | `last_activity_at` | idem |
+| **Ricerca clienti** (spec §9.6) | 3b | nome e telefono | già prevista in POST (`cerca_clienti`, Task 10 del 3a-1): **nessun costo** |
+
+Il costo non è grande — è una funzione `security invoker` in più per i compleanni — **ma non è zero, e non è
+nominato in nessuno dei due documenti**. Se il 3b l'ha già previsto, bene; se non l'ha previsto, lo scopre quando la
+mia prova statica diventa rossa sul **suo** codice, in un task che credeva chiuso.
+
+**Questo piano non decide per il 3b**: scrive la conseguenza e la rimanda. ⚠︎ Ed è esattamente il caso di «due sì
+ragionevoli in due chat diverse che si sommano in un rischio che nessuna delle due vede»: chi consegna per ultimo
+compone.
+
+---
+
 ## Divergenze fra spec e realtà, trovate e non corrette
 
 Come chiesto: elencate, non corrette. Nessuna è bloccante per questo piano.
@@ -4221,6 +4398,8 @@ coincidono — ma va **dichiarato** invece di lasciarlo scoprire: chi esegue def
 - **Disponibilità**, **restringimento**, **impostazioni**, **primo avvio**, **verifiche prima del rilascio**,
   **procedura «telefono perso»**: 3c.
 - **Dati personali** (spec §11), la **pastiglia** su Impostazioni, l'**esportazione**: piano 4.
-- **Il «+»** fluttuante e la pagina del cercaposti: 3b (§3.2).
+- **Il «+»** fluttuante e la pagina del cercaposti: **3b**, per **D3b-13** (spec 3b revisione 2, `69f5dd5`), che
+  chiude un buco di confine fra tre piani. `src/cliente/agenda-colonne.tsx` è l'unico file di questo piano che il 3b
+  tocca: **nessun segnaposto**, e coordinamento su quel file all'esecuzione.
 - **Lo scambio fra operatrici** (`swap_appointment_operators`): non esposto, per decisione di §3.3.
 - **La revoca di `move_visit`** e l'audit su `pg_proc.proacl`: Task 9 del piano 3a-1.
