@@ -15,6 +15,7 @@
   "type": "module",
   "private": "true",
   "devDependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.0",
     "supabase": "^2.117.0",

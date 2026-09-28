@@ -6,6 +6,21 @@ import { dimenticaSessioni, sessioneDi } from './sessioni'
 // day anywhere east of UTC — green in CI, red in Perugia. Dates stay strings.
 pg.types.setTypeParser(1082, (v: string) => v)
 
+// E un `date[]` (OID 1182) porta la stessa trappola moltiplicata: senza questa
+// riga node-postgres restituisce un array di `Date` a mezzanotte LOCALE, e ogni
+// asserzione sui giorni annunciati (Task 8) è rossa a Perugia e verde in CI.
+// `{}` è l'array vuoto; le date non contengono virgole né virgolette, quindi lo
+// spacchettamento letterale basta e non serve un parser generale di array.
+// ⚠︎ `@ts-expect-error` e non un cast: l'enum `TypeId` di `pg-types` elenca i
+// soli OID SCALARI — non c'è dentro nessun tipo array, quindi 1182 è respinto
+// per costruzione e lo sarebbe qualunque `_tipo[]`. Il valore a esecuzione è
+// corretto: lo dice la prova, non il compilatore. Questa forma si autoregola —
+// se un giorno `@types/pg` tipizzasse gli array, la riga qui sotto smetterebbe
+// di essere un errore e `@ts-expect-error` diventerebbe ESSO STESSO rosso,
+// dicendo a chi passa che la deroga si può togliere. Un cast resterebbe muto.
+// @ts-expect-error
+pg.types.setTypeParser(1182, (v: string) => (v === '{}' ? [] : v.slice(1, -1).split(',')))
+
 export const DB_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 

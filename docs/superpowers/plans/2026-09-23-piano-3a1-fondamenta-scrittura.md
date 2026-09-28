@@ -3662,14 +3662,14 @@ pubblicazione la limitiamo agli inserimenti.
 
 **Che cosa contiene una riga:** solo `date`. Nessun nome, nessun telefono, nessun `id` di cliente.
 
-- [ ] **Passo 1: aggiungi la dipendenza per la prova**
+- [x] **Passo 1: aggiungi la dipendenza per la prova**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler
 npm install --save-dev @supabase/supabase-js
 ```
 
-- [ ] **Passo 2: insegna all'imbracatura a leggere un elenco di date**
+- [x] **Passo 2: insegna all'imbracatura a leggere un elenco di date**
 
 `giorni` è un `date[]`, OID **1182**, e `tests/helpers/db.ts:6` registra il parser solo per `date`, OID 1082: senza
 questa riga ogni data torna come un oggetto `Date` convertito nel fuso locale, e **ogni asserzione sulle date è
@@ -3683,7 +3683,7 @@ pg.types.setTypeParser(1182, (v: string) => (v === '{}' ? [] : v.slice(1, -1).sp
 Nello stesso Passo, porta a **16** il conteggio delle politiche in `tests/schema/sessione-viva.test.ts` (Task 3):
 `annuncio` ne aggiunge una, e senza questa riga il gate `npm test` di questo task è rosso.
 
-- [ ] **Passo 3: scrivi le prove che falliscono**
+- [x] **Passo 3: scrivi le prove che falliscono**
 
 ```ts
 // tests/schema/annunci.test.ts
@@ -3934,7 +3934,7 @@ describe('annunci, dal lato del telefono', () => {
 })
 ```
 
-- [ ] **Passo 4: esegui e verifica che falliscano**
+- [x] **Passo 4: esegui e verifica che falliscano**
 
 Atteso: **7 rosse** — *«annuncia il giorno toccato»*, *«una cancellazione a cascata…»*, *«il giorno VECCHIO e quello
 nuovo»*, *«non contiene nomi, telefoni né id di cliente»*, *«non lascia scrivere gli annunci…»*, *«lascia leggere gli
@@ -3944,7 +3944,7 @@ zero righe, quindi arrossisce con `expect([]).toEqual(['creato','giorni','id'])`
 che lo restano fino al Passo 5: le tre negative («non arriva a…»), perché senza tabella non arriva niente a nessuno.
 È esattamente la ragione per cui ognuna delle tre si porta dentro la sua compagna positiva.
 
-- [ ] **Passo 5: scrivi la migrazione**
+- [x] **Passo 5: scrivi la migrazione**
 
 ```sql
 -- supabase/migrations/0019_annunci.sql
@@ -4092,7 +4092,7 @@ revoke execute on function app.annuncia_giorni() from public, anon;
 contiene nessun'altra tabella (misurato), ma il piano lo dichiara, e la prova di catalogo del Task 9 — «nessuna
 tabella nella pubblicazione» — va cambiata in «**esattamente** `annuncio`».
 
-- [ ] **Passo 6: aggiungi la pulizia degli annunci e applica**
+- [x] **Passo 6: aggiungi la pulizia degli annunci e applica**
 
 Nella stessa migrazione, con `create or replace function app.chiudi_invio(...)`, riscrivi la funzione del Task 1
 aggiungendo in coda la terza pulizia, quella che il Task 1 lascia commentata perché la tabella non esisteva ancora:
@@ -4107,7 +4107,7 @@ Run: `npx supabase db reset && npx vitest run tests/schema/annunci.test.ts`
 Atteso: 10 verdi. Se le prove dal lato del telefono restano rosse, controlla che Realtime sia acceso
 (`npx supabase status`) e che la pubblicazione contenga `annuncio`.
 
-- [ ] **Passo 7: sonde di mutazione**
+- [x] **Passo 7: sonde di mutazione**
 
 | # | Mutazione | Prova che deve arrossire |
 |---|---|---|
@@ -4120,7 +4120,7 @@ Atteso: 10 verdi. Se le prove dal lato del telefono restano rosse, controlla che
 | 7 | metti `client_id` nella riga, popolato con l'id della cliente | *«non contiene nomi, telefoni né id di cliente»*, che legge la riga intera e fissa l'elenco delle colonne. ⚠︎ Con la vecchia forma (`select giorni`) questa sonda **non aveva vittima**: misurato al quinto giro |
 | 8 | togli `set (publish = 'insert')` | nessuna prova con questi dati: **dichiarala**, e il presidio è la prova di catalogo del Task 9 |
 
-- [ ] **Passo 8: gate e commit**
+- [x] **Passo 8: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler

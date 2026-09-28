@@ -216,6 +216,6 @@ describe('forma delle politiche', () => {
       `)
       return Number(r.rows[0].n)
     })
-    expect(quante).toBe(15)
+    expect(quante).toBe(16)
   })
 })
