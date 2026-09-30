@@ -39,7 +39,8 @@ Atteso, una riga per comando:
   `package.json`. I commit fra `a63b996` e HEAD sono **tutti di sola documentazione** — il numero non è scritto qui
   apposta, perché cresce ogni volta che una chat sorella committa un documento. Quello che conta è che **il terzo
   comando resti vuoto**;
-* il quarto stampa **sedici righe, e sono esattamente queste** (rimisurate il 29/09/2026). ⚠︎ `git status --short`
+* il quarto stampa **quindici righe, e sono esattamente queste** (rimisurate il 30/09/2026, dopo che questo prompt
+  è stato committato in `58572fd` — è la ragione per cui non figura più fra gli untracked). ⚠︎ `git status --short`
   elenca **prima** i file tracciati modificati e **poi** gli untracked in ordine di path: la riga ` M` è quindi la
   **prima**, non in mezzo alle altre di `docs/`:
 
@@ -55,7 +56,6 @@ Atteso, una riga per comando:
   ?? docs/handoffs/2026-09-28-spec-3c-prompt.md
   ?? docs/handoffs/2026-09-28-spec-piano4-prompt.md
   ?? docs/handoffs/2026-09-28-task8-piano-3a1-prompt.md
-  ?? docs/handoffs/2026-09-28-task9-piano-3a1-prompt.md
   ?? docs/superpowers/specs/2026-09-28-piano-3c-la-preparazione-design.md
   ?? docs/superpowers/specs/2026-09-28-piano-4-dati-personali-design.md
   ?? supabase/.DS_Store
@@ -67,7 +67,7 @@ Atteso, una riga per comando:
   proposito, nota da prima del Task 8: **non tua, non si committa, non si tocca**;
   — le **due spec sotto `docs/superpowers/specs/`** appartengono ad altre due chat che hanno finito di scrivere:
   **non si committano e non si sovrascrivono**;
-  — `2026-09-28-task9-piano-3a1-prompt.md` è **questo file**, e i prompt dei Task 8 e del 3a-2 sono untracked come lui.
+  — i prompt dei Task 8 e del 3a-2 restano untracked; **questo file no**, è committato in `58572fd`.
 
   **Divergenze innocue, che NON fermano:**
   — righe untracked in **meno** sotto `docs/handoffs/` o `docs/superpowers/specs/`: l'utente o una chat sorella le ha
