@@ -23,7 +23,7 @@ git log -1 --format='%s' a63b996
 git diff --stat a63b996..HEAD -- supabase tests src package.json
 git status --short
 git branch --show-current
-git log --oneline -1 origin/main
+git rev-list --count HEAD..origin/main
 ls supabase/migrations/ | tail -3
 ls tests/schema/ | grep -c outsider-write
 ```
@@ -80,9 +80,18 @@ Atteso, una riga per comando:
   `supabase/`, `tests/`, `src/`, oppure `package.json`. ⚠︎ La distinzione è deliberata: un controllo che grida a ogni
   `.DS_Store` viene spento dopo il secondo falso allarme, e da lì in poi non presidia più nemmeno il caso vero;
 * il quinto stampa `main`;
-* il sesto stampa `ee2a679 fix(3a-1): «Controlla» dopo le due revisioni, e un criterio di misura vacuo`. `origin/main`
-  è **indietro di una decina di commit** rispetto a `main` (10 al 29/09): è normale e voluto, l'utente non ha ancora
-  pushato, e il numero cresce da sé. Se risultasse **più avanti** di HEAD, qualcuno ha pushato o resettato: fermati;
+* il sesto: ⛔ **non confrontarlo con uno SHA scritto qui.** Questo prompt vive nello stesso repo che descrive, e
+  ogni suo commit o push sposterebbe il valore atteso — è già successo due volte il 30/09. Quello che conta è
+  l'**invariante**, e si misura così:
+
+  ```bash
+  git rev-list --count HEAD..origin/main   # atteso: 0
+  ```
+
+  `0` significa che `origin/main` **non è avanti** rispetto a te: è l'unica condizione che deve valere. Al 30/09
+  `main` e `origin/main` sono **in pari** (nessun commit non pushato), ma andrebbe bene anche essere avanti di
+  venti commit non pushati. ⚠︎ Se stampa un numero **maggiore di 0**, qualcuno ha pushato o resettato dopo di te:
+  **fermati e chiedi**;
 * il settimo stampa `0017_sposta_e_cancella.sql`, `0018_controlla_invio.sql`, `0019_annunci.sql`. **`0020` è libero sul
   disco ed è tuo** (`0021` è rivendicato dal Task 10: non usarlo);
 * l'ottavo stampa `0`: `tests/schema/outsider-write.test.ts` non esiste ancora, lo crei tu. ⚠︎ Se stampa `1` qualcuno ha
