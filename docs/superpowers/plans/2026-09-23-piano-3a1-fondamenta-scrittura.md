@@ -4156,7 +4156,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Produce: nessun oggetto nuovo. Chiude `PERMESSI-FUNZIONI`, `MIGRAZIONE-SALTATA`, `OUTSIDER-WRITE` e la divergenza
   L8 dalla spec §4.6.
 
-- [ ] **Passo 1: scrivi le prove nuove dell'audit**
+- [x] **Passo 1: scrivi le prove nuove dell'audit**
 
 Aggiungi a `tests/schema/catalogue-audit.test.ts`:
 
@@ -4347,7 +4347,7 @@ it('applica ogni file di supabase/migrations, senza saltarne nessuno', async () 
 })
 ```
 
-- [ ] **Passo 2: esegui e guarda quali falliscono**
+- [x] **Passo 2: esegui e guarda quali falliscono**
 
 Run: `npx vitest run tests/schema/catalogue-audit.test.ts`
 Atteso: rossa *«ha esattamente queste funzioni security definer…»* finché gli elenchi non corrispondono al catalogo
@@ -4356,7 +4356,7 @@ far passare la prova è il modo di spegnerla. Le due voci già note e dichiarate
 `search_path`, da 0004) e le sei funzioni di `app` eseguibili da `anon` — cinque trigger più
 `app.is_active_operator()`, che trigger non è.
 
-- [ ] **Passo 3: revoca la vecchia `move_visit` e adatta le sue prove**
+- [x] **Passo 3: revoca la vecchia `move_visit` e adatta le sue prove**
 
 ```sql
 -- supabase/migrations/0020_revoca_move_visit.sql
@@ -4389,7 +4389,7 @@ it('non è più chiamabile da un operatrice: il 3a usa sposta_visita_a', async (
 })
 ```
 
-- [ ] **Passo 4: `OUTSIDER-WRITE` sulle funzioni nuove**
+- [x] **Passo 4: `OUTSIDER-WRITE` sulle funzioni nuove**
 
 Un file proprio, `tests/schema/outsider-write.test.ts`, invece di un innesto in `access-control.test.ts`: quel file
 non semina le fixture e non conosce le costanti che servono.
@@ -4520,7 +4520,7 @@ un estraneo o per un'operatrice disattivata è **sempre `42501`**, mai `non_trov
 
 Il file arriva così a **4 casi × 4 prove = 16**.
 
-- [ ] **Passo 5: gate e commit**
+- [x] **Passo 5: gate e commit**
 
 ```bash
 cd /Users/nadiaottavi/Desktop/Git/salon-scheduler

@@ -1,0 +1,11 @@
+-- supabase/migrations/0020_revoca_move_visit.sql
+--
+-- La vecchia move_visit(uuid, date, integer) sposta di uno SCARTO RELATIVO e
+-- non controlla nessuna versione: un invio ripetuto sposterebbe due volte, e
+-- due operatrici che spostano la stessa visita si sovrascrivono in silenzio
+-- (design 3a §4.1, reperto B2). Il 3a la sostituisce con sposta_visita_a.
+--
+-- Non si CANCELLA, si revoca: resta leggibile nella 0010 e nelle sue prove,
+-- che continuano a esercitarla da proprietario. È una divergenza dichiarata
+-- dalla spec §4.6, che la elenca fra le quattro funzioni (lettura L8).
+revoke execute on function public.move_visit(uuid, date, integer) from authenticated;

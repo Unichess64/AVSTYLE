@@ -59,16 +59,27 @@ describe('move_visit', () => {
     expect(await startsOf(V1)).toEqual([126, 138])
   })
 
-  it('is callable by the application role', async () => {
-    const seen = await asOperator(VERA_AUTH, async (c) => {
-      await c.query('select move_visit($1, $2::date, $3)', [V1, DAY_ONE, 6])
-      const r = await c.query<{ s: number }>(
-        'select start_cell as s from appointment where visit_id = $1 order by start_cell',
-        [V1],
-      )
-      return r.rows.map((x) => x.s)
+  // Sostituisce «is callable by the application role», che la 0020 rende
+  // impossibile. Convertirla a `asOwner` invece che sostituirla ne avrebbe
+  // fatto un doppione esatto di «shifts a two-service visit by 30 minutes»
+  // qui sopra: stessa chiamata, stessa imbracatura, stesso atteso.
+  //
+  // ⚠︎ Questa prova NON è il presidio della revoca, e chi legge non la tratti
+  // come tale: `42501` è anche ciò che risponde una sessione morta in cache o
+  // un'imbracatura rotta, quindi resterebbe verde per il motivo sbagliato. Il
+  // presidio della 0020 è la prova nominativa in fondo al file — «authenticated
+  // non ha più EXECUTE su public.move_visit(uuid, date, integer)» — che
+  // interroga il PERMESSO invece del comportamento.
+  it('non è più chiamabile da un operatrice: il 3a usa sposta_visita_a', async () => {
+    const codiceErrore = await asOperator(VERA_AUTH, async (c) => {
+      try {
+        await c.query('select move_visit($1, $2::date, 6)', [V1, DAY_TWO])
+        return 'nessun errore'
+      } catch (e) {
+        return pgCode(e)
+      }
     })
-    expect(seen).toEqual([126, 138])
+    expect(codiceErrore).toBe('42501')
   })
 
   it('moves a whole visit to another date', async () => {
@@ -201,17 +212,32 @@ describe('move_visit', () => {
     ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
   })
 
-  it('raises P0002, not a silent success, when the caller cannot see the visit', async () => {
-    // OUTSIDER_AUTH is an authenticated account linked to no operator row,
-    // so app.is_active_operator() is false and RLS hides V1 entirely.
-    // La sua gemella positiva è `is callable by the application role`, sopra:
-    // stessa funzione, stessa imbracatura, un'operatrice attiva. Senza di lei
-    // questo P0002 sarebbe sollevato anche da una sessione morta in cache, e
-    // la prova misurerebbe l'imbracatura rotta (misurato col Task 3).
-    await expect(
-      asOperator(OUTSIDER_AUTH, (c) => c.query('select move_visit($1, $2::date, $3)', [V1, DAY_ONE, 6])),
-    ).rejects.toSatisfy((e) => pgCode(e) === 'P0002')
-  })
+  // ⛔ QUI C'ERA «raises P0002, not a silent success, when the caller cannot
+  // see the visit», e la 0020 l'ha resa IMPOSSIBILE. È una perdita dichiarata,
+  // non una pulizia: si scrive qui perché un file che tace su ciò che ha perso
+  // lascia credere di presidiare ancora quel ramo.
+  //
+  // Che cosa presidiava: «move_visit solleva P0002 invece di non far niente in
+  // silenzio, quando la sicurezza per riga nasconde la visita a CHI CHIAMA».
+  // Chiamava da asOperator(OUTSIDER_AUTH) — un conto authenticated legato a
+  // nessuna operatrice — e dopo la revoca quella chiamata riceve 42501 prima
+  // ancora di entrare nella funzione.
+  //
+  // Perché non è stata riscritta: l'unico caso che il PROPRIETARIO può ancora
+  // raggiungere è «la visita non esiste», ed è esattamente la prova qui sopra.
+  // Riscriverla così sarebbe stato un doppione verde al posto di un presidio.
+  // E il ramo non ha più NESSUN chiamante capace di esercitarlo: asOwner
+  // scavalca la sicurezza per riga, quindi da proprietario la visita è sempre
+  // visibile, e dopo la 0020 nessun ruolo soggetto alla RLS ha più EXECUTE.
+  //
+  // Il numero, misurato il 30/09/2026 (sonda: via il `raise … P0002` dal
+  // controllo FOUND di move_visit in 0010, db reset, suite intera):
+  //   • PRIMA della 0020: 2 rosse — questa e «raises P0002 for a visit that
+  //     does not exist».
+  //   • DOPO  della 0020: 1 rossa — resta solo quella.
+  // Cioè la revoca spegne esattamente UN rivelatore, e il controllo FOUND
+  // resta comunque piantato. La metà che si perde è quella sulla INVISIBILITÀ
+  // per riga, non quella sull'assenza.
 })
 
 describe('swap_appointment_operators', () => {
@@ -382,11 +408,21 @@ describe('write_exception_day', () => {
 describe('write function privileges', () => {
   // Canonical signatures, as `has_function_privilege` resolves them —
   // matching the revoke/grant block's own spelling in the migration.
-  const SIGNATURES: [string, string][] = [
-    ['public.move_visit(uuid, date, integer)', 'move_visit(null, null, null)'],
+  // ⚠︎ L'elenco è spaccato in due dalla 0020, e NON riducendolo a tre: togliere
+  // e basta la riga di move_visit è la correzione che viene naturale davanti
+  // alla rossa, e cancellerebbe IN SILENZIO anche i due presidi su `anon` che
+  // vivono nello stesso elenco.
+  //
+  // Le tre che authenticated può ancora chiamare dopo la 0020.
+  const SIGNATURES_VIVE: [string, string][] = [
     ['public.swap_appointment_operators(uuid, uuid)', 'swap_appointment_operators(null, null)'],
     ['public.write_exception_day(uuid, date, int[])', 'write_exception_day(null, null, null)'],
     ['public.write_exception_days(uuid, date, date, int[])', 'write_exception_days(null, null, null, null)'],
+  ]
+  // Tutte e quattro: anon non deve poterne chiamare nessuna, move_visit compresa.
+  const SIGNATURES: [string, string][] = [
+    ['public.move_visit(uuid, date, integer)', 'move_visit(null, null, null)'],
+    ...SIGNATURES_VIVE,
   ]
 
   const hasExecute = (role: 'anon' | 'authenticated', signature: string) =>
@@ -413,8 +449,20 @@ describe('write function privileges', () => {
     expect(await hasExecute('anon', signature)).toBe(false)
   })
 
-  it.each(SIGNATURES)('authenticated has EXECUTE on %s', async (signature) => {
+  it.each(SIGNATURES_VIVE)('authenticated has EXECUTE on %s', async (signature) => {
     expect(await hasExecute('authenticated', signature)).toBe(true)
+  })
+
+  // ⚠︎ IL presidio della 0020, e l'unico che sappia arrossire su di lei.
+  //
+  // Le due prove sopravvissute su move_visit non discriminano più niente sulla
+  // revoca: «anon lacks EXECUTE» era già false prima (0010 la revoca ad anon
+  // dal primo giorno), e «refuses … to an unauthenticated caller» resta verde
+  // perché `anon` prendeva già 42501. Serve l'asserzione POSITIVA rovesciata su
+  // authenticated, che è la sola capace di passare da true a false quando la
+  // 0020 sparisce.
+  it('authenticated non ha più EXECUTE su public.move_visit(uuid, date, integer)', async () => {
+    expect(await hasExecute('authenticated', 'public.move_visit(uuid, date, integer)')).toBe(false)
   })
 
   it.each(SIGNATURES)('refuses %s to an unauthenticated caller', async (_signature, call) => {
