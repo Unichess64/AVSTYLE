@@ -445,6 +445,45 @@ describe('write function privileges', () => {
   // below stayed green with EXECUTE wrongly granted, unable to fail.
   // has_function_privilege checks the EXECUTE grant itself, directly, so it
   // cannot be fooled by what happens deeper inside the function.
+  // ⚠︎ IL presidio degli ELENCHI STESSI, e l'unico che li veda.
+  //
+  // Togliere una riga da `SIGNATURES` non dà nessuna rossa: abbassa solo il
+  // denominatore, in silenzio. Misurato il 30/09/2026, togliendo `move_visit`:
+  // 31 → 29 prove, ZERO rosse. Ed è la correzione che viene naturale davanti
+  // alla rossa della 0020 — e le due righe che sparirebbero NON sono doppioni:
+  // `grant execute on function public.move_visit(uuid, date, integer) to public`
+  // fa arrossire 3 prove, fra cui *anon lacks EXECUTE on public.move_visit(…)*.
+  // Quel presidio è vivo, e la correzione naturale lo spegne.
+  //
+  // Si pianta per NOME e non con `toHaveLength(4)`: la lunghezza non vede una
+  // voce SOSTITUITA con un doppione (misurato: doppiando write_exception_day al
+  // posto di write_exception_days, zero rosse e `write_exception_days` non più
+  // provata da nessuna parte), e non vede affatto il SECONDO elemento della
+  // tupla — la forma di CHIAMATA, che *refuses %s to an unauthenticated caller*
+  // esegue letteralmente. Una chiamata con un argomento in meno darebbe 42883
+  // invece di 42501, e quella prova arrossirebbe per il motivo sbagliato.
+  //
+  // Non ha `beforeEach`: è puramente sintattica, non tocca il database.
+  it('tiene i due elenchi delle firme pinnati per nome, non per lunghezza', () => {
+    expect(SIGNATURES.map(([s]) => s)).toEqual([
+      'public.move_visit(uuid, date, integer)',
+      'public.swap_appointment_operators(uuid, uuid)',
+      'public.write_exception_day(uuid, date, int[])',
+      'public.write_exception_days(uuid, date, date, int[])',
+    ])
+    expect(SIGNATURES_VIVE.map(([s]) => s)).toEqual([
+      'public.swap_appointment_operators(uuid, uuid)',
+      'public.write_exception_day(uuid, date, int[])',
+      'public.write_exception_days(uuid, date, date, int[])',
+    ])
+    expect(SIGNATURES.map(([, chiamata]) => chiamata)).toEqual([
+      'move_visit(null, null, null)',
+      'swap_appointment_operators(null, null)',
+      'write_exception_day(null, null, null)',
+      'write_exception_days(null, null, null, null)',
+    ])
+  })
+
   it.each(SIGNATURES)('anon lacks EXECUTE on %s', async (signature) => {
     expect(await hasExecute('anon', signature)).toBe(false)
   })

@@ -96,15 +96,47 @@ const CASI: [string, string, (v: typeof versioni) => unknown[]][] = [
   ['controlla_invio', 'select controlla_invio($1,$2) as r', () => [COD(), V1]],
 ]
 
+// L'esito che un'operatrice ATTIVA deve ricevere, PER NOME.
+//
+// ⚠︎ Prima qui c'era `toMatch(/^riga \d+$/)` per controlla_invio, e accettava
+// QUALUNQUE riga — comprese la 5 («non deve accadere… errore, e l'agenda si
+// ricarica», §4.4) e la 6 («un esito che non ha scritto»), cioè proprio gli
+// esiti che la gemella positiva esiste per escludere.
+//
+// `riga 1` non è una scelta: COD() è un contatore, quindi il codice d'invio è
+// FRESCO a ogni chiamata, `app.apri_invio_come_annullato` lo INSERISCE e
+// restituisce 'annullato' (0018:38-42), e §4.4 dà ad 'annullato' la riga 1.
+// Per le altre tre i valori sono letti alla sede, non assunti.
+const ESITO_ATTESO: Record<string, string> = {
+  salva_visita: 'salvata',        // 0016:305
+  sposta_visita_a: 'salvata',     // 0017:163
+  cancella_visita: 'cancellata',  // 0017:258
+  controlla_invio: 'riga 1',      // 0018:99 + 0018:145
+}
+
 describe.each(CASI)('%s', (nome, sql, params) => {
-  // ⚠︎ Ciò che MORDE qui è `expect(dopo).toEqual(prima)`. La lista
-  // ['salvata','cancellata'] è satura per controlla_invio (che non scrive mai
-  // in appointment) e ridondante per le altre tre: resta, ma non si conti come
-  // presidio.
+  // ⚠︎ La prima stesura di questo commento diceva «ciò che MORDE qui è
+  // `expect(dopo).toEqual(prima)`». Era FALSO per controlla_invio, che non
+  // scrive MAI in `appointment`: là anche quella è invariante, e la lista
+  // ['salvata','cancellata'] è satura, quindi la prova era completamente MUTA.
+  // Misurato il 30/09/2026 riscrivendo `app.is_active_operator()` a
+  // `select true` sulla sede viva (0014): 11 rosse su 16, e questa NON era fra
+  // loro — guardia spenta, prova verde.
+  //
+  // La riga `expect(esito).toBe('42501')` qui sotto è ciò che la rende capace
+  // di fallire. Sì, la rende molto simile a «risponde sempre 42501» in fondo:
+  // la differenza è che quella asserisce SOLO il codice, questa asserisce il
+  // codice E l'assenza di scrittura, e serve che a ogni caso resti almeno una
+  // prova viva su ciascuno dei due fatti.
+  //
+  // ⚠︎ Limite noto, NON chiuso qui: `statoDb()` legge la sola `appointment`,
+  // mentre controlla_invio scrive in `invio` (via app.apri_invio_come_annullato).
+  // Per lei «non ha scritto» è quindi misurato su una tabella che non tocca mai.
   it('non scrive niente per un account che non è operatrice', async () => {
     const { esito, prima, dopo } = await prova(OUTSIDER_AUTH, sql, params(versioni))
     expect(['salvata', 'cancellata']).not.toContain(esito)
     expect(dopo).toEqual(prima)
+    expect(esito).toBe('42501')
   })
 
   it('non scrive niente per un operatrice disattivata', async () => {
@@ -138,8 +170,8 @@ describe.each(CASI)('%s', (nome, sql, params) => {
   // risposta — una riga di §4.4 — e senza di essa il suo caso sarebbe muto.
   it('ma un operatrice attiva sì, con la stessa imbracatura', async () => {
     const { esito, prima, dopo } = await prova(VERA_AUTH, sql, params(versioni))
+    expect(esito).toBe(ESITO_ATTESO[nome])
     if (nome === 'controlla_invio') {
-      expect(esito).toMatch(/^riga \d+$/)
       expect(dopo).toEqual(prima)
     } else {
       expect(dopo).not.toEqual(prima)

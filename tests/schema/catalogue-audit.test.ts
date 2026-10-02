@@ -46,15 +46,36 @@ const DEFINER_PER_AUTHENTICATED = [
 //
 // Perché è un elenco diverso e più largo di DEFINER_PER_AUTHENTICATED (sei):
 // quello enumera le chiamabili da authenticated, questo enumera chi il potere
-// ce l'ha. Misurato il 30/09/2026: sono QUATTORDICI, quindi senza questa prova
-// OTTO funzioni con i poteri del proprietario non sarebbero piantate da niente.
+// ce l'ha. Misurato il 30/09/2026: sono QUATTORDICI, e otto di esse non sono
+// nell'elenco delle sei.
 //
-// Il danno non è teorico. `app.registra_visita_cancellata` è fra le otto, e il
-// suo `definer` perduto fu il bloccante della revisione del Task 1: ogni
-// «Elimina visita», ogni «Togli» sull'ultimo servizio e ogni cancellazione di
-// cliente fallirebbero con 42501 per le operatrici vere CON LA SUITE TUTTA
-// VERDE. Un `create or replace function` azzera ogni attributo non ripetuto,
-// ed è esattamente la forma che il Task 8 ha usato su `chiudi_invio`.
+// ⚠︎ QUANTE NE PRESIDIA DAVVERO QUESTA PROVA DA SOLA: TRE, non otto. La prima
+// stesura di questo commento diceva otto ed era FALSA. Misurato il 30/09/2026
+// portando a `security invoker` tutte e otto, una per una, con la suite intera
+// a ogni giro (438 prove):
+//
+//   app.chiudi_sessioni_di(uuid)          1 rossa  → SOLO questa prova
+//   app.delete_orphan_visit()             1 rossa  → SOLO questa prova
+//   app.touch_client_activity()           1 rossa  → SOLO questa prova
+//   app.chiudi_sessioni_operatrice()      2 rosse
+//   app.guard_operator_lockout()          6 rosse
+//   app.registra_visita_cancellata()     13 rosse
+//   app.annuncia_giorni()                90 rosse
+//   app.sync_appointment_slots()         90 rosse
+//
+// Quindi il valore di questa prova è reale ma circoscritto: per TRE funzioni è
+// l'unico rivelatore che esista, per le altre cinque è il primo a parlare.
+//
+// ⚠︎ E la seconda metà di quel commento era falsa allo stesso modo. Diceva che
+// senza il `definer` di `app.registra_visita_cancellata` ogni «Elimina visita»
+// fallirebbe «con la suite tutta verde»: **no**, dà 13 rosse su 5 file, di cui
+// 12 comportamentali (`cancella_visita`, `le sette righe`, `registro delle
+// visite cancellate`, la gemella positiva di `outsider-write`). Il bloccante
+// della revisione del Task 1 era vero ALLORA, quando quelle 12 prove non
+// esistevano: i Task 6, 7 e 8 lo hanno chiuso per altra via. Un `create or
+// replace function` azzera comunque ogni attributo non ripetuto, ed è la forma
+// che il Task 8 ha usato su `chiudi_invio`: la prova resta utile, ma chi legge
+// non le attribuisca un merito che è di altri.
 //
 // ⚠︎ Due di queste funzioni esistono in DUE sedi, e chi muta la migrazione
 // sbagliata misura il nulla: `app.is_active_operator()` è definita in 0001:27
@@ -67,12 +88,12 @@ const DEFINER_DICHIARATE: [string, string][] = [
   ['app.chiudi_invio(p_codice uuid, p_esito text)', "registra l'esito in invio (0013:126, sede viva 0019:179)"],
   ['app.chiudi_sessioni_di(p_auth_user_id uuid)', 'cancella da auth.sessions, che è di supabase_auth_admin (0015)'],
   ['app.chiudi_sessioni_operatrice()', 'trigger: stessa ragione, sul cambio di is_active/auth_user_id (0015)'],
-  ['app.delete_orphan_visit()', 'trigger: cancella la visita rimasta senza appuntamenti (0008)'],
+  ['app.delete_orphan_visit()', 'trigger (0008): definer DIFENSIVO, non necessario — authenticated ha già DELETE su visit; copre il caso in cui il trigger scatti quando la sessione è già caduta. Misurato: a invoker, 1 rossa e solo questa prova'],
   ['app.guard_operator_lockout()', "trigger di vincolo: conta le operatrici attive scavalcando la RLS (0009)"],
   ['app.is_active_operator()', 'legge operator e auth.sessions: è il predicato di ogni politica (0001:27, sede viva 0014:23)'],
   ['app.registra_visita_cancellata()', 'trigger: scrive in visita_cancellata (0013) — il definer perduto era il bloccante del Task 1'],
   ['app.sync_appointment_slots()', 'trigger: scrive appointment_slot, dove authenticated ha la sola SELECT (0005)'],
-  ['app.touch_client_activity()', 'trigger differito: aggiorna client.last_activity_at (0007)'],
+  ['app.touch_client_activity()', 'trigger differito (0007): definer DIFENSIVO, non necessario — authenticated ha già UPDATE su client; il trigger scatta al COMMIT, quando la sessione può essere già caduta. Misurato: a invoker, 1 rossa e solo questa prova'],
   ['public.chiudi_sessioni(p_operator_id uuid)', 'il pulsante del 3c: passa da app.chiudi_sessioni_di (0015)'],
   ['public.list_auth_accounts()', "legge auth.users per l'elenco dei conti (0011)"],
 ]
@@ -123,6 +144,33 @@ const ESPRESSIONI_ATTESE = 28
 // un codice bruciato non si possa più usare. Lo stesso vale per
 // `app.chiudi_sessioni_di`, che scavalca le tre guardie di public.chiudi_sessioni.
 const SCHEMI_ESPOSTI = '["public", "graphql_public"]'
+
+// I trigger applicativi (non interni) di `public`, contati sul CATALOGO, che è
+// la sede che la prova interroga. ⚠︎ Un `grep 'create trigger'` sulle
+// migrazioni ne dà 14, e il 14 è falso: perde le tre `create constraint
+// trigger` (zz_touch_client_activity ×2 in 0007, operator_lockout_guard in
+// 0009:97). Se il numero non torna, NON abbassarlo: si è trovato qualcosa.
+const TRIGGER_ATTESI = 17
+
+// Le viste e le viste materializzate di `public`: oggi NESSUNA, e la prova lo
+// pianta come insieme vuoto invece che ignorarle.
+//
+// ⚠︎ Non è zelo. Misurato il 30/09/2026: `create view public.doppioni_cliente
+// as select id, full_name, phone from public.client` — SENZA scrivere un solo
+// `grant` — nasce con ACL `anon=arwdDxtm/postgres` per i default di Supabase,
+// e da `anon` restituisce nome e telefono IN CHIARO delle clienti (2 righe su
+// 2), mentre la stessa `anon` legge ZERO righe da `public.client` perché la
+// sicurezza per riga morde. La suite resta a 438 VERDI: le quattro prove di
+// tabella qui sopra filtrano tutte `c.relkind = 'r'`, e `pg_policy` non
+// contiene viste. Identico con una vista materializzata (`relkind = 'm'`).
+//
+// E `public` è esposto a PostgREST (vedi SCHEMI_ESPOSTI), quindi quella vista
+// sarebbe servita su /rest/v1/ a chiunque abbia la chiave pubblica.
+//
+// Il Task 10 progetta `cerca_clienti` e `doppioni_cliente` come FUNZIONI
+// (`returns table`, invoker, search_path vuoto). Se una di esse diventasse una
+// vista, questa è l'unica prova del repo che se ne accorgerebbe.
+const VISTE_DICHIARATE: string[] = []
 
 describe('catalogue audit', () => {
   it('has row-level security enabled on every table in public', async () => {
@@ -487,7 +535,19 @@ describe('catalogue audit', () => {
   // perde le tre `create constraint trigger` (zz_touch_client_activity ×2 in
   // 0007, operator_lockout_guard in 0009:97). Chi ne contasse meno di 11 NON
   // abbassi la soglia: ha trovato qualcosa di vero.
-  it('non lascia nessun trigger applicativo spento, e ne esamina più di zero', async () => {
+  // ⚠︎ Il conteggio è ESATTO, non `toBeGreaterThan(10)` come lo scriveva il
+  // piano. Misurato il 30/09/2026: con la soglia, `drop trigger visit_touch on
+  // public.visit` porta i trigger da 17 a 16 e questa prova resta VERDE —
+  // arrossiscono 3 prove di comportamento altrove, ma l'audit, che è la cosa
+  // che dovrebbe accorgersi di un presidio sparito, non se ne accorge. Un
+  // trigger CANCELLATO è almeno tanto probabile quanto uno spento, e lo stesso
+  // `disable` dimenticato che questa prova cerca nasce spesso da un `drop` e
+  // `create` a metà.
+  //
+  // Il prezzo è dichiarato: chi aggiunge un trigger applicativo a `public` deve
+  // passare di qui e alzare il numero. È lo stesso attrito, voluto, degli
+  // elenchi nominativi qui sopra.
+  it('non lascia nessun trigger applicativo spento, e ne conta esattamente diciassette', async () => {
     const esaminati = await asOwner(async (c) => {
       const r = await c.query<{ n: string }>(`
         select count(*) as n from pg_trigger g
@@ -497,7 +557,7 @@ describe('catalogue audit', () => {
       `)
       return Number(r.rows[0].n)
     })
-    expect(esaminati).toBeGreaterThan(10)
+    expect(esaminati).toBe(TRIGGER_ATTESI)
     const spenti = await asOwner(async (c) => {
       const r = await c.query<{ t: string; g: string }>(`
         select c.relname as t, g.tgname as g
@@ -509,6 +569,21 @@ describe('catalogue audit', () => {
       return r.rows
     })
     expect(spenti).toEqual([])
+  })
+
+  // Vedi VISTE_DICHIARATE: una vista in `public` scavalca la sicurezza per riga
+  // e nessun altro audit la guarda.
+  it('non lascia in public nessuna vista, che sfuggirebbe a ogni audit di tabella', async () => {
+    const viste = await asOwner(async (c) => {
+      const r = await c.query<{ v: string; genere: string }>(`
+        select c.relname as v, c.relkind as genere
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind in ('v', 'm')
+        order by 1
+      `)
+      return r.rows.map((x) => x.v)
+    })
+    expect(viste).toEqual(VISTE_DICHIARATE)
   })
 
   // La chiusura immediata poggia su una tabella interna di Supabase: se una
@@ -530,24 +605,47 @@ describe('catalogue audit', () => {
   //      è `supabase_admin`). E `alter role postgres nobypassrls`, l'unico
   //      altro appiglio, è rifiutato con «permission denied to alter role».
   //
+  // (Una quarta via è stata tentata e bloccata: `alter table auth.sessions
+  // rename column user_id to …` → «must be owner of table sessions».)
+  //
   // Conseguenza onesta: è un CANARINO su Supabase, non un presidio sul codice
-  // di questo repo. Può arrossire solo se un'immagine futura cambia la
-  // fixture — che è esattamente il guasto per cui esiste — ma non si può
-  // dimostrare capace di fallire da qui, e quindi non conta come prova
-  // presidiata nel conteggio del test-audit.
+  // di questo repo. Può arrossire solo se un'immagine futura cambia la fixture
+  // — che è esattamente il guasto per cui esiste.
+  //
+  // ⚠︎ E UN TERMINE DEL CRITERIO ERA VACUO, ora tolto. La prima stesura
+  // asseriva `has_table_privilege('postgres','auth.sessions','SELECT')`: ma
+  // `pg_has_role('postgres','pg_read_all_data','MEMBER')` è **true**, quindi
+  // quel SELECT sarebbe vero anche con l'ACL della tabella SVUOTATO. Il criterio
+  // conteneva ciò che doveva dimostrare. Si legge invece l'ACL: `postgres` ha
+  // SELECT e DELETE **esplicitamente** concessi da `supabase_auth_admin`
+  // (`postgres=ar*wdDxtm/supabase_auth_admin`, misurato), ed è proprio quello
+  // che una versione futura può togliere.
+  //
+  // ⚠︎ Gli altri due termini invece NON sono vacui, e la misura lo ha
+  // dimostrato contro l'ipotesi opposta:
+  //   • `pg_write_all_data` → **false**: il DELETE viene dal grant esplicito e
+  //     non dall'appartenenza a un ruolo, quindi è un'asserzione vera;
+  //   • `auth.sessions` ha `relrowsecurity` = **true**, quindi `rolbypassrls`
+  //     su `postgres` serve davvero al percorso della chiusura immediata, e
+  //     non è un termine decorativo.
   it('lascia al proprietario i diritti su auth.sessions da cui dipende la chiusura immediata', async () => {
     const stato = await asOwner(async (c) => {
-      const r = await c.query<{ sel: boolean; del: boolean; bypass: boolean; colonne: number }>(`
-        select has_table_privilege('postgres', 'auth.sessions', 'SELECT') as sel,
-               has_table_privilege('postgres', 'auth.sessions', 'DELETE') as del,
-               (select rolbypassrls from pg_roles where rolname = 'postgres') as bypass,
-               (select count(*)::int from information_schema.columns
-                 where table_schema = 'auth' and table_name = 'sessions'
-                   and column_name in ('id', 'user_id')) as colonne
+      const r = await c.query<{ espliciti: number; bypass: boolean; colonne: number }>(`
+        select
+          (select count(distinct a.privilege_type)::int
+             from pg_class c
+             cross join lateral aclexplode(c.relacl) a
+            where c.oid = 'auth.sessions'::regclass
+              and a.grantee = 'postgres'::regrole
+              and a.privilege_type in ('SELECT', 'DELETE')) as espliciti,
+          (select rolbypassrls from pg_roles where rolname = 'postgres') as bypass,
+          (select count(*)::int from information_schema.columns
+            where table_schema = 'auth' and table_name = 'sessions'
+              and column_name in ('id', 'user_id')) as colonne
       `)
       return r.rows[0]
     })
-    expect(stato).toEqual({ sel: true, del: true, bypass: true, colonne: 2 })
+    expect(stato).toEqual({ espliciti: 2, bypass: true, colonne: 2 })
   })
 
   // MIGRAZIONE-SALTATA: un file che il CLI salta in silenzio non lo vede

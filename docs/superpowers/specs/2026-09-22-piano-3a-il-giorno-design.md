@@ -1072,6 +1072,16 @@ cancellate in massa da un telefono rubato si recuperano solo da lì (spec §14 d
 - **L6 — spec §10.3.** «Saved state» = D3-9 e D3-21; segnale periodico con striscione.
 - **L7 — spec §8.6 «By dragging».** Solo verticale.
 - **L8 — spec §4.6** elenca `move_visit`; il 3a la revoca o la elimina a favore di `move_visit_to`.
+  ✅ **CHIUSA dal Task 9 del piano 3a-1 (commit `6803c56`, 30/09/2026):** `0020_revoca_move_visit.sql` toglie
+  l'EXECUTE ad `authenticated`; la funzione resta leggibile nella `0010` e le sue prove continuano a esercitarla da
+  proprietario, e `sposta_visita_a` la sostituisce. Misurato dopo la revoca: `anon`, `authenticated` e `authenticator`
+  non hanno più EXECUTE; restano `postgres` e `service_role` (quest'ultimo per il bootstrap di Supabase, fuori dalle
+  migrazioni, già dichiarato a `0012:139-145`).
+  ⚠︎ **Resta STALE una frase della spec madre §4.6** (riga 362), che dichiara il presidio dei permessi *«Measured by
+  "anon lacks EXECUTE on %s" and "authenticated has EXECUTE on %s" **over all four signatures**»*: da `6803c56` la
+  **seconda** gira su TRE firme (`SIGNATURES_VIVE`), e per `move_visit` il presidio è l'asserzione rovesciata
+  *«authenticated non ha più EXECUTE su `public.move_visit(uuid, date, integer)`»*. La prima, *«anon lacks EXECUTE»*,
+  gira ancora su tutte e quattro. Trovato dal giro di revisione del Task 9.
 - **L9 — spec §9.12 «3:1 against the background».** Annalisa è a 1,13; il 3:1 lo porta il bordo.
 - **L10 — spec §8.6 «a single service … moved alone».** In un blocco unico, il singolo servizio si sposta dalla scheda.
 - **L11 — spec §10.2 «Through the transactional functions this arrives as `P0002`».** Le funzioni nuove restituiscono

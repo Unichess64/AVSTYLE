@@ -359,8 +359,18 @@ into the sentence of §10.1 rather than an opaque error at commit.
   expect `42501`: with EXECUTE wrongly granted, three of the four functions
   still raised `42501` from a revoked table privilege or an RLS policy deeper
   in, so three behavioural tests could not fail. Measured by *"anon lacks
-  EXECUTE on %s"* and *"authenticated has EXECUTE on %s"* over all four
-  signatures.
+  EXECUTE on %s"* over all four signatures, and by *"authenticated has EXECUTE
+  on %s"* over the **three** that `authenticated` may still call.
+
+  > **Corrected 2026-09-30 (plan 3a-1, task 9, commit `6803c56`).** This
+  > sentence said "over all four signatures" for *both* tests. Since
+  > `0020_revoca_move_visit.sql` revokes EXECUTE on
+  > `public.move_visit(uuid, date, integer)` from `authenticated` — divergence
+  > **L8** of the 3a design, deliberate — the positive test runs over
+  > `SIGNATURES_VIVE`, the other three, and `move_visit` is pinned instead by
+  > the inverted assertion *"authenticated non ha più EXECUTE su
+  > `public.move_visit(uuid, date, integer)`"*. The negative test still covers
+  > all four. Found by the task 9 review round.
 
 The four functions are `public.move_visit(uuid, date, integer)`,
 `public.swap_appointment_operators(uuid, uuid)`,

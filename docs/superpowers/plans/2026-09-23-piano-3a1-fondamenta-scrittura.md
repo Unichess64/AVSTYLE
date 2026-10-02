@@ -4561,6 +4561,17 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Perché una funzione e non un filtro:** un filtro PostgREST su `client` mette nome o telefono nella **querystring**,
 e la querystring finisce nei log del gateway (design 3a §4.8). Le due funzioni si chiamano in POST.
 
+⚠︎ **E perché una funzione e non una VISTA — vincolo aggiunto il 30/09/2026 dalla revisione del Task 9.** Il nome
+`doppioni_cliente` invita a scrivere `create view`: **non farlo.** Misurato: `create view public.doppioni_cliente as
+select id, full_name, phone from public.client`, **senza scrivere un solo `grant`**, nasce con ACL
+`anon=arwdDxtm/postgres` per i default di Supabase e restituisce ad `anon` nome e telefono **in chiaro** di ogni
+cliente — mentre la stessa `anon` legge **zero** righe da `public.client`, perché la sicurezza per riga morde. Una
+vista non ha politiche (`pg_policy` non le contiene) e i quattro audit di tabella filtrano tutti `c.relkind = 'r'`.
+Alla misura la suite restava **tutta verde**, e `public` è esposto a PostgREST: la vista sarebbe servita su
+`/rest/v1/` a chiunque abbia la chiave pubblica. Lo stesso vale per una vista **materializzata**.
+Dal Task 9 il presidio c'è — `catalogue-audit.test.ts > non lascia in public nessuna vista…` — e una vista nuova
+**arrossisce**: se ne servisse davvero una, si dichiara in `VISTE_DICHIARATE` **insieme ai suoi grant**.
+
 - [ ] **Passo 1: scrivi le prove che falliscono**
 
 ```ts
@@ -4843,7 +4854,7 @@ tua misura.
 | 5 | `security invoker` → `definer` su `cerca_clienti` | *«non risponde a un account che non è operatrice attiva»* |
 | 6 | togli la clausola `when (…)` dal trigger ridefinito | `npx supabase db reset` fallisce con `23514` sulle tre righe dei colori: è la sonda che presidia la ragione della ridefinizione |
 | 7 | togli il trigger `operator_lockout_guard_del` | *«rifiuta la cancellazione dell ultima operatrice collegata»*, la prova nuova qui sotto. **Senza quella prova la sonda non ha vittima**: misurato che le sei prove esistenti di `operator-guard.test.ts` restano tutte verdi, perché nessuna cancella un'operatrice che il guardiano debba rifiutare |
-| 8 | ridefinisci il trigger **senza** `deferrable initially immediate` | la prova di `operator-guard.test.ts` che disattiva e riattiva nella stessa transazione (se c'è); altrimenti **dichiara** che il presidio è l'audit del Task 9 |
+| 8 | ridefinisci il trigger **senza** `deferrable initially immediate` | ⚠︎ **Corretto il 30/09/2026 dalla revisione del Task 9: NON dichiarare che il presidio è l'audit del Task 9, perché è falso.** Quell'audit legge il solo `tgenabled` e non guarda mai `tgdeferrable`/`tginitdeferred`. Misurato ricreando `operator_lockout_guard` senza la clausola: **1 rossa**, ed è `operator-guard.test.ts > never lets two operators deactivating each other BOTH commit`. Il presidio vero è quella, ed è già in suite |
 
 - [ ] **Passo 6: gate e commit**
 
