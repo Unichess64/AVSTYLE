@@ -150,7 +150,10 @@ const SCHEMI_ESPOSTI = '["public", "graphql_public"]'
 // migrazioni ne dà 14, e il 14 è falso: perde le tre `create constraint
 // trigger` (zz_touch_client_activity ×2 in 0007, operator_lockout_guard in
 // 0009:97). Se il numero non torna, NON abbassarlo: si è trovato qualcosa.
-const TRIGGER_ATTESI = 17
+// 18 dal Task 10: 0021 divide operator_lockout_guard in due trigger di
+// vincolo, uno sull'update ristretto da `when (…)` e uno sul delete
+// (operator_lockout_guard_del).
+const TRIGGER_ATTESI = 18
 
 // Le viste e le viste materializzate di `public`: oggi NESSUNA, e la prova lo
 // pianta come insieme vuoto invece che ignorarle.
@@ -530,7 +533,7 @@ describe('catalogue audit', () => {
   // metà migrazione, toglierebbe un presidio senza che nessuno se ne accorga.
   //
   // ⚠︎ La soglia si misura sul CATALOGO, che è la sede che la prova interroga:
-  // i trigger non interni di public sono 17 (30/09/2026). Un
+  // i trigger non interni di public erano 17 (30/09/2026), 18 dal Task 10. Un
   // `grep 'create trigger'` sulle migrazioni ne dà 14, e il 14 è falso —
   // perde le tre `create constraint trigger` (zz_touch_client_activity ×2 in
   // 0007, operator_lockout_guard in 0009:97). Chi ne contasse meno di 11 NON
@@ -547,7 +550,7 @@ describe('catalogue audit', () => {
   // Il prezzo è dichiarato: chi aggiunge un trigger applicativo a `public` deve
   // passare di qui e alzare il numero. È lo stesso attrito, voluto, degli
   // elenchi nominativi qui sopra.
-  it('non lascia nessun trigger applicativo spento, e ne conta esattamente diciassette', async () => {
+  it('non lascia nessun trigger applicativo spento, e ne conta esattamente diciotto', async () => {
     const esaminati = await asOwner(async (c) => {
       const r = await c.query<{ n: string }>(`
         select count(*) as n from pg_trigger g

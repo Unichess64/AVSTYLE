@@ -6732,3 +6732,22 @@ uno riqualificato, due sono diventati reperti, uno confermato e colmato.
 - **Non** è stato aggiunto il campo `cancellata` alla risposta (reperto aperto 4).
 - **Non** è stato anticipato niente del Task 8 né del Task 9, compreso l'audit su `pg_proc.proacl`.
 - I dodici reperti aperti qui sopra restano aperti, con il danno misurato accanto.
+
+## Appendice — Esecuzione del Task 10 (2 ottobre 2026)
+
+Regime leggero (`2026-10-02-consegna-ridotta.md` §3). Prove e migrazione `0021_ricerca_e_colori.sql` copiate dal testo
+del task senza modifiche. Al Passo 2: 10 rosse su 12 (`42883` sulle due funzioni, colore di Annalisa `#7B3F61`); le due
+prove del guardiano erano già verdi, perché il trigger di `0009` copriva anche il delete.
+
+- **Soglie rimisurate**, identiche al piano: `similarity('maria rossi','maria rosi') = 0,769`, con `'anna neri'` = 0,
+  con `'maria r.'` = 0,538; `show_limit()` = 0,3.
+- **Divergenza, una sola:** `catalogue-audit.test.ts` contava esattamente 17 trigger applicativi in `public`; `0021`
+  divide `operator_lockout_guard` in due, quindi ora sono **18**. Alzato `TRIGGER_ATTESI` con il commento che lo dice.
+- **Gate, in serie:** `db reset` senza `Skipping migration`; `npx vitest run` → **28 file, 452 prove verdi** (440 + 12);
+  `npm run test:fuso` → 96 verdi; `npx tsc --noEmit` → uscita 0.
+- **Mutazione dimostrativa:** tolto `anon` dal solo revoke di `doppioni_cliente` → **1 rossa su 452**,
+  `catalogue audit > lascia eseguibili da anon esattamente le funzioni dichiarate` (8 funzioni invece di 7). Ripristino
+  da copia di scorta, `db reset`, suite di nuovo a 452 verdi.
+- **Non eseguite** le sonde 1-8 del Passo 5: il regime leggero ne chiede una sola. Restano annotate nel task.
+- **Da notare per il 3a-2:** `cerca_clienti` e `doppioni_cliente` sono `security invoker` e nessun audit di catalogo le
+  vede come `definer`; il passaggio a `definer` (sonda 5) è presidiato solo dalla prova sull'operatrice disattivata.
