@@ -6751,3 +6751,18 @@ prove del guardiano erano già verdi, perché il trigger di `0009` copriva anche
 - **Non eseguite** le sonde 1-8 del Passo 5: il regime leggero ne chiede una sola. Restano annotate nel task.
 - **Da notare per il 3a-2:** `cerca_clienti` e `doppioni_cliente` sono `security invoker` e nessun audit di catalogo le
   vede come `definer`; il passaggio a `definer` (sonda 5) è presidiato solo dalla prova sull'operatrice disattivata.
+
+**Revisione del diff (un revisore, regime leggero): nessun reperto bloccante.** Misurato sul DB locale in
+transazioni annullate: il guardiano diviso rifiuta con `23514` il delete dell'ultima collegata, il cambio di
+`auth_user_id` e la disattivazione differita al commit; `anon` riceve `42501`, un account non operatrice, un'operatrice
+disattivata e una sessione inesistente leggono 0 righe. La suite non è stata rilanciata. Reperti annotati, fase 2:
+
+1. **`%` e `_` non sono neutralizzati nel ramo `like` di `cerca_clienti`** (`0021`, righe 38-39): cercare `%`, `_` o
+   `%%` restituisce le prime 20 clienti su 30. Nessun danno di accesso, perché la chiama solo un'operatrice attiva che
+   legge già tutto `client`; ⚠︎ **chi scrive la schermata di ricerca nel 3a-2 lo sappia.**
+2. Con il `when (…)` un cambio di colore o d'ordine passa anche se l'account di un'operatrice è stato cancellato da
+   `auth.users` (la «quarta via» di `0009`); prima veniva rifiutato. Era un effetto collaterale, non una protezione.
+3. Il passaggio di `cerca_clienti`/`doppioni_cliente` a `definer` è presidiato dalla sola prova sull'operatrice
+   disattivata (letto, non mutato).
+4. La prova «lascia cancellare un'operatrice quando ne resta un'altra» non conta le righe cancellate: debole, non inerte.
+5. Per Vera la prova dei colori non prova niente (`#C2185B` era già il suo valore), come il test dichiara.
