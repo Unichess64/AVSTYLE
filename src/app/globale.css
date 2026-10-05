@@ -1,0 +1,15 @@
+:root {
+  --rosa-cipria: #FDEDF0;
+  --rosa-marchio: #F3A4BA;
+  --rosa-profondo: #C2185B;
+  --inchiostro: #140D18;
+  --bianco: #FFFFFF;
+}
+body {
+  background: var(--rosa-cipria);
+  color: var(--inchiostro);
+  font-family: var(--carattere-testo), system-ui, sans-serif;
+  /* §6.1, D3-5: senza questa riga le ore non si incolonnano. */
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}

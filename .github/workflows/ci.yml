@@ -14,6 +14,7 @@ jobs:
       - run: npm run test:fuso
       - run: npx supabase start
       - run: npm test
+      - run: npm run build
 
 # CI runs in UTC and the developer's machine does not. The date-parser line in
 # tests/helpers/db.ts is what keeps the two agreeing; if a date assertion ever

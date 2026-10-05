@@ -4769,3 +4769,28 @@ coincidono — ma va **dichiarato** invece di lasciarlo scoprire: chi esegue def
   tocca: **nessun segnaposto**, e coordinamento su quel file all'esecuzione.
 - **Lo scambio fra operatrici** (`swap_appointment_operators`): non esposto, per decisione di §3.3.
 - **La revoca di `move_visit`** e l'audit su `pg_proc.proacl`: Task 9 del piano 3a-1.
+
+---
+
+## Esecuzione del Task 1
+
+**5 ottobre 2026.** Next 15.5.27, React 19.3; prova del contorno scritta come da Passo 2. **Passo 3:** 7 rosse e 1
+verde, non 8: la prova su Node è già verde perché il Passo 1 ha scritto `.nvmrc` ed `engines` e `ci.yml` porta 22.
+**Gate:** `db reset` 0; `vitest run` **465 verdi su 30 file** (erano 457); `test:fuso` 96 verdi; `tsc` 0; `build` 0.
+**Passo 7:** `curl` su `/pagina-di-prova` in `next dev` → **200**, CSP con `'nonce-…'` e `'strict-dynamic'`,
+`connect-src` su `http://127.0.0.1:54321`, nessun `*.supabase.co`; 14 script su 14 portano il nonce, zero `<style>`
+in linea (`next/font` passa da un foglio collegato: `style-src 'self'` regge). In `next start` la pagina si idrata.
+**Sonda 5b** (`next.config.ts` vuoto): **1 rossa**, «porta le altre intestazioni di §4.9», che è positiva; l'asserzione
+aggiuntiva non serve. Ripristino da copia, suite di nuovo 465 verdi.
+
+Divergenze dal testo:
+- I commenti del piano in `next.config.ts` e `layout.tsx` contenevano `allowedOrigins` e `maximumScale`: le prove li
+  trovavano (2 rosse). Riformulati senza il nome letterale.
+- Il piano non dà il corpo di `middleware()`: scritto con `btoa(crypto.randomUUID())` e la CSP anche sulla richiesta.
+- `export const dynamic = 'force-dynamic'` nel layout: una pagina prerenderizzata esce senza nonce e `'strict-dynamic'`
+  blocca ogni script. Il Task 3 renderà dinamiche le pagine con i cookie.
+- ⚠︎ **In `next dev` la pagina NON si idrata**: React Refresh usa `eval` e la CSP lo blocca. La prova vieta
+  `'unsafe-eval'` nel middleware, quindi non è stato aggiunto. Da decidere prima del Task 3 (o del Task 12, se
+  Playwright gira su `dev`): `'unsafe-eval'` solo in sviluppo, con la prova adattata.
+- `supabase-js` fra le dipendenze; `@types/node` a `^22`; `tsconfig.json` con le quattro opzioni che Next aggiunge;
+  `.gitignore` con `*.tsbuildinfo` e `next-env.d.ts`; `.env.local.esempio` committato, che il Passo 9 non nomina.

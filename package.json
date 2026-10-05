@@ -7,7 +7,10 @@
     "test": "vitest run",
     "test:fuso": "TZ=America/New_York vitest run tests/dominio",
     "db:start": "supabase start",
-    "db:reset": "supabase db reset"
+    "db:reset": "supabase db reset",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
   },
   "keywords": [],
   "author": "",
@@ -15,11 +18,27 @@
   "type": "module",
   "private": "true",
   "devDependencies": {
-    "@supabase/supabase-js": "^2.117.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^30.1.2",
     "pg": "^8.23.0",
     "supabase": "^2.117.0",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "libphonenumber-js": "^1.13.14",
+    "next": "^15.5.27",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   }
 }
