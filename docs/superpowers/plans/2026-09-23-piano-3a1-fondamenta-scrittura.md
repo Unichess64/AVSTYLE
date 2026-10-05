@@ -6788,3 +6788,19 @@ task **senza modifiche**, nessuna migrazione nuova: 5 verdi al primo giro. **Nes
   tutto ciò che il suo corpo guarda. I `%`/`_` non neutralizzati restano il reperto 1 del Task 10: nessun accesso in più.
 - **Verifiche di fine piano:** test-audit completo e revisione con più revisori **non** fatti (regime §3); il revisore
   unico sul diff lo lancia l'orchestratrice. **Il piano 3a-1 è chiuso.**
+
+**Revisione del diff (un revisore, regime leggero): nessun reperto bloccante.** Il revisore ha misurato quattro sonde
+del Passo 3 più una: tutte e cinque le prove arrossiscono con il loro messaggio. Sonda 1 (bump della versione,
+`0016`) → versione identica al carattere; sonda 3 (via il `deferred`) → `'23505'`; sonda 4 (riga 5 → 1, `0018`) →
+`expected 1 to be 5`; sonda 5 (via la chiave esterna `visit.client_id`, `0004`) → `expected 'nessun errore' to be
+'23503'`; la sola delete su `visita_cancellata` tolta → rossa su `cancellataVecchia`. ⚠︎ **Correzione all'appendice
+sopra:** la sonda 2 registrata qui prova solo la metà `invio`; l'altra metà la prova questa misura. Suite rimisurata a
+457 verdi, albero intatto. Reperti annotati, fase 2:
+
+1. **La prova 23503 asserisce il codice, non il vincolo**: spec 3a §4.3 passo 6 dà a `23503` su `visit.client_id` e su
+   servizio/operatrice due messaggi diversi, e una regressione dall'altra chiave resterebbe verde. Il `crea()` iniziale
+   è inerte (la delete da proprietario cancella la visita a cascata, `0004:5`) e «non ricompare» è vera per
+   costruzione. In modifica di V1 lo stesso scenario dà `cancellata_altrove`: la prova copre la sola creazione.
+2. La prova dell'aggiunta tolta presidia il meccanismo (la versione cambia), non l'esito di «Controlla».
+3. La prova della riga 5 non asserisce che il primo invio sia `salvata`; anche il ramo `non_trovata` dà 5, quindi non
+   può essere verde per caso.
