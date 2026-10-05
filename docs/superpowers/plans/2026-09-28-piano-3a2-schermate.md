@@ -4840,3 +4840,29 @@ all'accesso, «Il servizio non risponde. Riprova tra qualche istante.» ⚠︎ *
 Fase 2: le Server Actions non passano dal middleware e si proteggono da sole (involucro del Task 4); il matcher salta
 ogni percorso in `.png/.svg/.webp`; due copie della regola d'identità e 4 letture per pagina; un PostgREST giù costa
 ~7 s di ritentativi prima del 503; dopo un errore il modulo d'accesso si svuota (React 19).
+
+## Esecuzione del Task 4
+
+**5 ottobre 2026.** `errori.ts`, `esiti.ts`, `ritentativi.ts`, `attesi.ts` in `src/dominio/`, senza import di `next`,
+`@supabase/*` o `node:*`; cinque file di prove. Prove viste rosse (modulo mancante) prima del codice. **Gate:** `db reset` 0;
+`vitest run` **552 verdi su 37 file** (erano 504); `test:fuso` **144** (erano 96); `tsc` 0; `build` 0.
+**Sonde del Passo 11**, copia di scorta e ripristino dalla copia, rosse misurate su `tests/dominio`:
+1 → **4** · 2, 3, 4, 5, 6, 6b, 6c → 1 · 7 → 2 · 7b, 7c, 8 → 1 · 9 → 2 · 10 → 3 · 10b → 1 · 11 → 2 · 12, 13, 14 → 1 ·
+15 → 2 · 18 → 1 (gemella). Frasi nuove: 23514 → generica 1, 42501 → generica 1, tutte e due su «23514 e 42501 hanno le loro frasi».
+**16** (`localeCompare`) → 0: misurato che nessun uuid minuscolo separa le due regole (tutte le coppie che differiscono
+in un carattere, in ogni posizione, più 10⁶ coppie casuali: 1.008.192 confronti, 0 diversi). Dichiarato.
+**17**, misurata riscrivendo (`sort` sul posto prima di `map`) invece di dichiararla equivalente: dava **0**, perché le
+prove precedenti ordinavano `STATO` sul posto prima che «non modifica l elenco» lo fotografasse. Corretta la prova:
+`STATO` congelato e un ingresso fresco decrescente → **4**.
+
+Divergenze dal testo:
+- Le due frasi decise il 05/10 con l'apostrofo tipografico (`L’orario`), come le altre frasi del piano.
+- `messaggioPerSqlstate`: un `23503` o `23505` su un vincolo che nessun ramo nomina dà la frase generica, non `''`;
+  le chiavi primarie sono `visit_pkey`, `appointment_pkey` e `client_pkey`. Una prova in più.
+- `messaggioPerEsito` con `accountChiuso` dà per **ogni** esito la frase del Task 3 per l'account non attivo, senza ✓ e
+  senza adottare lo stato (§4.3 passo 7: un `modificata_altrove` con l'account chiuso porta uno stato vuoto). La sonda 9
+  è adattata a questa forma. `ricaricaIlGiorno` è vero per `cancellata_altrove`, `gia_cancellata` e `non_trovata`
+  **[proposta]**; `modificata_altrove` ha il testo vuoto (§4.1 non dà una frase). Tre prove in più, gemella compresa.
+- Nessun campo nuovo per il comportamento di 23514 e 42501: lo esegue il Task 8 a partire dal codice.
+- `niente-date.test.ts` nella forma del Passo 11, con il percorso risolto da `import.meta.url`.
+- Quinta decisione aperta: `scadenzaMs = Infinity`, presidiata dalla 10b.
