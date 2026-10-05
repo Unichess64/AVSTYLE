@@ -6766,3 +6766,25 @@ disattivata e una sessione inesistente leggono 0 righe. La suite non è stata ri
    disattivata (letto, non mutato).
 4. La prova «lascia cancellare un'operatrice quando ne resta un'altra» non conta le righe cancellate: debole, non inerte.
 5. Per Vera la prova dei colori non prova niente (`#C2185B` era già il suo valore), come il test dichiara.
+
+## Appendice — Esecuzione del Task 11 e chiusura del piano (5 ottobre 2026)
+
+Regime leggero (`2026-10-02-consegna-ridotta.md` §3). `tests/schema/presidi-mancanti.test.ts` copiato dal testo del
+task **senza modifiche**, nessuna migrazione nuova: 5 verdi al primo giro. **Nessuna divergenza dal piano.**
+
+- **Gate, in serie:** `db reset` senza `Skipping migration`; `npx vitest run` → **29 file, 457 prove verdi** (452 + 5);
+  `npm run test:fuso` → 96 verdi; `npx tsc --noEmit` → uscita 0.
+- **Mutazione dimostrativa, sonda 2 del Passo 3:** tolte le due `delete` della pulizia dall'**ultima** definizione di
+  `app.chiudi_invio`, che sta in `0019_annunci.sql` (righe 194-205; quella degli annunci lasciata) e non in `0013` →
+  **1 rossa su 457**, la prova bersaglio, `expected 1 to be +0`. Ripristino da copia di scorta, `db reset`, di nuovo
+  457 verdi; il file è identico a HEAD.
+- **Non eseguite** le sonde 1, 3, 4 e 5: il regime leggero ne chiede una. La 3 resta il presidio che il Task 5
+  rimandava; il riquadro ⚠⚠ in testa al task (ritorni anticipati non esercitati) resta vero e non è stato toccato.
+- **`/security-review` su `b5af30b..HEAD` più il file nuovo: nessuna vulnerabilità.** Eseguita **a mano**, non con il
+  comando, che si rifiuta fuori da un repository git (la chat stava in un'altra cartella); decisione dell'utente.
+  Controllati: `cerca_clienti` e `doppioni_cliente` sono `invoker` con `search_path=""`, quindi passano dalla politica
+  `client_access`; misurato sul catalogo che `anon` non le esegue e `authenticated` sì; SQL parametrico, nessuna
+  costruzione dinamica. Il guardiano diviso di `0021` sorveglia ancora `is_active`, `auth_user_id` e il delete, cioè
+  tutto ciò che il suo corpo guarda. I `%`/`_` non neutralizzati restano il reperto 1 del Task 10: nessun accesso in più.
+- **Verifiche di fine piano:** test-audit completo e revisione con più revisori **non** fatti (regime §3); il revisore
+  unico sul diff lo lancia l'orchestratrice. **Il piano 3a-1 è chiuso.**
