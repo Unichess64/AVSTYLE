@@ -4789,8 +4789,24 @@ Divergenze dal testo:
 - Il piano non dà il corpo di `middleware()`: scritto con `btoa(crypto.randomUUID())` e la CSP anche sulla richiesta.
 - `export const dynamic = 'force-dynamic'` nel layout: una pagina prerenderizzata esce senza nonce e `'strict-dynamic'`
   blocca ogni script. Il Task 3 renderà dinamiche le pagine con i cookie.
-- ⚠︎ **In `next dev` la pagina NON si idrata**: React Refresh usa `eval` e la CSP lo blocca. La prova vieta
-  `'unsafe-eval'` nel middleware, quindi non è stato aggiunto. Da decidere prima del Task 3 (o del Task 12, se
-  Playwright gira su `dev`): `'unsafe-eval'` solo in sviluppo, con la prova adattata.
+- ⚠︎ In `next dev` la pagina non si idratava (React Refresh usa `eval`): chiuso nella revisione, vedi sotto.
 - `supabase-js` fra le dipendenze; `@types/node` a `^22`; `tsconfig.json` con le quattro opzioni che Next aggiunge;
   `.gitignore` con `*.tsbuildinfo` e `next-env.d.ts`; `.env.local.esempio` committato, che il Passo 9 non nomina.
+
+**Revisione del Task 1** (un revisore, 05/10/2026): nessun bloccante. Corretti, su decisione dell'utente:
+- La CSP passa in `src/server/csp.ts`, con il ramo di sviluppo (`'unsafe-eval'` sugli script, `'unsafe-inline'` sugli
+  stili, per React Refresh e l'overlay degli errori). Le prove la **valutano** in produzione (niente `unsafe-`) e in
+  sviluppo (controprova), chiamano il middleware (CSP e nonce sulla risposta) e controllano il matcher. Prove: 8 → 11.
+- Prova dello zoom estesa a `userScalable`; `engines` asserito come `'>=22 <23'` intero (`'>=220'` passava).
+- Il commento «pigra» era falso: `NEXT_PUBLIC_SUPABASE_URL` si fissa **al build**; corretto, e l'avviso esce una volta.
+- Mutazioni misurate, 1 rossa ciascuna sulla prova attesa: CSP tolta dalla risposta, matcher su nessuna rotta, ramo di
+  sviluppo sempre acceso, `userScalable: false`, `engines` `'>=220'`. `next dev` ora si idrata; `next start` manda la
+  CSP senza deroghe.
+
+Annotati per la fase 2:
+- `style-src 'self'` toglie lo stile alla 404 di Next e a ogni `style="…"` nell'HTML dal server: quando morde, nonce
+  anche su `style-src`, mai `unsafe-inline` in produzione.
+- Il matcher è provato come espressione regolare, mentre Next lo legge con `path-to-regexp`: equivalenti su questa forma.
+- Del Passo 8 sono state misurate la 5b e le cinque qui sopra; le sonde 1, 2, 3, 3b, 3c, 4, 5, 6 e 7 non sono state rifatte.
+- Il gate locale gira su Node 24: npm non fa rispettare `engines`, quindi NODE-PIN vale solo in CI.
+- Playwright e axe (Task 12) vanno fatti girare su `build` + `start`, mai su `dev`, dove la CSP ha le deroghe.

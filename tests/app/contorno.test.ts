@@ -1,6 +1,9 @@
 // tests/app/contorno.test.ts
 import { readFileSync } from 'node:fs'
+import { NextRequest } from 'next/server'
 import { describe, expect, it } from 'vitest'
+import { config as configMiddleware, middleware } from '../../src/middleware'
+import { CSP } from '../../src/server/csp'
 
 const leggi = (percorso: string) => readFileSync(new URL(`../../${percorso}`, import.meta.url), 'utf8')
 
@@ -10,7 +13,9 @@ describe('il contorno dell applicazione', () => {
     const pacchetto = JSON.parse(leggi('package.json'))
     // ⚠︎ `toMatch(/22/)` sarebbe soddisfatto da ">=12 <22": si asserisce il
     // pavimento, che è ciò che NODE-PIN vuole.
-    expect(pacchetto.engines.node).toContain('>=22')
+    // ⚠︎ `toContain('>=22')` accettava anche ">=220" (revisione del Task 1):
+    // si asserisce la forma intera.
+    expect(pacchetto.engines.node).toBe('>=22 <23')
     // La CI è la fonte: NODE-PIN esiste perché i tre numeri non divergano.
     // ⚠︎ Gli apici sono FACOLTATIVI in YAML e `ci.yml:11` porta oggi
     // `node-version: 22` SENZA apici: un `toContain("node-version: '22'")`
@@ -44,14 +49,46 @@ describe('il contorno dell applicazione', () => {
     // 'nonce-SEGNAPOSTO' e BLOCCA OGNI SCRIPT dell'app. Una CSP che si scrive
     // in due posti e vince l'ultima è il modo classico di perderla.
     expect(leggi('next.config.ts')).not.toContain('Content-Security-Policy')
-    const mw = leggi('src/middleware.ts')
-    expect(mw).toContain("'strict-dynamic'")
-    expect(mw).not.toContain('unsafe-inline')
-    expect(mw).not.toContain('unsafe-eval')
-    expect(mw).toContain("frame-ancestors 'none'")
-    expect(mw).toContain("base-uri 'none'")
-    expect(mw).toContain("object-src 'none'")
-    expect(mw).toContain("form-action 'self'")
+    // Si VALUTA la CSP di produzione, non se ne legge il testo: il ramo di
+    // sviluppo porta 'unsafe-eval' e 'unsafe-inline', e un controllo sul testo
+    // non distingue i due rami.
+    const csp = CSP('NONCE', false)
+    expect(csp).toContain("'nonce-NONCE'")
+    expect(csp).toContain("'strict-dynamic'")
+    expect(csp).not.toContain('unsafe-')
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).toContain("base-uri 'none'")
+    expect(csp).toContain("object-src 'none'")
+    expect(csp).toContain("form-action 'self'")
+  })
+
+  it('le deroghe di next dev stanno solo nel ramo di sviluppo', () => {
+    // Controprova del `not.toContain('unsafe-')` qui sopra: senza, quella
+    // prova resterebbe verde anche con il parametro ignorato.
+    const csp = CSP('NONCE', true)
+    expect(csp).toMatch(/script-src [^;]*'unsafe-eval'/)
+    expect(csp).toMatch(/style-src 'self' 'unsafe-inline'/)
+  })
+
+  it('il middleware manda la CSP con un nonce nuovo a ogni risposta', () => {
+    // Le prove sul testo restavano verdi con la riga che la scrive sulla
+    // risposta tolta (revisione del Task 1): qui si chiama il middleware.
+    const prima = middleware(new NextRequest('http://127.0.0.1:3000/agenda'))
+    const seconda = middleware(new NextRequest('http://127.0.0.1:3000/agenda'))
+    const csp1 = prima.headers.get('Content-Security-Policy')
+    const csp2 = seconda.headers.get('Content-Security-Policy')
+    expect(csp1).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{16,}' 'strict-dynamic'/)
+    expect(csp1).not.toBe(csp2)
+    // Il nonce arriva anche alla richiesta, che è da dove Next lo legge.
+    expect(prima.headers.get('x-middleware-request-x-nonce')).toBeTruthy()
+  })
+
+  it('il matcher del middleware copre le pagine e lascia fuori i file statici', () => {
+    // Un matcher su nessuna rotta lasciava verdi tutte le prove sul testo.
+    const [modello] = configMiddleware.matcher
+    const re = new RegExp(`^${modello}$`)
+    for (const p of ['/', '/agenda', '/accesso', '/manifest.webmanifest']) expect(p).toMatch(re)
+    for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg']) expect(p).not.toMatch(re)
   })
 
   it('connect-src nomina il progetto, non ogni progetto Supabase del mondo', () => {
@@ -59,9 +96,16 @@ describe('il contorno dell applicazione', () => {
     // progetto Supabase una destinazione ammessa, e §4.9 dichiara che i cookie
     // di sessione sono leggibili da JavaScript: la CSP è la mitigazione
     // dichiarata contro una XSS, e con il jolly perde la metà che conta.
-    const mw = leggi('src/middleware.ts')
-    expect(mw).toContain('connect-src')
-    expect(mw).not.toMatch(/connect-src[^;]*\*\.supabase\.co/)
+    const prima = process.env.NEXT_PUBLIC_SUPABASE_URL
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://abcdefgh.supabase.co'
+    try {
+      const csp = CSP('NONCE', false)
+      expect(csp).toContain("connect-src 'self' https://abcdefgh.supabase.co wss://abcdefgh.supabase.co")
+      expect(csp).not.toMatch(/connect-src[^;]*\*/)
+    } finally {
+      if (prima === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prima
+    }
   })
 
   it('porta le altre intestazioni di §4.9', () => {
@@ -80,5 +124,8 @@ describe('il contorno dell applicazione', () => {
     // sbagliata all'ultimo task. D3-3 chiede telefoni in verticale, NON di
     // spegnere lo zoom.
     expect(leggi('src/app/layout.tsx')).not.toContain('maximumScale')
+    // ⚠︎ La stessa regola di axe conta anche `user-scalable=no`, e senza questa
+    // riga la prova restava verde con lo zoom spento (revisione del Task 1).
+    expect(leggi('src/app/layout.tsx')).not.toContain('userScalable')
   })
 })
