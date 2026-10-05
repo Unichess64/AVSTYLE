@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import { CSP } from './server/csp'
+import { confermataDaGoTrue } from './server/gotrue'
 
 export async function middleware(richiesta: NextRequest) {
   // Il runtime del middleware non ha `Buffer`: `btoa` sì.
@@ -47,14 +48,20 @@ export async function middleware(richiesta: NextRequest) {
     // telefono»; «ERRORE (rete, disservizio) → rifiuta la richiesta SENZA
     // chiudere sessioni». Il terzo — nessuna sessione del tutto — è il
     // visitatore che deve accedere.
+    // ⚠︎ Il 503 e il redirect sono risposte NUOVE: senza `conCookie` perdono i
+    // cookie che `setAll` ha scritto su `risposta` — i token appena rinnovati
+    // da `getUser()` e la cancellazione della sessione (revisione del Task 3).
     if (esito === 'guasto') {
-      return senzaCache(new NextResponse('servizio non raggiungibile', { status: 503 }), csp)
+      return senzaCache(conCookie(new NextResponse('servizio non raggiungibile', { status: 503 }), risposta), csp)
     }
     if (esito !== 'operatrice') {
       // Sessione assente, scaduta, revocata, oppure account che non è
       // un'operatrice attiva: si va all'accesso, che è l'uscita forzata di
-      // §4.4 quando la sessione c'era.
-      return senzaCache(NextResponse.redirect(new URL('/accesso', richiesta.url)), csp)
+      // §4.4 quando la sessione c'era. «Zero righe confermate → esce da QUESTO
+      // telefono» (§4.7): `local` chiude solo questa sessione, e i cookie
+      // cancellati viaggiano sul redirect.
+      await client.auth.signOut({ scope: 'local' })
+      return senzaCache(conCookie(NextResponse.redirect(new URL('/accesso', richiesta.url)), risposta), csp)
     }
   }
 
@@ -78,10 +85,7 @@ async function chiIsiede(client: SupabaseClient): Promise<'operatrice' | 'fuori'
   try {
     const { data, error } = await client.auth.getUser()
     if (error !== null) {
-      // 400/401/403 = risposta CONFERMATA di GoTrue: non c'è sessione valida.
-      // Tutto il resto (5xx, fetch caduta) è un guasto di trasporto.
-      const stato = (error as { status?: number }).status
-      return stato !== undefined && stato >= 400 && stato < 500 ? 'fuori' : 'guasto'
+      return confermataDaGoTrue(error) ? 'fuori' : 'guasto'
     }
     utente = data.user
   } catch {
@@ -97,6 +101,11 @@ async function chiIsiede(client: SupabaseClient): Promise<'operatrice' | 'fuori'
   } catch {
     return 'guasto'
   }
+}
+
+function conCookie(r: NextResponse, da: NextResponse): NextResponse {
+  for (const c of da.cookies.getAll()) r.cookies.set(c)
+  return r
 }
 
 function senzaCache(r: NextResponse, csp: string): NextResponse {

@@ -5,8 +5,9 @@ import './globale.css'
 
 // ⚠︎ Il nonce della CSP Next lo applica ai suoi script solo nel rendering
 // dinamico: una pagina prerenderizzata al build esce con script senza nonce, e
-// con 'strict-dynamic' il browser li blocca tutti. Il Task 3 renderà dinamiche
-// le pagine leggendo i cookie; fino ad allora lo si dice qui.
+// con 'strict-dynamic' il browser li blocca tutti. Le pagine del guscio sono
+// dinamiche perché leggono i cookie, ma `/accesso` no: questa riga è ciò che
+// tiene il nonce su `/accesso`, e una prova la presidia (revisione del Task 3).
 export const dynamic = 'force-dynamic'
 
 // D3-5: Manrope per l'interfaccia, con le cifre tabulari (§6.1); Cinzel solo

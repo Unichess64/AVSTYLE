@@ -2,6 +2,7 @@
 import { createServerClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { confermataDaGoTrue } from './gotrue'
 
 // service_role NON sta qui e non sta nell'ambiente (§4.2). Solo la chiave
 // anonima, che senza un JWT valido non legge niente: la sicurezza per riga fa
@@ -59,9 +60,9 @@ export async function operatriceCorrente(client: SupabaseClient): Promise<Operat
   const { data: utente, error } = await client.auth.getUser()
   if (error !== null) {
     // La stessa regola del middleware (§4.7): un 4xx di GoTrue è una risposta
-    // CONFERMATA, tutto il resto è un guasto e non dice niente dell'account.
-    const stato = (error as { status?: number }).status
-    if (stato !== undefined && stato >= 400 && stato < 500) throw new NonAutenticata()
+    // CONFERMATA, tutto il resto (429 compreso) è un guasto e non dice niente
+    // dell'account.
+    if (confermataDaGoTrue(error)) throw new NonAutenticata()
     throw new Error(`identità non verificabile: ${error.message}`)
   }
   if (utente.user === null) throw new NonAutenticata()

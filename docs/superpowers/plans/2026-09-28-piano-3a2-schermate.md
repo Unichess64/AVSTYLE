@@ -4813,35 +4813,30 @@ Annotati per la fase 2:
 
 ## Esecuzione del Task 3
 
-**5 ottobre 2026.** Scritti `operatriceCorrente`, l'identità nel middleware (tre esiti di §4.7), l'accesso (D2-3 e le
-frasi decise dall'utente), il guscio con «Esci» `local`, la navigazione a quattro voci e i segnaposto; cancellata
-`pagina-di-prova`, logo in `public/`. `identita.test.ts` ha 17 prove: 4 sul database, 3 su `operatriceCorrente`, 8 che
-**chiamano il middleware** con i cookie di `@supabase/ssr` montati su sessioni vere, e 2 statiche con la loro gemella.
-**Gate:** `db reset` 0; `vitest run` **485 verdi su 31 file** (erano 468); `test:fuso` 96; `tsc` 0; `build` 0.
-**`curl` in `next start`:** `/accesso` → 200, `no-store`, nonce su **10 script su 10**; `/agenda` con una sessione vera
-di Vera → 200, nonce su **12 su 12**; zero `style=`; senza cookie `/agenda` e `/accessorio` → 307 su `/accesso`.
-Provati anche dal browser: password sbagliata, outsider, accesso di Vera, «Esci». **Letture d'identità: 4 per pagina**
-(`getUser` + `operator` nel middleware e di nuovo nel guscio), ~50 ms in locale.
+**5 ottobre 2026, `ef0583c`.** `operatriceCorrente`, identità nel middleware (tre esiti di §4.7), accesso (D2-3), guscio
+con «Esci» `local`, navigazione a quattro voci, segnaposto; via `pagina-di-prova`, logo in `public/`. **Gate:** 485 verdi
+su 31 file, `test:fuso` 96, `tsc` e `build` 0. **`curl` in `next start`:** `/accesso` 200 con il nonce su 10 script su 10;
+`/agenda` con la sessione di Vera 200 e 12 su 12; senza cookie `/agenda` e `/accessorio` → 307 su `/accesso`.
+**Letture d'identità: 4 per pagina** (middleware e guscio), ~50 ms in locale. Sonde 1-9 misurate, ciascuna ≥ 1 rossa.
+Divergenze: il middleware **si prova da Vitest** (sonde 4, 5, 8 con vittima); il nonce si ricostruisce sulla richiesta a
+ogni `next()`; `page.tsx` (`/` → `/agenda`), `accesso/modulo.tsx`, `(salone)/azioni.ts`, tre `.module.css`; logo in
+`<img>`, perché `next/image` scrive uno `style` che la CSP blocca. La disattivata con la sessione **già aperta** dà
+`NonAutenticata` (D3-17 chiude la sessione); quella che **accede dopo** la disattivazione dà `NonOperatrice`.
+Frasi decise dall'utente: «Questo account non è attivo. Chiedi a chi gestisce il salone.» e, per un guasto o un 429
+all'accesso, «Il servizio non risponde. Riprova tra qualche istante.» ⚠︎ **Task 12:** Playwright con la frase nuova.
 
-| Sonda → rosse | | Sonda → rosse |
-|---|---|---|
-| 1 `getSession` → **4** (3 + la statica) | | 6 CSP letta dalla richiesta → **1** (prova nuova; quella del Task 1: 0) |
-| 2 `full_name` → **2** | | 7 `scope: 'global'` → **1** (statica) |
-| 3 nessun controllo della riga → **1** (outsider) | | 8 `/accesso` come prefisso → **1** (`/accessorio`) |
-| 4 `'guasto'` per ogni `error` → **3** | | 9 (in più) `next({ request: richiesta })` → **2** (nonce) |
-| 5 `chiIsiede` senza `operator` → **1** (outsider) | | |
+**Revisione del Task 3** (due revisori, 05/10/2026): nessun bloccante. Il reperto più grave — cookie rinnovati persi sul
+503, poi riuso del refresh token consumato — è **misurato innocuo**: GoTrue riaccetta il token vecchio dopo 11,5 s. Corretti:
+- 503 e redirect portano i cookie di `setAll`; «fuori» fa `signOut({ scope: 'local' })`, quindi esce davvero da questo
+  telefono (`curl`: `set-cookie: sb-127-auth-token=; Max-Age=0`). Il 429 è un guasto (`src/server/gotrue.ts`, regola
+  unica). «Entra» chiude la sessione anche su un guasto dopo il login.
+- Prove nuove: `tests/app/accesso.test.ts` chiama «Entra» e il guscio con `next/headers` simulato; in `identita` guasti
+  finti di PostgREST e GoTrue, token scaduto, cookie sul 503 e sul redirect, ogni `signOut` `local`, `force-dynamic`,
+  `aria-current`. Vitest con `jsx: 'automatic'`. Gate: **504 verdi su 32 file**, `test:fuso` 96, `tsc`, `build` 0.
+- 15 mutazioni, tutte con ≥ 1 rossa: le 11 della revisione che davano 0 (guscio senza `operatriceCorrente`, `signOut()`
+  senza argomento, «Entra» senza `signOut`, i quattro guasti scambiati per «fuori», `setAll` muto, errori di «Entra»,
+  `aria-current`, `force-dynamic`) e 4 sulle correzioni.
 
-Divergenze dal testo:
-- La disattivata solleva **`NonAutenticata`**, non `NonOperatrice`: D3-17 chiude la sessione e `getUser()` dà 400
-  (misurato). Per questo la sonda 3 ha 1 rossa e non 2. Le sonde 4, 5 e 8 non restano a zero: il middleware si prova
-  da Vitest.
-- `operatriceCorrente` separa il guasto (rete, 5xx, errore di PostgREST) da «fuori», e il guscio lo rilancia. Il
-  `setAll` di `clientServer` sta in un `try`, perché nei Server Component lancia.
-- Il middleware ricostruisce CSP e `x-nonce` sulla richiesta a ogni `next()`, anche in `setAll`: con il Passo 4 il
-  nonce si perdeva. Le letture d'identità sono 4, non 2: il guscio non riceve il client del middleware.
-- File in più: `src/app/page.tsx` (`/` → `/agenda`, perché il manifesto apre `/`), `accesso/modulo.tsx`,
-  `(salone)/azioni.ts` e tre `.module.css`. Il logo è un `<img>`, perché `next/image` scrive uno `style` in linea che
-  la CSP blocca.
-- **[proposta]** da confermare: «Il servizio non risponde. Riprova tra qualche istante.» per un guasto o un 429
-  all'accesso. ⚠︎ **Task 12:** la frase dell'account non attivo è cambiata, e la prova di Playwright va scritta con la
-  frase nuova. Fase 2: dopo un errore il modulo si svuota (React 19).
+Fase 2: le Server Actions non passano dal middleware e si proteggono da sole (involucro del Task 4); il matcher salta
+ogni percorso in `.png/.svg/.webp`; due copie della regola d'identità e 4 letture per pagina; un PostgREST giù costa
+~7 s di ritentativi prima del 503; dopo un errore il modulo d'accesso si svuota (React 19).

@@ -16,6 +16,29 @@ const ANON =
   process.env.SUPABASE_ANON_KEY ??
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
 
+// ---------------------------------------------------------------------------
+// Guasti finti, revisione del Task 3: senza, nessuna prova attraversava il
+// ramo «errore di PostgREST» né il 429, e quattro mutazioni davano 0 rosse.
+const fetchVero = globalThis.fetch
+const percorsoDi = (input: RequestInfo | URL) =>
+  typeof input === 'string' ? input : input instanceof globalThis.URL ? input.href : input.url
+/** Fa fallire ogni chiamata il cui indirizzo contiene `pezzo`: con eccezione, o con lo stato dato. */
+function guasta(pezzo: string, stato?: number) {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (percorsoDi(input).includes(pezzo)) {
+      if (stato === undefined) throw new TypeError('fetch failed (guasto finto)')
+      return new Response(JSON.stringify({ message: 'finto', code: stato }), {
+        status: stato, headers: { 'content-type': 'application/json' },
+      })
+    }
+    return fetchVero(input, init)
+  }) as typeof fetch
+}
+afterEach(() => { globalThis.fetch = fetchVero })
+
+/** Né `NonAutenticata` né `NonOperatrice`: un guasto non dice niente dell'account. */
+const eUnGuasto = (e: unknown) => e instanceof Error && !(e instanceof NonAutenticata) && !(e instanceof NonOperatrice)
+
 const conToken = (token: string) =>
   createClient(URL, ANON, { global: { headers: { Authorization: `Bearer ${token}` } } })
 
@@ -91,6 +114,18 @@ describe('l app legge il database nel modo giusto, non solo il database', () => 
     })
     await expect(operatriceCorrente(conToken(sessioneVera.accessToken))).rejects.toThrow(NonAutenticata)
   })
+
+  it('operatriceCorrente: PostgREST giù è un guasto, mai «non operatrice»', async () => {
+    guasta('/rest/v1/')
+    await expect(operatriceCorrente(conToken(sessioneVera.accessToken))).rejects.toSatisfy(eUnGuasto)
+  })
+
+  it('operatriceCorrente: GoTrue giù, o un 429, è un guasto, mai «non autenticata»', async () => {
+    guasta('/auth/v1/user')
+    await expect(operatriceCorrente(conToken(sessioneVera.accessToken))).rejects.toSatisfy(eUnGuasto)
+    guasta('/auth/v1/user', 429)
+    await expect(operatriceCorrente(conToken(sessioneVera.accessToken))).rejects.toSatisfy(eUnGuasto)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -115,6 +150,27 @@ async function cookieDi(s: Sessione): Promise<string> {
 
 const richiesta = (percorso: string, cookie?: string) =>
   new NextRequest(`http://127.0.0.1:3000${percorso}`, cookie === undefined ? {} : { headers: { cookie } })
+
+/**
+ * I cookie di `cookieDi`, con il token d'accesso dato per scaduto: il
+ * middleware lo RINNOVA, e il vecchio refresh token si consuma.
+ */
+async function cookieScaduto(s: Sessione): Promise<string> {
+  const coppie = (await cookieDi(s)).split('; ').map((c) => c.split('=') as [string, string])
+    .sort(([a], [b]) => a.localeCompare(b))
+  const nome = coppie[0][0].replace(/\.\d+$/, '')
+  const grezzo = coppie.map(([, v]) => v).join('').replace(/^base64-/, '')
+  const sessione = JSON.parse(Buffer.from(grezzo, 'base64url').toString())
+  sessione.expires_at = Math.floor(Date.now() / 1000) - 60
+  return `${nome}=base64-${Buffer.from(JSON.stringify(sessione)).toString('base64url')}`
+}
+
+/** I cookie di sessione che la risposta scrive: `vivi` con un valore, `cancellati` a vuoto o scaduti. */
+function cookieDellaRisposta(r: NextResponse) {
+  const sessione = r.cookies.getAll().filter((c) => c.name.startsWith('sb-'))
+  const cancellato = (c: (typeof sessione)[number]) => c.value === '' || c.maxAge === 0
+  return { vivi: sessione.filter((c) => !cancellato(c)), cancellati: sessione.filter(cancellato) }
+}
 
 /** Il middleware ha lasciato passare la richiesta (nessun redirect, nessun 503). */
 const passa = (r: NextResponse) => r.status === 200 && r.headers.get('x-middleware-next') === '1'
@@ -193,6 +249,56 @@ describe('il middleware, chiamato davvero (§4.7)', () => {
     intestazioniDiSicurezza(r)
   })
 
+  it('PostgREST giù: 503, mai un redirect, e i token appena rinnovati viaggiano sul 503', async () => {
+    // Revisione del Task 3: il 503 era una risposta nuova e perdeva i cookie
+    // scritti da `setAll` dopo il rinnovo. Misurato che GoTrue riaccetta il
+    // vecchio refresh token, quindi non buttava fuori nessuno; ma il telefono
+    // restava con un token consumato.
+    const cookie = await cookieScaduto(await sessioneDi(VERA_AUTH))
+    guasta('/rest/v1/')
+    const r = await middleware(richiesta('/agenda', cookie))
+    expect(r.status).toBe(503)
+    expect(r.headers.get('location')).toBeNull()
+    intestazioniDiSicurezza(r)
+    expect(cookieDellaRisposta(r).vivi.length).toBeGreaterThan(0)
+  })
+
+  it('gemella: con PostgREST su, lo stesso token scaduto passa e porta i cookie rinnovati', async () => {
+    const r = await middleware(richiesta('/agenda', await cookieScaduto(await sessioneDi(VERA_AUTH))))
+    expect(passa(r)).toBe(true)
+    expect(cookieDellaRisposta(r).vivi.length).toBeGreaterThan(0)
+  })
+
+  it('un 429 di GoTrue è un guasto: 503, non l uscita', async () => {
+    const cookie = await cookieDi(await sessioneDi(VERA_AUTH))
+    guasta('/auth/v1/user', 429)
+    const r = await middleware(richiesta('/agenda', cookie))
+    expect(r.status).toBe(503)
+  })
+
+  it('«fuori» esce da QUESTO telefono: il redirect cancella i cookie di sessione (§4.7)', async () => {
+    for (const cookie of [
+      await cookieDi(await sessioneDi(OUTSIDER_AUTH)),
+      await (async () => {
+        const c = await cookieDi(await sessioneDi(VERA_AUTH))
+        await asOwner((pg) => pg.query('update public.operator set is_active = false where id = $1', [VERA]))
+        return c
+      })(),
+    ]) {
+      const r = await middleware(richiesta('/agenda', cookie))
+      expect(versoAccesso(r)).toBe(true)
+      const { vivi, cancellati } = cookieDellaRisposta(r)
+      expect(vivi).toEqual([])
+      expect(cancellati.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('gemella: un operatrice attiva passa senza che nessun cookie venga cancellato', async () => {
+    const r = await middleware(richiesta('/agenda', await cookieDi(await sessioneDi(VERA_AUTH))))
+    expect(passa(r)).toBe(true)
+    expect(cookieDellaRisposta(r).cancellati).toEqual([])
+  })
+
   it('una CSP mandata nella richiesta non tocca quella della risposta', async () => {
     const r = await middleware(
       new NextRequest('http://127.0.0.1:3000/accesso', { headers: { 'content-security-policy': "default-src *" } }),
@@ -220,8 +326,25 @@ describe('le forme vietate dal design', () => {
     expect(tutto()).toMatch(/\bgetUser\s*\(/)
   })
 
-  it('«Esci» chiude solo questo telefono: nessuno scope global sotto src/ (§3.1)', () => {
-    expect(tutto()).not.toMatch(/scope:\s*['"]global['"]/)
-    expect(tutto()).toMatch(/signOut\(\{\s*scope:\s*['"]local['"]\s*\}\)/)
+  it('«Esci» chiude solo questo telefono: OGNI signOut sotto src/ è local (§3.1)', () => {
+    // ⚠︎ Revisione del Task 3: la prima forma cercava UNA occorrenza di
+    // `local`, e `signOut()` senza argomento — che in auth-js vale `global` —
+    // passava grazie al `local` di un altro file. Ora si contano tutte.
+    const chiamate = tutto().match(/\bsignOut\s*\([^)]*\)/g) ?? []
+    // gemella: esci, entra e il middleware chiamano signOut
+    expect(chiamate.length).toBeGreaterThanOrEqual(3)
+    for (const c of chiamate) expect(c).toMatch(/^signOut\(\{\s*scope:\s*['"]local['"]\s*\}\)$/)
+  })
+
+  it('il layout radice resta dinamico: /accesso non legge cookie e senza nonce si blocca', () => {
+    // Revisione del Task 3: togliendo la riga, `/accesso` diventava statica
+    // al build (misurato) e la suite restava verde.
+    expect(readFileSync(new globalThis.URL('../../src/app/layout.tsx', import.meta.url), 'utf8'))
+      .toMatch(/^export const dynamic = 'force-dynamic'$/m)
+  })
+
+  it('la voce corrente della navigazione è annunciata, non solo colorata (§6.2)', () => {
+    expect(readFileSync(new globalThis.URL('../../src/cliente/navigazione.tsx', import.meta.url), 'utf8'))
+      .toMatch(/aria-current=\{corrente \? 'page' : undefined\}/)
   })
 })

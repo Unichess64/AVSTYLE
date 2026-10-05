@@ -30,10 +30,11 @@ export async function entra(_prima: StatoAccesso, dati: FormData): Promise<Stato
   try {
     await operatriceCorrente(client)
   } catch (e) {
-    if (!(e instanceof NonOperatrice || e instanceof NonAutenticata)) return { errore: SERVIZIO_GIU }
-    // Autenticata ma non operatrice attiva: la sessione appena aperta non
-    // resta nel telefono. `local`: solo questa, mai le altre (§3.1).
+    // In tutti e due i casi la sessione appena aperta non resta nel telefono:
+    // chi non ha passato il controllo non deve avere cookie validi, nemmeno
+    // per un guasto (revisione del Task 3). `local`: solo questa (§3.1).
     await client.auth.signOut({ scope: 'local' })
+    if (!(e instanceof NonOperatrice || e instanceof NonAutenticata)) return { errore: SERVIZIO_GIU }
     return { errore: ACCOUNT_NON_ATTIVO }
   }
 
