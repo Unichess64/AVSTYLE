@@ -1,0 +1,99 @@
+.pagina {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  box-sizing: border-box;
+}
+
+/* §5.5: entrata animata breve, e niente animazione per chi l'ha spenta. */
+.entrata {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: sale 450ms ease-out both;
+}
+@keyframes sale {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .entrata { animation: none; }
+}
+
+.logo {
+  width: 62%;
+  height: auto;
+}
+
+.marchio {
+  font-family: var(--carattere-marchio), serif;
+  font-weight: 700;
+  font-size: 2.25rem;
+  margin: 4px 0 28px;
+  letter-spacing: 0.02em;
+}
+
+.modulo {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+}
+.campo input {
+  min-height: 48px;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 400;
+  font-size: 1.0625rem;
+  color: var(--inchiostro);
+  background: var(--bianco);
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+}
+.campo input:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: 2px;
+}
+
+.errore {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bianco);
+  border-left: 4px solid var(--rosa-profondo);
+  border-radius: 6px;
+}
+
+.entra {
+  min-height: 52px;
+  font: inherit;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--bianco);
+  background: var(--rosa-profondo);
+  border: 0;
+  border-radius: 12px;
+}
+.entra:focus-visible {
+  outline: 3px solid var(--inchiostro);
+  outline-offset: 2px;
+}
+.entra:disabled {
+  opacity: 0.6;
+}
+
+.nota {
+  margin: 24px 0 0;
+  text-align: center;
+  font-size: 0.9375rem;
+}

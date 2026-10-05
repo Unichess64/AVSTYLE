@@ -1,0 +1,51 @@
+.guscio {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.testata {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--bianco);
+  border-bottom: 1px solid var(--inchiostro);
+}
+.logo {
+  width: 40px;
+  height: auto;
+}
+.titolo {
+  font-family: var(--carattere-marchio), serif;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+.chi {
+  margin-left: auto;
+  font-weight: 600;
+}
+.esci {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--inchiostro);
+  background: transparent;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+}
+.esci:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: 2px;
+}
+
+.contenuto {
+  flex: 1;
+  /* lo spazio della navigazione fissa in basso */
+  padding-bottom: 72px;
+}

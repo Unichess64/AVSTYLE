@@ -70,17 +70,33 @@ describe('il contorno dell applicazione', () => {
     expect(csp).toMatch(/style-src 'self' 'unsafe-inline'/)
   })
 
-  it('il middleware manda la CSP con un nonce nuovo a ogni risposta', () => {
+  it('il middleware manda la CSP con un nonce nuovo a ogni risposta', async () => {
     // Le prove sul testo restavano verdi con la riga che la scrive sulla
     // risposta tolta (revisione del Task 1): qui si chiama il middleware.
-    const prima = middleware(new NextRequest('http://127.0.0.1:3000/agenda'))
-    const seconda = middleware(new NextRequest('http://127.0.0.1:3000/agenda'))
-    const csp1 = prima.headers.get('Content-Security-Policy')
-    const csp2 = seconda.headers.get('Content-Security-Policy')
-    expect(csp1).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{16,}' 'strict-dynamic'/)
-    expect(csp1).not.toBe(csp2)
-    // Il nonce arriva anche alla richiesta, che è da dove Next lo legge.
-    expect(prima.headers.get('x-middleware-request-x-nonce')).toBeTruthy()
+    // Dal Task 3 il middleware apre un client Supabase: servono le due
+    // variabili, e un percorso pubblico perché la prova non dipenda da una
+    // sessione.
+    const prima = {
+      url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      anon: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    }
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'chiave-anonima-di-prova'
+    try {
+      const uno = await middleware(new NextRequest('http://127.0.0.1:3000/accesso'))
+      const due = await middleware(new NextRequest('http://127.0.0.1:3000/accesso'))
+      const csp1 = uno.headers.get('Content-Security-Policy')
+      const csp2 = due.headers.get('Content-Security-Policy')
+      expect(csp1).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{16,}' 'strict-dynamic'/)
+      expect(csp1).not.toBe(csp2)
+      // Il nonce arriva anche alla richiesta, che è da dove Next lo legge.
+      expect(uno.headers.get('x-middleware-request-x-nonce')).toBeTruthy()
+    } finally {
+      if (prima.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prima.url
+      if (prima.anon === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = prima.anon
+    }
   })
 
   it('il matcher del middleware copre le pagine e lascia fuori i file statici', () => {

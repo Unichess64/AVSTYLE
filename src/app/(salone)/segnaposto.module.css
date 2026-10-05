@@ -1,0 +1,13 @@
+.pagina {
+  padding: 32px 20px;
+}
+.titolo {
+  font-family: var(--carattere-titolo), serif;
+  font-weight: 600;
+  font-size: 1.75rem;
+  margin: 0 0 12px;
+}
+.testo {
+  margin: 0;
+  font-size: 1.0625rem;
+}

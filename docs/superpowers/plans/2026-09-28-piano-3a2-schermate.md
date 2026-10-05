@@ -4810,3 +4810,38 @@ Annotati per la fase 2:
 - Del Passo 8 sono state misurate la 5b e le cinque qui sopra; le sonde 1, 2, 3, 3b, 3c, 4, 5, 6 e 7 non sono state rifatte.
 - Il gate locale gira su Node 24: npm non fa rispettare `engines`, quindi NODE-PIN vale solo in CI.
 - Playwright e axe (Task 12) vanno fatti girare su `build` + `start`, mai su `dev`, dove la CSP ha le deroghe.
+
+## Esecuzione del Task 3
+
+**5 ottobre 2026.** Scritti `operatriceCorrente`, l'identità nel middleware (tre esiti di §4.7), l'accesso (D2-3 e le
+frasi decise dall'utente), il guscio con «Esci» `local`, la navigazione a quattro voci e i segnaposto; cancellata
+`pagina-di-prova`, logo in `public/`. `identita.test.ts` ha 17 prove: 4 sul database, 3 su `operatriceCorrente`, 8 che
+**chiamano il middleware** con i cookie di `@supabase/ssr` montati su sessioni vere, e 2 statiche con la loro gemella.
+**Gate:** `db reset` 0; `vitest run` **485 verdi su 31 file** (erano 468); `test:fuso` 96; `tsc` 0; `build` 0.
+**`curl` in `next start`:** `/accesso` → 200, `no-store`, nonce su **10 script su 10**; `/agenda` con una sessione vera
+di Vera → 200, nonce su **12 su 12**; zero `style=`; senza cookie `/agenda` e `/accessorio` → 307 su `/accesso`.
+Provati anche dal browser: password sbagliata, outsider, accesso di Vera, «Esci». **Letture d'identità: 4 per pagina**
+(`getUser` + `operator` nel middleware e di nuovo nel guscio), ~50 ms in locale.
+
+| Sonda → rosse | | Sonda → rosse |
+|---|---|---|
+| 1 `getSession` → **4** (3 + la statica) | | 6 CSP letta dalla richiesta → **1** (prova nuova; quella del Task 1: 0) |
+| 2 `full_name` → **2** | | 7 `scope: 'global'` → **1** (statica) |
+| 3 nessun controllo della riga → **1** (outsider) | | 8 `/accesso` come prefisso → **1** (`/accessorio`) |
+| 4 `'guasto'` per ogni `error` → **3** | | 9 (in più) `next({ request: richiesta })` → **2** (nonce) |
+| 5 `chiIsiede` senza `operator` → **1** (outsider) | | |
+
+Divergenze dal testo:
+- La disattivata solleva **`NonAutenticata`**, non `NonOperatrice`: D3-17 chiude la sessione e `getUser()` dà 400
+  (misurato). Per questo la sonda 3 ha 1 rossa e non 2. Le sonde 4, 5 e 8 non restano a zero: il middleware si prova
+  da Vitest.
+- `operatriceCorrente` separa il guasto (rete, 5xx, errore di PostgREST) da «fuori», e il guscio lo rilancia. Il
+  `setAll` di `clientServer` sta in un `try`, perché nei Server Component lancia.
+- Il middleware ricostruisce CSP e `x-nonce` sulla richiesta a ogni `next()`, anche in `setAll`: con il Passo 4 il
+  nonce si perdeva. Le letture d'identità sono 4, non 2: il guscio non riceve il client del middleware.
+- File in più: `src/app/page.tsx` (`/` → `/agenda`, perché il manifesto apre `/`), `accesso/modulo.tsx`,
+  `(salone)/azioni.ts` e tre `.module.css`. Il logo è un `<img>`, perché `next/image` scrive uno `style` in linea che
+  la CSP blocca.
+- **[proposta]** da confermare: «Il servizio non risponde. Riprova tra qualche istante.» per un guasto o un 429
+  all'accesso. ⚠︎ **Task 12:** la frase dell'account non attivo è cambiata, e la prova di Playwright va scritta con la
+  frase nuova. Fase 2: dopo un errore il modulo si svuota (React 19).

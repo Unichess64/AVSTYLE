@@ -1,0 +1,37 @@
+.barra {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bianco);
+  border-top: 1px solid var(--inchiostro);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* §7: bersagli di almeno 44 punti. */
+.voce {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--inchiostro);
+  text-decoration: none;
+  border-top: 4px solid transparent;
+}
+.voce:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: -3px;
+}
+
+/* Peso e bordo, non solo il rosa (§6.2). */
+.corrente {
+  font-weight: 800;
+  color: var(--rosa-profondo);
+  border-top-color: var(--rosa-profondo);
+}
