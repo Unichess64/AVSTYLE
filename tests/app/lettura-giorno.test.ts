@@ -109,6 +109,30 @@ describe('leggiGiorno', () => {
     expect(h.operatrici.map((o) => o.sonoIo)).toEqual([false, false, true])
   })
 
+  it('le colonne seguono sort_order e poi il nome, non l ordine d inserimento', async () => {
+    // Il seme inserisce le operatrici GIÀ nell'ordine di sort_order: senza
+    // rovesciarlo, togliere l'ordinamento lasciava la prova di sopra verde
+    // (revisione del Task 5). Alessandra prima, Vera e Annalisa alla pari: a
+    // parità decide il nome. `sort_order` lo possiede la migrazione e
+    // `resetData` non lo rimette: lo rimette il finally.
+    const prima = await asOwner(async (c) =>
+      (await c.query<{ id: string; sort_order: number }>('select id, sort_order from operator')).rows,
+    )
+    try {
+      await asOwner(async (c) => {
+        await c.query('update operator set sort_order = 1 where id = $1', [ALESSANDRA])
+        await c.query('update operator set sort_order = 2 where id = $1', [VERA])
+        await c.query('update operator set sort_order = 2 where id = $1', [ANNALISA])
+      })
+      const g = await leggiGiorno(await clientDiVera(), DAY_ONE, VERA)
+      expect(g.operatrici.map((o) => o.id)).toEqual([ALESSANDRA, ANNALISA, VERA])
+    } finally {
+      await asOwner(async (c) => {
+        for (const r of prima) await c.query('update operator set sort_order = $1 where id = $2', [r.sort_order, r.id])
+      })
+    }
+  })
+
   it('la colonna di una disattivata con appuntamenti resta, e quella senza appuntamenti no', async () => {
     await asOwner((c) => c.query('update operator set is_active = false where id = $1', [ALESSANDRA]))
     const g = await leggiGiorno(await clientDiVera(), DAY_ONE, VERA)

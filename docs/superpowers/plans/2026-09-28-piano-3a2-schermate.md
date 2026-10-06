@@ -4938,3 +4938,17 @@ Divergenze dal testo:
   `inizioDalTocco`, `spaziFuoriOrario`, `bloccoFuoriOrario`. `?giorno` ripetuto → oggi; la pagina ricontrolla l'identità.
 - Rimandati: tocco che apre la scheda (Task 7), interruttore colonne/lista e `avstyle.vista` (Task 6), linea dell'ora che si
   muove (Task 11). Con più di tre colonne nomi e ore non restano fermi; la striscia ha cinque giorni, «Oggi» è in testata.
+
+**Revisione del Task 5** (un revisore, 06/10/2026): nessun bloccante. Corretti, su decisione dell'utente:
+- La prova di §4.8 è un elenco di permessi anche sui METODI: quattordici metodi di postgrest-js 2.117 (`ilikeAnyOf`,
+  `regexMatch`, `isDistinct`…) sfuggivano all'elenco dei filtri, e `match({ … })` non si vedeva. Un lettore di catene a
+  parentesi bilanciate segue `.rpc(…)` e `from('client')` fino in fondo (`.rpc(…).select().eq(…)` sfuggiva). L'indirizzo
+  della pagina ha i parametri ammessi (solo `giorno`) e guarda anche `href=`, `redirect(`, `location` e i moduli in GET.
+- Prova nuova sull'ordine delle colonne con `sort_order` rovesciato e una parità: il seme era già in ordine.
+- Sonde, una rossa ciascuna: le sei forme del revisore, 7, 7b, 7c, 7e, e un metodo-filtro aggiunto ai permessi; ordine tolto
+  o senza il nome 3 volte su 3. **Gate:** 634 verdi su 44 file, `test:fuso` 217, `tsc` e `build` 0.
+
+Annotati per la fase 2: la contiguità unisce anche sopra un appuntamento d'altra visita messo nella pausa; la pausa letta è
+quella del catalogo di oggi; un blocco di 5-10 minuti alto 21 punti copre in parte quello dopo; classi fino a 11 colonne;
+la prova dei guasti prova solo il primo; tre attive e una disattivata non scorrono (si segue la spec madre); la chiusura è
+una nota sopra la griglia e non una fascia dentro, chiave React ripetibile; linea dell'ora arrotondata a 5 minuti.
