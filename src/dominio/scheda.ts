@@ -177,6 +177,33 @@ export function togli(scheda: Scheda, servizioId: string): Scheda {
 }
 
 /**
+ * Decisione dell'utente del 06/10/2026: «Togli» su un servizio che non è
+ * l'ultimo manda TUTTA la bozza, e la conferma lo dice quando la bozza porta
+ * altre modifiche. «Altre modifiche» = la bozza senza quel servizio differisce
+ * dalla scheda LETTA (quella aperta, o adottata dopo «La scheda aggiornata»)
+ * senza quel servizio, sugli stessi campi di `ugualeAllaScheda`: data, cliente,
+ * e per ogni servizio operatrice, servizio, inizio e durata. Le conferme degli
+ * avvisi non sono modifiche della visita.
+ */
+export function altreModifiche(scheda: Scheda, letta: Scheda, tolto: string): boolean {
+  const bozza = togli(scheda, tolto)
+  const prima = togli(letta, tolto)
+  if (bozza.data !== prima.data || idCliente(bozza.cliente) !== idCliente(prima.cliente)) return true
+  if (bozza.servizi.length !== prima.servizi.length) return true
+  const perId = new Map(prima.servizi.map((s) => [s.id, s]))
+  return !bozza.servizi.every((s) => {
+    const p = perId.get(s.id)
+    return (
+      p !== undefined &&
+      p.operatriceId === s.operatriceId &&
+      p.servizioId === s.servizioId &&
+      p.inizio === s.inizio &&
+      p.durata === s.durata
+    )
+  })
+}
+
+/**
  * L'elenco COMPLETO degli appuntamenti voluti (§4.1 regola 7), operatrice
  * compresa anche per quelli di una disattivata: è il valore del modello, non
  * la selezione dell'elenco (D2-2).

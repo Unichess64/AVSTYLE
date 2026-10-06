@@ -68,7 +68,7 @@ export function classifica(soggetto: Soggetto, guasto: GuastoGrezzo): Classe {
 // Le frasi di un INVIO annullato. Si chiede solo per la classe `annullato`:
 // per «Controlla» le frasi le dà §4.4, non questa funzione.
 
-const RIPROVA = 'Non sono riuscita a salvare, riprova'
+export const RIPROVA = 'Non sono riuscita a salvare, riprova'
 
 // I nomi che PostgreSQL dà ai vincoli dichiarati in linea in
 // `0004_visit_appointment.sql` e `0003_client.sql`.

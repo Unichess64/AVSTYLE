@@ -12,6 +12,7 @@ import { confineDellOraAPerugia, oggiAPerugia } from '../../../dominio/perugia'
 import { lunediDi, operatriceDallIndirizzo } from '../../../dominio/settimana'
 import { oraDaConfine, pezziData } from '../../../dominio/tempo'
 import { dataDallIndirizzo } from '../../../dominio/validazione'
+import { elimina, salva, togli } from '../../../server/azioni-visita'
 import { leggiGiorno } from '../../../server/lettura-giorno'
 import { leggiOperatriciAttive, leggiSettimana } from '../../../server/lettura-settimana'
 import {
@@ -121,6 +122,7 @@ export default async function Agenda({
           riga o uno spazio libero apre la scheda (Task 7). */}
       <SchedaDellAgenda
         data={data}
+        azioni={{ salva, togli, elimina }}
         occupati={giorno.appuntamenti.map((x) => ({ operatriceId: x.operatriceId, inizio: x.inizio, durata: x.durata }))}
       >
         <div className={stile.soloColonne}>

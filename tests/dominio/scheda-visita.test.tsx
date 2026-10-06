@@ -13,17 +13,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Fuori da Next non c'è il router dell'App Router: «vai lì» su un altro giorno
 // è l'unico che lo usa.
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { AgendaLista } from '../../src/cliente/agenda-lista'
 import { SchedaDellAgenda } from '../../src/cliente/apri-scheda'
 import type { RichiesteScheda } from '../../src/cliente/richieste-scheda'
-import { SchedaCompilata } from '../../src/cliente/scheda-visita'
-import { apriSchedaSuVisita, apriSchedaVuota } from '../../src/dominio/scheda'
+import { type AzioniScheda, SchedaCompilata } from '../../src/cliente/scheda-visita'
+import type { Atteso } from '../../src/dominio/attesi'
+import { type SchedaSerializzata, apriSchedaSuVisita, apriSchedaVuota } from '../../src/dominio/scheda'
 import type { StatoVisita } from '../../src/dominio/stato-visita'
 import type { Giorno } from '../../src/server/lettura-giorno'
 import type { RispostaApri } from '../../src/server/lettura-scheda'
+import type { Risposta } from '../../src/server/scrittura-visita'
 
 const VERA = '10000000-0000-4000-8000-000000000001'
 const ANNALISA = '10000000-0000-4000-8000-000000000002'
@@ -95,17 +97,26 @@ function richieste(altro: Partial<RichiesteScheda> = {}): RichiesteScheda {
   }
 }
 
+/** Una Server Action che non risponde mai: la scheda resta in attesa, e la prova guarda il prima. */
+const mai = () => new Promise<never>(() => {})
+
+/** Le Server Actions finte: di norma non rispondono; la prova sostituisce quelle che le servono. */
+function azioniFinte(altro: Partial<AzioniScheda> = {}): AzioniScheda {
+  return { salva: vi.fn(mai), togli: vi.fn(mai), elimina: vi.fn(mai), ...altro }
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   router.push.mockReset()
   router.replace.mockReset()
+  router.refresh.mockReset()
 })
 
 describe('D2-2: l elenco delle operatrici della scheda', () => {
   it('non contiene MAI una disattivata, e il suo servizio dice «non più attiva» con «Salva» spento', () => {
     render(
-      <SchedaCompilata iniziale={apriSchedaSuVisita(STATO, VISITA)} dati={dati({ stato: STATO })} richieste={richieste()} azioni={{}} onVaiA={() => {}} />,
+      <SchedaCompilata iniziale={apriSchedaSuVisita(STATO, VISITA)} dati={dati({ stato: STATO })} richieste={richieste()} azioni={azioniFinte()} onVaiA={() => {}} />,
     )
     const servizi = screen.getAllByRole('listitem').filter((li) => within(li).queryByText('Operatrice') !== null)
     expect(servizi).toHaveLength(2)
@@ -127,7 +138,7 @@ describe('D2-2: l elenco delle operatrici della scheda', () => {
 
   it('la gemella: scelta un operatrice attiva, «Salva» si accende', async () => {
     render(
-      <SchedaCompilata iniziale={apriSchedaSuVisita(STATO, VISITA)} dati={dati({ stato: STATO })} richieste={richieste()} azioni={{}} onVaiA={() => {}} />,
+      <SchedaCompilata iniziale={apriSchedaSuVisita(STATO, VISITA)} dati={dati({ stato: STATO })} richieste={richieste()} azioni={azioniFinte()} onVaiA={() => {}} />,
     )
     const [primo] = screen.getAllByLabelText('Operatrice')
     await userEvent.selectOptions(primo, VERA)
@@ -142,7 +153,7 @@ describe('la cliente', () => {
     const push = vi.spyOn(window.history, 'pushState')
     const replace = vi.spyOn(window.history, 'replaceState')
     const prima = window.location.href
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={r} azioni={{}} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={r} azioni={azioniFinte()} onVaiA={() => {}} />)
     await userEvent.type(screen.getByLabelText('Cerca la cliente per nome o telefono'), 'maria')
     await userEvent.click(await screen.findByRole('button', { name: 'Maria Rossi · +393331234567' }))
     expect(r.cerca).toHaveBeenLastCalledWith('maria')
@@ -155,7 +166,7 @@ describe('la cliente', () => {
 
   it('«Nuova cliente» porta la riga sull informativa e propone i doppioni', async () => {
     const r = richieste()
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={r} azioni={{}} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={r} azioni={azioniFinte()} onVaiA={() => {}} />)
     await userEvent.type(screen.getByLabelText('Cerca la cliente per nome o telefono'), 'maria rosi')
     await userEvent.click(screen.getByRole('button', { name: 'Nuova cliente' }))
     expect((screen.getByLabelText('Nome e cognome') as HTMLInputElement).value).toBe('maria rosi')
@@ -172,7 +183,7 @@ describe('la cliente', () => {
 
 describe('i servizi', () => {
   it('«+ Aggiungi servizio» parte dal posto toccato e accoda il secondo con la pausa', async () => {
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={{}} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={azioniFinte()} onVaiA={() => {}} />)
     const aggiungi = screen.getByLabelText('Aggiungi servizio')
     await userEvent.selectOptions(aggiungi, REFILL)
     // con «mostra tutti» il massaggio, che Vera non fa
@@ -184,9 +195,9 @@ describe('i servizi', () => {
   })
 
   it('un servizio fuori orario dà la riga ambra e «Salva comunque», che conferma le chiavi mostrate', async () => {
-    const salva = vi.fn()
+    const salva = vi.fn(mai)
     const s = apriSchedaVuota(DATA, VERA, 228)   // 19:00: Vera chiude alle 19:00
-    render(<SchedaCompilata iniziale={{ ...s, cliente: { tipo: 'esistente', id: MARIA } }} dati={dati()} richieste={richieste()} azioni={{ salva }} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={{ ...s, cliente: { tipo: 'esistente', id: MARIA } }} dati={dati()} richieste={richieste()} azioni={azioniFinte({ salva })} onVaiA={() => {}} />)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     expect(screen.getByText('Refill gel alle 19:00 è fuori dall’orario di Vera')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Salva comunque' }))
@@ -200,7 +211,7 @@ describe('i servizi', () => {
 describe('SchedaDellAgenda: si apre dall agenda, e «indietro» la chiude', () => {
   function agenda(r: RichiesteScheda) {
     return render(
-      <SchedaDellAgenda data={DATA} occupati={[{ operatriceId: VERA, inizio: 120, durata: 19 }]} richieste={r}>
+      <SchedaDellAgenda data={DATA} occupati={[{ operatriceId: VERA, inizio: 120, durata: 19 }]} richieste={r} azioni={azioniFinte()}>
         <article data-visita={VISITA} data-appuntamenti={A1} role="button" tabIndex={0} aria-label="blocco">
           <span>Maria Rossi</span>
         </article>
@@ -272,7 +283,7 @@ describe('il collegamento con le viste vere del giorno', () => {
   it('un blocco delle colonne e una riga della lista aprono la loro visita', async () => {
     const r = richieste()
     render(
-      <SchedaDellAgenda data={DATA} occupati={giorno.appuntamenti} richieste={r}>
+      <SchedaDellAgenda data={DATA} occupati={giorno.appuntamenti} richieste={r} azioni={azioniFinte()}>
         <AgendaColonne giorno={giorno} oggi={DATA} lineaDellOra={null} />
         <AgendaLista appuntamenti={giorno.appuntamenti} operatrici={giorno.operatrici} />
       </SchedaDellAgenda>,
@@ -291,7 +302,7 @@ describe('il collegamento con le viste vere del giorno', () => {
   it('lo spazio di ogni colonna copre la finestra e apre una scheda vuota di quella operatrice', async () => {
     const r = richieste({ apri: vi.fn(async () => dati()) })
     const { container } = render(
-      <SchedaDellAgenda data={DATA} occupati={giorno.appuntamenti} richieste={r}>
+      <SchedaDellAgenda data={DATA} occupati={giorno.appuntamenti} richieste={r} azioni={azioniFinte()}>
         <AgendaColonne giorno={giorno} oggi={DATA} lineaDellOra={null} />
       </SchedaDellAgenda>,
     )
@@ -314,7 +325,7 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
   const salvaSpento = () => (screen.getByRole('button', { name: /^Salva/ }) as HTMLButtonElement).disabled
 
   it('«Salva» resta spento senza cliente, e si accende quando la cliente è scelta (C4)', async () => {
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={{}} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={azioniFinte()} onVaiA={() => {}} />)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     expect(salvaSpento()).toBe(true)
     expect(screen.getByText('Scegli la cliente.')).toBeTruthy()
@@ -324,8 +335,8 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
   })
 
   it('un telefono non riconosciuto spegne «Salva» invece di sparire in silenzio (B1)', async () => {
-    const salva = vi.fn()
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste({ doppioni: vi.fn(async () => []) })} azioni={{ salva }} onVaiA={() => {}} />)
+    const salva = vi.fn(mai)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste({ doppioni: vi.fn(async () => []) })} azioni={azioniFinte({ salva })} onVaiA={() => {}} />)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     await userEvent.click(screen.getByRole('button', { name: 'Nuova cliente' }))
     await userEvent.type(screen.getByLabelText('Nome e cognome'), 'Giulia Bianchi')
@@ -349,7 +360,7 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
         }],
       },
     })
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={conMaria} richieste={richieste()} azioni={{}} onVaiA={onVaiA} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={conMaria} richieste={richieste()} azioni={azioniFinte()} onVaiA={onVaiA} />)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     expect(screen.getByRole('alert').textContent).toContain('Vera ha un appuntamento alle 10:30 con Maria Rossi')
     await userEvent.click(screen.getByRole('button', { name: 'Vai lì' }))
@@ -357,7 +368,7 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
   })
 
   it('un conflitto fra due servizi della scheda non offre «Vai lì», che chiuderebbe la scheda (C2)', async () => {
-    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={{}} onVaiA={() => {}} />)
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={azioniFinte()} onVaiA={() => {}} />)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
     const [, secondo] = screen.getAllByLabelText('Minuti d’inizio')
@@ -380,7 +391,7 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
       })),
     })
     render(
-      <SchedaDellAgenda data={DATA} occupati={[]} richieste={r}>
+      <SchedaDellAgenda data={DATA} occupati={[]} richieste={r} azioni={azioniFinte()}>
         <article data-visita={VISITA} role="button" tabIndex={0} aria-label="blocco">Maria Rossi</article>
       </SchedaDellAgenda>,
     )
@@ -391,5 +402,242 @@ describe('la revisione del Task 7: il collegamento di «Salva» e della frase de
     expect(router.push).not.toHaveBeenCalled()
     expect(back).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('Task 8: ogni pulsante chiama la sua Server Action, e la scheda legge la risposta', () => {
+  // Solo operatrici attive: «Salva» acceso.
+  const STATO_ATTIVO: StatoVisita = {
+    visita: '2026-10-03T09:00:00.123456Z',
+    data: DATA,
+    cliente: MARIA,
+    appuntamenti: [
+      { id: A1, versione: 'v1', operatrice: VERA, servizio: REFILL, inizio: 120, durata: 15 },
+      { id: A2, versione: 'v2', operatrice: ALESSANDRA, servizio: MASSAGGIO, inizio: 140, durata: 12 },
+    ],
+  }
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  const nessuno = { spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false }
+  const salvata: Risposta = { tipo: 'esito', esito: 'salvata', messaggio: { ...nessuno, testo: '✓ Salvata', spunta: true }, visita: 'v9', appuntamenti: [] }
+
+  function monta(azioni: AzioniScheda, r: RichiesteScheda = richieste()) {
+    const onFatto = vi.fn()
+    const onVaiA = vi.fn()
+    const onRicarica = vi.fn()
+    render(
+      <SchedaCompilata
+        iniziale={apriSchedaSuVisita(STATO_ATTIVO, VISITA)}
+        dati={dati({ stato: STATO_ATTIVO })}
+        richieste={r}
+        azioni={azioni}
+        onVaiA={onVaiA}
+        onFatto={onFatto}
+        onRicarica={onRicarica}
+      />,
+    )
+    return { onFatto, onVaiA, onRicarica }
+  }
+  const servizioAlle = (ora: string) => screen.getByRole('listitem', { name: new RegExp(`alle ${ora}$`) })
+  const conferma = () => screen.getByRole('alertdialog', { name: 'Conferma' })
+
+  it('«Salva» manda la scheda con un codice d invio nuovo, e il ✓ chiude la scheda col suo testo', async () => {
+    const salva = vi.fn(async () => salvata)
+    const { onFatto } = monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(salva).toHaveBeenCalledTimes(1)
+    const [inviata, codice] = salva.mock.calls[0] as unknown as [SchedaSerializzata, string]
+    expect(inviata).toMatchObject({ visitaId: VISITA, versioneVisita: STATO_ATTIVO.visita, attesi: [{ id: A1, versione: 'v1' }, { id: A2, versione: 'v2' }] })
+    expect(codice).toMatch(UUID)
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('✓ Salvata'))
+  })
+
+  it('un codice per invio: due «Salva» mandano due codici diversi (§4.4)', async () => {
+    const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'non_valida', motivo: 'Scheda non valida.' }))
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Scheda non valida.')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    await waitFor(() => expect(salva).toHaveBeenCalledTimes(2))
+    expect(salva.mock.calls[0][1]).not.toBe(salva.mock.calls[1][1])
+  })
+
+  it('«Togli» senza altre modifiche: la frase semplice, e parte la bozza senza quel servizio', async () => {
+    const togli = vi.fn(async () => salvata)
+    const { onFatto } = monta(azioniFinte({ togli }))
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    expect(within(conferma()).getByText('Togliere questo servizio dalla visita?')).toBeTruthy()
+    await userEvent.click(within(conferma()).getByRole('button', { name: 'Togli' }))
+    expect(togli).toHaveBeenCalledTimes(1)
+    const [bozza, codice] = togli.mock.calls[0] as unknown as [SchedaSerializzata, string]
+    expect(bozza.servizi.map((s) => s.id)).toEqual([A1])
+    expect(bozza.attesi.map((a) => a.id)).toEqual([A1, A2])   // il tolto resta fra gli attesi: è così che si toglie
+    expect(codice).toMatch(UUID)
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('✓ Salvata'))
+  })
+
+  it('«Togli» con altre modifiche lo dice, e la bozza le porta (decisione del 06/10)', async () => {
+    const togli = vi.fn(mai)
+    monta(azioniFinte({ togli }))
+    await userEvent.selectOptions(within(servizioAlle('10:00')).getByLabelText('Minuti d’inizio'), '10')
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    expect(within(conferma()).getByText('Togliere questo servizio e salvare le altre modifiche?')).toBeTruthy()
+    await userEvent.click(within(conferma()).getByRole('button', { name: 'Togli' }))
+    const [bozza] = togli.mock.calls[0] as unknown as [SchedaSerializzata]
+    expect(bozza.servizi.map((s) => [s.id, s.inizio])).toEqual([[A1, 122]])
+  })
+
+  it('la gemella: una modifica rifatta com era non conta come modifica', async () => {
+    monta(azioniFinte())
+    const minuti = () => within(servizioAlle(/10:\d0/.source)).getByLabelText('Minuti d’inizio')
+    await userEvent.selectOptions(minuti(), '10')
+    await userEvent.selectOptions(minuti(), '0')
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    expect(within(conferma()).getByText('Togliere questo servizio dalla visita?')).toBeTruthy()
+  })
+
+  it('«Elimina visita» manda id, versione e attesi letti, con un codice', async () => {
+    const elimina = vi.fn(async (): Promise<Risposta> => ({ tipo: 'esito', esito: 'cancellata', messaggio: { ...nessuno, testo: '✓ Cancellata', spunta: true } }))
+    const { onFatto } = monta(azioniFinte({ elimina }))
+    await userEvent.click(screen.getByRole('button', { name: 'Elimina visita' }))
+    await userEvent.click(within(conferma()).getByRole('button', { name: 'Elimina' }))
+    expect(elimina).toHaveBeenCalledTimes(1)
+    const [id, versione, attesi, codice] = elimina.mock.calls[0] as unknown as [string, string, Atteso[], string]
+    expect([id, versione, attesi]).toEqual([VISITA, STATO_ATTIVO.visita, [{ id: A1, versione: 'v1' }, { id: A2, versione: 'v2' }]])
+    expect(codice).toMatch(UUID)
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('✓ Cancellata'))
+  })
+
+  it('dopo modificata_altrove la scheda adotta lo stato, lo dice, e il «Salva» dopo parte dalle versioni lette (C3)', async () => {
+    const letto: StatoVisita = {
+      ...STATO_ATTIVO,
+      visita: '2026-10-03T09:05:00.654321Z',
+      appuntamenti: [{ ...STATO_ATTIVO.appuntamenti[0], versione: 'v1b', inizio: 124 }, STATO_ATTIVO.appuntamenti[1]],
+    }
+    const salva = vi
+      .fn<AzioniScheda['salva']>()
+      .mockResolvedValueOnce({ tipo: 'esito', esito: 'modificata_altrove', messaggio: { ...nessuno, testo: '', schedaAdottaStato: true }, stato: letto })
+      .mockImplementation(mai)
+    monta(azioniFinte({ salva }))
+    await userEvent.selectOptions(within(servizioAlle('10:00')).getByLabelText('Minuti d’inizio'), '10')
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText(/^La scheda aggiornata/)).toBeTruthy()
+    // la modifica non inviata è persa: il servizio è dove l'ha messo la collega
+    expect(servizioAlle('10:20')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    const [seconda] = salva.mock.calls[1] as unknown as [SchedaSerializzata]
+    expect(seconda.versioneVisita).toBe(letto.visita)
+    expect(seconda.attesi).toEqual([{ id: A1, versione: 'v1b' }, { id: A2, versione: 'v2' }])
+  })
+
+  it('un conflitto del server mostra la frase con «Vai lì» e rilegge il giorno', async () => {
+    const r = richieste()
+    const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'conflitto', frase: 'Vera ha un appuntamento alle 10:00 con Lucia', vaiA: 'B1' }))
+    const { onVaiA } = monta(azioniFinte({ salva }), r)
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(within(await screen.findByRole('alert')).getByText('Vera ha un appuntamento alle 10:00 con Lucia')).toBeTruthy()
+    expect(r.giorno).toHaveBeenCalledWith(DATA)
+    await userEvent.click(screen.getByRole('button', { name: 'Vai lì' }))
+    expect(onVaiA).toHaveBeenCalledWith('B1', DATA)
+  })
+
+  it('da_confermare rilegge il giorno, mostra l avviso nuovo, e «Salva comunque» manda la sua chiave (D3-19)', async () => {
+    const chiave = `gia-prenotata:${MARIA}:${DATA}`
+    const altrove = {
+      id: '60000000-0000-4000-8000-000000000077', visitaId: '50000000-0000-4000-8000-000000000077', operatriceId: VERA, servizioId: REFILL,
+      servizioNome: 'Refill gel', clienteId: MARIA, clienteNome: 'Maria Rossi', inizio: 180, durata: 15, pausa: 2,
+    }
+    const r = richieste({ giorno: vi.fn(async () => ({ ...dati().giorno, appuntamenti: [altrove] })) })
+    const salva = vi.fn<AzioniScheda['salva']>().mockResolvedValueOnce({ tipo: 'da_confermare', chiavi: [chiave] }).mockImplementation(mai)
+    monta(azioniFinte({ salva }), r)
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Maria Rossi è già prenotata alle 15:00 con Vera')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva comunque' }))
+    const [seconda] = salva.mock.calls[1] as unknown as [SchedaSerializzata]
+    expect(seconda.avvisiConfermati).toEqual([chiave])
+  })
+
+  it('una chiave che la scheda non sa spiegare si dice comunque, e «Salva comunque» la conferma', async () => {
+    const salva = vi.fn<AzioniScheda['salva']>().mockResolvedValueOnce({ tipo: 'da_confermare', chiavi: ['ignota'] }).mockImplementation(mai)
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Al salvataggio è comparso un avviso nuovo: ricontrolla la scheda.')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva comunque' }))
+    expect((salva.mock.calls[1] as unknown as [SchedaSerializzata])[0].avvisiConfermati).toEqual(['ignota'])
+  })
+
+  it('una fallita mostra la sua frase; con ricaricaLaScheda ricarica, con ricaricaIlGiorno chiude', async () => {
+    const m = (testo: string, altro = {}) => ({ ...nessuno, testo, ...altro })
+    const salva = vi
+      .fn<AzioniScheda['salva']>()
+      .mockResolvedValueOnce({ tipo: 'fallita', sqlstate: '57014', testo: 'Non sono riuscita a salvare, riprova', messaggio: m('Non sono riuscita a salvare, riprova') })
+      .mockResolvedValueOnce({ tipo: 'fallita', sqlstate: '23503', testo: 'Il servizio o l’operatrice non esiste più', messaggio: m('Il servizio o l’operatrice non esiste più', { ricaricaLaScheda: true }) })
+      .mockResolvedValueOnce({ tipo: 'fallita', sqlstate: '42501', testo: 'Questa visita non è più accessibile. Ricarico il giorno.', messaggio: m('Questa visita non è più accessibile. Ricarico il giorno.', { ricaricaIlGiorno: true }) })
+    const { onRicarica, onFatto } = monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Non sono riuscita a salvare, riprova')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    await waitFor(() => expect(onRicarica).toHaveBeenCalledWith('Il servizio o l’operatrice non esiste più'))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('Questa visita non è più accessibile. Ricarico il giorno.'))
+  })
+
+  it('«Non so» spegne «Salva», «Togli» ed «Elimina visita» (§4.4: «Controlla» arriva col Task 9)', async () => {
+    const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'non_so' }))
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Salva' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Elimina visita' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('l uscita forzata va all accesso, e non resta nessuna frase sulla visita (§4.4)', async () => {
+    // jsdom non naviga: `location.assign` lascia un «Not implemented: navigation» sulla console.
+    const errori = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'uscita_forzata' }))
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    await waitFor(() => expect(JSON.stringify(errori.mock.calls.map((c) => String(c[0])))).toContain('navigation'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('una Server Action che solleva è «Non so», o «app aggiornata» se l azione non esiste più', async () => {
+    const salva = vi
+      .fn<AzioniScheda['salva']>()
+      .mockRejectedValueOnce(new Error('Failed to find Server Action "abc". This request might be from an older or newer deployment.'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('L’app è stata aggiornata: ricarica la pagina.')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+  })
+})
+
+describe('Task 8: SchedaDellAgenda chiude la scheda sull esito e rilegge il giorno', () => {
+  it('il ✓ chiude la scheda, lascia il testo sull agenda e rilegge il giorno DOPO il popstate', async () => {
+    const salva = vi.fn(async (): Promise<Risposta> => ({
+      tipo: 'esito', esito: 'salvata', visita: 'v', appuntamenti: [],
+      messaggio: { testo: '✓ Salvata', spunta: true, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false },
+    }))
+    const STATO_V: StatoVisita = { ...STATO, appuntamenti: [{ ...STATO.appuntamenti[1] }] }
+    const r = richieste({ apri: vi.fn(async () => dati({ stato: STATO_V })) })
+    const indietro = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    render(
+      <SchedaDellAgenda data={DATA} occupati={[]} richieste={r} azioni={azioniFinte({ salva })}>
+        <div data-visita={VISITA} data-appuntamenti={A2} tabIndex={0}>blocco</div>
+      </SchedaDellAgenda>,
+    )
+    await userEvent.click(screen.getByText('blocco'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Salva' }))
+    await waitFor(() => expect(indietro).toHaveBeenCalled())
+    // Prima del `popstate` nessuna rilettura: Next la coprirebbe col suo ripristino.
+    expect(router.refresh).not.toHaveBeenCalled()
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('✓ Salvata')).toBeTruthy()
   })
 })

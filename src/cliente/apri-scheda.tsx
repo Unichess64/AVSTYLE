@@ -14,10 +14,11 @@
 // `popstate` che la toglie chiude la scheda. «Chiudi» fa lo stesso passando da
 // `history.back()`, così la voce non resta orfana.
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Apertura, type Tocco, aperturaDalTocco } from '../dominio/apertura'
 import type { RichiesteScheda } from './richieste-scheda'
 import { type AzioniScheda, SchedaVisita } from './scheda-visita'
+import stile from './scheda-visita.module.css'
 
 /** Il segno della voce di cronologia della scheda. */
 const VOCE = { schedaAperta: true }
@@ -49,16 +50,35 @@ export function SchedaDellAgenda({
   occupati: readonly { readonly operatriceId: string; readonly inizio: number; readonly durata: number }[]
   children: React.ReactNode
   richieste?: RichiesteScheda
-  azioni?: AzioniScheda
+  /** Le Server Actions di scrittura: obbligatorie, così la pagina non può dimenticarle. */
+  azioni: AzioniScheda
 }) {
   const router = useRouter()
   const [apertura, setApertura] = useState<Apertura | null>(null)
+  // L'esito di un invio che ha chiuso la scheda («✓ Salvata», «Era già stata cancellata»…).
+  const [esito, setEsito] = useState<string | null>(null)
 
   useEffect(() => {
-    const chiudi = () => setApertura(null)
+    if (esito === null) return
+    const via = setTimeout(() => setEsito(null), 4000)
+    return () => clearTimeout(via)
+  }, [esito])
+
+  // Il giorno si rilegge DOPO il `popstate` che chiude la scheda, non subito:
+  // al `popstate` il router di Next ripristina l'albero in cache di quella
+  // voce, e una rilettura chiesta prima ci finisce sotto (misurato in
+  // `next start`: visita salvata, agenda vecchia).
+  const daRileggere = useRef(false)
+  useEffect(() => {
+    const chiudi = () => {
+      setApertura(null)
+      if (!daRileggere.current) return
+      daRileggere.current = false
+      setTimeout(() => router.refresh(), 0)
+    }
     window.addEventListener('popstate', chiudi)
     return () => window.removeEventListener('popstate', chiudi)
-  }, [])
+  }, [router])
 
   const apri = useCallback((a: Apertura) => {
     window.history.pushState(VOCE, '')
@@ -85,12 +105,24 @@ export function SchedaDellAgenda({
       }}
     >
       {children}
+      {esito !== null && (
+        <p className={stile.esitoAgenda} role="status">
+          {esito}
+        </p>
+      )}
       {apertura !== null && (
         <SchedaVisita
           apertura={apertura}
           richieste={richieste}
           azioni={azioni}
           onChiudi={() => window.history.back()}
+          onFatto={(testo) => {
+            // La scheda si chiude come con «Chiudi», e il giorno si rilegge
+            // dal server: il blocco nuovo, spostato o tolto compare subito.
+            setEsito(testo === '' ? null : testo)
+            daRileggere.current = true
+            window.history.back()
+          }}
           onVaiA={(appuntamentoId, giorno) => {
             if (giorno !== data) {
               // Un altro giorno: la voce della scheda DIVENTA quel giorno.

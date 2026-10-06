@@ -5017,3 +5017,19 @@ mano»; `senzaEsclusi` estratta da `proposeStarts`. Annotati: gli avvisi già pr
   `tsc` e `build` 0. Annotati: chi è disattivato arriva alla rotta già rimandato dal middleware, e vede «Riprova» invece dell'uscita; con
   la rilettura del giorno fallita spariscono avvisi e conflitti (il Task 8 li ricalcola); «Togli» invia anche la bozza non salvata, da
   decidere al Task 8; dopo una ricarica con la scheda aperta servono due «indietro».
+
+## Esecuzione del Task 8
+
+**6 ottobre 2026.** `involucro.ts`, `controllo-preventivo.ts` (passi 2 e 3, puri), `scrittura-visita.ts` (i corpi, client come argomento) e il guscio `'use server'` `azioni-visita.ts`; la scheda chiama le tre azioni, che la pagina passa (obbligatorie: toglierle non compila). Prove viste rosse (moduli mancanti) prima del codice. **Gate:** `db reset` 0; `vitest run` **839 su 60 file** (erano 771 su 55); `test:fuso` **376** (331); `tsc`, `build` 0.
+**C5**, dieci passate della prova del `40P01` vero: 20 misure su 20 verdi, **sempre 2 tentativi**, caso tipico **1.139–1.237 ms**, una riga di `invio` per codice. Quinta decisione: il caso tipico sta nei 10 s; resta `scadenzaMs = Infinity` (il caso peggiore di 32 s non è cambiato).
+**Sonde** (rosse misurate, copia di scorta e ripristino verificato byte per byte): 1 → 1 · 2 → 3 · 3 → 1 · 4 sul ramo degli esiti **0 → 2**, scritte le prove con l’account chiuso fra la risposta della funzione e il messaggio (un `fetch` che disattiva Vera), più 4b (42501) → 1, 4c (`haFattoUpdate` sempre vero) → 1, 4d (sempre falso) → 1 · 5 → 1 · 6 → 2 · 7 → 1 (prova del 23505 vero: la collega scrive fra passo 3 e funzione) · 8 → 2 · 9 → 0, attesa (`'controlla'` arriva al Task 9).
+Collegamento: «Salva» senza chiamata 13 · «Togli» 2 · «Elimina» 1 · codice fisso 1 · `altreModifiche` sempre falso 1, sempre vero 2 · bozza da `letta` 1 · pagina senza `azioni` → `tsc` rosso (TS2741) · senza rilettura del giorno 1 · senza uscita forzata 1 · senza adozione 1 · `da_confermare` senza rilettura 1.
+**Punto 3** (decisione del 06/10): «altre modifiche» = la bozza senza il servizio tolto differisce dalla scheda LETTA (aperta, o adottata dopo «La scheda aggiornata») senza quel servizio, sui campi di `ugualeAllaScheda`; `altreModifiche` in `scheda.ts`. La conferma di «Togli» vale anche per gli avvisi mostrati in quel momento.
+**`vaiA` è `string | null`** (revisione del Task 7, C2). **`next start`**, Vera, 375 punti: creazione con cliente esistente e con cliente nuova (ritrovata dalla ricerca, E.164 e 29 febbraio nel database); orario e durata; avviso nato a scheda aperta → «Salva» fermo, poi «Salva comunque»; conflitto preventivo con frase e «Vai lì»; «Togli» con le due frasi; `modificata_altrove` da proprietario → «La scheda aggiornata»; «Elimina visita»; nessuna GET con dati di una cliente; console senza violazioni della CSP.
+**Divergenze dal piano:**
+- I corpi stanno in `scrittura-visita.ts` (un file `'use server'` esporrebbe ogni funzione esportata). `Risposta` ha in più `fallita.messaggio` (ricarica la scheda o il giorno) e `non_valida` (passo 2).
+- Un guasto PRIMA della funzione (identità, lettura del giorno) dà «riprova», non «Non so»: niente è partito.
+- `haFattoUpdate` si deduce dalle versioni restituite; il 42501 passa da `serveRicontrolloAccount` come gli esiti.
+- Trovato in `next start`, corretto: `router.refresh()` subito dopo `history.back()` veniva coperto dal ripristino di Next al `popstate` (visita salvata, agenda vecchia): ora la rilettura parte dopo il `popstate`.
+- `esiste_gia` e l’invio doppio (23505 su chiave primaria) rileggono e mostrano le righe 2/3 di §4.4; con la visita sparita, la frase di `cancellata_altrove`. «Crea di nuovo» resta del Task 9.
+Annotati: con il ricalcolo del server, A2 (avvisi spariti se la rilettura fallisce) non lascia più salvare senza conferma; le prove `.tsx` non passano da `tsc` (`include` ha solo `tests/**/*.ts`).
