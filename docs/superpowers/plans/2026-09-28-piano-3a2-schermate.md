@@ -4917,3 +4917,24 @@ Annotati: eccezioni ripetute sulla stessa coppia operatrice-data accettate (le e
 `dataReale` rifiuta gli anni 0001-0099 (`Date.UTC`), innocuo; `Math.min(…, 288)` in `perugia.ts` non scatta mai
 (massimo 287,8). ⚠︎ **Task 5:** `?giorno=a&giorno=b` arriva da Next come `string[]`: ridurlo a stringa o `null` prima
 di `dataDallIndirizzo`.
+
+## Esecuzione del Task 5
+
+**6 ottobre 2026.** `blocchi.ts`, `lettura-giorno.ts`, `vista.ts`, colonne, striscia, agenda vera; prove viste rosse prima del
+codice. **Gate:** `db reset` 0; `vitest run` **633 verdi su 44 file** (erano 596); `test:fuso` **217** (erano 188); `tsc`,
+`build` 0. **Passo 4** verde: `…22.951376+00:00` da PostgREST, `…22.951376Z` da `stato_visita`. **`next start`**, Vera, 375
+punti: blocchi alle righe giuste, finestra estesa alle 21:30, fuori orario a righe oggi e domani e solo attenuato ieri, chiusure
+intera e parziale, quattro colonne che scorrono, scorrimento di lato; console senza violazioni della CSP.
+**Sonde:** 1 → 1 · 2, 3 → 2 · 4, 5 → 3 · 6, 7, 7b, 7e → 1 · **7c → 1**, non 3 (le scansioni non hanno niente da scoprire:
+morde la gemella) · 7d → 0, dichiarata · **8 → 1**, con la prova nuova del documento storto iniettato. Sonde aggiunte: tocco 2,
+fuori orario 1, bordo 3, colore non `#RRGGBB` 1, `style=` 1, «tu» 1; **0** sul cursore di `spaziFuoriOrario` e sul filtro per
+data delle chiusure, equivalenti sul percorso raggiungibile (fasce già piegate, finestra di un giorno).
+
+Divergenze dal testo:
+- Niente `style`: classi generate in `griglia.module.css` (regola in testa, una prova la confronta); colore nel `fill` di un
+  SVG. Prova statica nuova: niente `style=` né `next/image` in `src/`.
+- `visit:visit!appointment_visit_date_fk`: la chiave esterna è composta e `visit:visit_id` dà PGRST200.
+- `leggiGiorno(client, data, io)`; `Giorno.chiusure` con motivo e confini; `AppuntamentoLetto` in `blocchi.ts`; in più
+  `inizioDalTocco`, `spaziFuoriOrario`, `bloccoFuoriOrario`. `?giorno` ripetuto → oggi; la pagina ricontrolla l'identità.
+- Rimandati: tocco che apre la scheda (Task 7), interruttore colonne/lista e `avstyle.vista` (Task 6), linea dell'ora che si
+  muove (Task 11). Con più di tre colonne nomi e ore non restano fermi; la striscia ha cinque giorni, «Oggi» è in testata.

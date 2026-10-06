@@ -1,0 +1,61 @@
+.striscia {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px;
+  overflow-x: auto;
+}
+.giorno,
+.salto,
+.vaiOggi {
+  /* Bersagli toccabili di almeno 44 punti (§7). */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--inchiostro);
+  text-decoration: none;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+}
+.giorno:focus-visible,
+.salto:focus-visible,
+.vaiOggi:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: 1px;
+}
+.salto {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.iniziale {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.numero {
+  font-size: 1rem;
+  font-weight: 700;
+}
+/* Il giorno scelto si segna con il bordo e il peso, non solo con il colore (§6.2). */
+.scelto {
+  border-color: var(--inchiostro);
+  background: var(--bianco);
+}
+.oggi .numero {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.vaiOggi {
+  margin-left: auto;
+  padding: 0 8px;
+  font-weight: 700;
+  border-color: var(--inchiostro);
+}
+/* Lo scorrimento verticale resta del browser; quello di lato è nostro. */
+.scorrimento {
+  touch-action: pan-y;
+}

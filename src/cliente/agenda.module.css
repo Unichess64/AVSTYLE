@@ -1,0 +1,195 @@
+/* src/cliente/agenda.module.css — l'agenda a colonne (spec 3a §5.1, §6, §7). */
+
+.contenitore {
+  padding-top: 4px;
+}
+/* Lo scorrimento orizzontale, quando le colonne attive sono più di tre.
+ * ⚠︎ Solo allora: un contenitore con overflow diventa il riferimento di
+ * `position: sticky`, e i nomi delle colonne smetterebbero di restare in alto. */
+.scorre {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+/* Dentro un contenitore che scorre di lato `sticky` si riferisce a lui, che
+ * in verticale non scorre: `top` spingerebbe i nomi sopra la griglia. Con più
+ * di tre colonne attive i nomi restano in cima e non seguono (limite noto). */
+.scorre .intestazioni {
+  position: static;
+}
+
+/* Una riga = una cella da cinque minuti: mezz'ora = 42 punti (§5.1). */
+.griglia,
+.intestazioni {
+  display: grid;
+  grid-template-columns: 44px;
+  column-gap: 4px;
+  padding: 0 8px 0 0;
+}
+.griglia {
+  grid-auto-rows: 7px;
+  position: relative;
+  /* lo spazio per la metà superiore dell'etichetta della prima ora */
+  padding-top: 10px;
+}
+.colonneLibere {
+  grid-auto-columns: minmax(0, 1fr);
+}
+.colonneFisse {
+  grid-auto-columns: 112px;
+  width: max-content;
+}
+
+.intestazioni {
+  position: sticky;
+  /* sotto la testata del guscio, alta 57 punti con il pulsante «Esci» da 44 */
+  top: 57px;
+  z-index: 3;
+  background: var(--rosa-cipria);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.intestazione {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.pallino {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.nomeOperatrice {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tu {
+  flex: none;
+  padding: 0 6px;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.disattivata {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.regola {
+  border-top: 1px dashed rgb(20 13 24 / 0.18);
+}
+.regolaOra {
+  border-top: 1px solid rgb(20 13 24 / 0.35);
+}
+.etichettaOra {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  transform: translateY(-50%);
+  padding-right: 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Fuori orario: attenuato sempre, a righe diagonali oggi e nei giorni futuri (§9.1). */
+.fuori {
+  background: rgb(20 13 24 / 0.06);
+}
+.tratteggio {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(20 13 24 / 0.16) 0 1.5px,
+    transparent 1.5px 8px
+  );
+}
+
+.blocco {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-start;
+}
+.fondo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.testo {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 4px;
+  align-items: baseline;
+  padding: 2px 6px;
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+}
+.testoChiaro {
+  color: var(--bianco);
+}
+.testoScuro {
+  color: var(--inchiostro);
+}
+.ora {
+  font-weight: 700;
+}
+.nome {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.servizio {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Il segnino di visita spezzata (§9.1), e il segno «fuori orario». */
+.segnoVisita {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.625rem;
+}
+.segnoFuori {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  border-top-left-radius: 4px;
+  background: var(--bianco)
+    repeating-linear-gradient(135deg, var(--inchiostro) 0 1.5px, transparent 1.5px 4px);
+  border-top: 1.5px solid var(--inchiostro);
+  border-left: 1.5px solid var(--inchiostro);
+}
+
+/* La linea dell'ora: inchiostro con alone chiaro (§5.1). */
+.linea {
+  z-index: 2;
+  align-self: start;
+  height: 2px;
+  background: var(--inchiostro);
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85);
+  pointer-events: none;
+}
+
+.chiusura {
+  margin: 8px 8px 0 52px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+  background: var(--bianco);
+  font-weight: 600;
+}
