@@ -14,8 +14,11 @@
 // scartata prima che «Controlla» ne abbia bruciato il codice, e l'operatrice
 // vedrebbe «Non so» su un salvataggio che sta per riuscire.
 //
-// La scheda vera (`src/cliente/scheda-visita.tsx`) tiene questo oggetto e ne
-// usa la generazione; messaggi e pulsanti li disegna React.
+// La scheda vera (`src/cliente/scheda-visita.tsx`) tiene questo oggetto: ne usa
+// la generazione per ogni risposta e la DECISIONE per «Controlla», che nasce
+// qui da `applica` (revisione del Task 9: prima ne usava solo la generazione,
+// e le prove presidiavano un modello che nessuno consumava). Messaggi e
+// pulsanti li disegna React.
 import type { Atteso } from './attesi'
 import { type Decisione, type EsitoInvio, type Invio, NON_SO, type RispostaControlla, decidiControlla } from './controlla'
 import { type Classe, messaggioPerAnnullato } from './errori'
@@ -38,8 +41,11 @@ export interface SchedaViva {
   readonly pulsanti: { readonly salva: boolean; readonly controlla: boolean }
   /** L'ultima decisione di «Controlla», se c'è. */
   readonly decisione: Decisione | null
-  /** Incrementa la generazione e restituisce quella con cui l'invio parte. */
-  salva(invio?: Invio): number
+  /**
+   * Incrementa la generazione e restituisce quella con cui l'invio parte.
+   * `inviata` è ciò che l'invio manda: «Controlla» confronta con lei.
+   */
+  salva(invio?: Invio, inviata?: Scheda): number
   /** I 10 s di D3-9 sono scaduti. ⚠︎ NON incrementa: l'invio può ancora arrivare. */
   scaduto(): void
   /** Incrementa: da qui in poi le risposte dell'invio precedente si scartano. */
@@ -57,6 +63,7 @@ export function nuovoStatoScheda(scheda: Scheda): SchedaViva {
   let pulsanti = { salva: true, controlla: false }
   let decisione: Decisione | null = null
   let ultimo: Invio = 'salva'
+  let inviata: Scheda = scheda
 
   const incerto = () => {
     messaggio = NON_SO
@@ -79,8 +86,10 @@ export function nuovoStatoScheda(scheda: Scheda): SchedaViva {
     get decisione() {
       return decisione
     },
-    salva(invio: Invio = 'salva') {
+    salva(invio: Invio = 'salva', mandata: Scheda = scheda) {
       ultimo = invio
+      inviata = mandata
+      decisione = null
       generazione += 1
       pulsanti = { salva: false, controlla: false }
       return generazione
@@ -89,6 +98,7 @@ export function nuovoStatoScheda(scheda: Scheda): SchedaViva {
       incerto()
     },
     controlla() {
+      decisione = null
       generazione += 1
       return generazione
     },
@@ -104,7 +114,7 @@ export function nuovoStatoScheda(scheda: Scheda): SchedaViva {
           pulsanti = { salva: true, controlla: false }
           return
         case 'riga':
-          decisione = decidiControlla(r, scheda, ultimo)
+          decisione = decidiControlla(r, inviata, ultimo)
           messaggio = decisione.testo
           versioni = decisione.versioni
           pulsanti = { salva: true, controlla: false }

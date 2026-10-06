@@ -11,6 +11,7 @@ import {
   alPagehide,
   daControllare,
   fraseDelPendente,
+  inQuestaPagina,
   leggiInvii,
   registraInvio,
   togliInvio,
@@ -45,6 +46,7 @@ function invio(altro: Partial<InvioPendente> = {}): InvioPendente {
     visitaId: `50000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     clienteId: '40000000-0000-4000-8000-000000000001',
     operatriceId: VERA,
+    invio: 'salva',
     toccatoIl: ORA,
     ...altro,
   }
@@ -114,7 +116,7 @@ describe('§4.9: solo identificativi casuali e un orario', () => {
     // Chi chiama passasse anche un nome, non arriverebbe nel telefono.
     registraInvio(d, { ...invio(), nome: 'Maria Rossi', telefono: '+393331234567' } as InvioPendente)
     const salvato = JSON.parse(d.righe.get(CHIAVE)!) as Record<string, unknown>[]
-    expect(Object.keys(salvato[0]).sort()).toEqual(['clienteId', 'codice', 'operatriceId', 'toccatoIl', 'visitaId'])
+    expect(Object.keys(salvato[0]).sort()).toEqual(['clienteId', 'codice', 'invio', 'operatriceId', 'toccatoIl', 'visitaId'])
     expect(d.righe.get(CHIAVE)).not.toContain('Maria')
     expect(d.righe.get(CHIAVE)).not.toContain('333')
   })
@@ -137,6 +139,36 @@ describe('§4.9: solo identificativi casuali e un orario', () => {
     expect(fraseDelPendente(i, { riga: 6, esito_invio: 'modificata_altrove', stato }, null)).toBe(
       'Il salvataggio delle 10:04 non risulta salvato: la visita era stata cambiata da un’altra parte',
     )
+  })
+})
+
+describe('il tipo d invio (revisione del Task 9)', () => {
+  it('un «Elimina visita» non si chiama «salvataggio»', () => {
+    const e = invio({ invio: 'elimina' })
+    expect(fraseDelPendente(e, { riga: 1, esito_invio: 'annullato', stato: null }, null)).toBe('La cancellazione delle 10:04 non risulta fatta')
+    expect(fraseDelPendente(invio({ invio: 'togli' }), { riga: 1, esito_invio: 'annullato', stato: null }, null)).toBe(
+      'Il salvataggio delle 10:04 non risulta salvato',
+    )
+  })
+
+  it('un record senza tipo, o con un tipo ignoto, si scarta', () => {
+    const d = deposito()
+    const { invio: _tolto, ...senza } = invio()
+    d.setItem(CHIAVE, JSON.stringify([senza, { ...invio(), invio: 'sposta' }]))
+    expect(leggiInvii(d)).toEqual([])
+  })
+})
+
+describe('gli invii di QUESTA pagina (revisione del Task 9)', () => {
+  it('sono quelli registrati qui, non quelli lasciati da un altra pagina o da un altra scheda del browser', () => {
+    const d = deposito()
+    const mio = invio()
+    const altrui = invio()
+    d.setItem(CHIAVE, JSON.stringify([altrui]))
+    registraInvio(d, mio)
+    expect(inQuestaPagina(d).map((x) => x.codice)).toEqual([mio.codice])
+    togliInvio(d, mio.codice)
+    expect(inQuestaPagina(d)).toEqual([])
   })
 })
 

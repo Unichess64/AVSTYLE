@@ -110,6 +110,32 @@ describe('RETRY-40P01 (§4.3 passo 5, §3.2)', () => {
     ).rejects.toThrow().then(() => expect(n).toBe(1))
   })
 
+  it('un ritentativo che PARTIREBBE oltre la scadenza dopo l attesa non si fa (revisione del Task 9)', () => {
+    // 6.950 ms trascorsi e un'attesa di 50 ms: il tentativo partirebbe a 7 s.
+    let n = 0
+    const orologio = [0, 6_950]
+    return expect(
+      conRitentativi(
+        async () => { n += 1; throw guasto('40P01') },
+        sqlstateDi, async () => {}, () => 0,
+        7_000,
+        () => orologio.shift() ?? 6_950,
+      ),
+    ).rejects.toThrow().then(() => expect(n).toBe(1))
+  })
+
+  it('la gemella: con 6.900 ms trascorsi e 50 di attesa il ritentativo parte', async () => {
+    let n = 0
+    const orologio = [0, 6_900]
+    await conRitentativi(
+      async () => { n += 1; if (n === 1) throw guasto('40P01'); return 'ok' },
+      sqlstateDi, async () => {}, () => 0,
+      7_000,
+      () => orologio.shift() ?? 6_900,
+    )
+    expect(n).toBe(2)
+  })
+
   it('il caso arriva a ogni attesa: due scrittori in conflitto non ritentano all unisono', async () => {
     const dormito: number[] = []
     const casi = [0, 0.999]

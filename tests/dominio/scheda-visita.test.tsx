@@ -687,7 +687,12 @@ describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendent
     return { promessa, risolvi }
   }
 
-  function monta(azioni: AzioniScheda, controlla: RichiesteScheda['controlla'] = vi.fn(mai), iniziale = apriSchedaSuVisita(STATO_ATTIVO, VISITA)) {
+  function monta(
+    azioni: AzioniScheda,
+    controlla: RichiesteScheda['controlla'] = vi.fn(mai),
+    iniziale = apriSchedaSuVisita(STATO_ATTIVO, VISITA),
+    adesso?: () => number,
+  ) {
     const onFatto = vi.fn()
     const r = richieste({ controlla })
     render(
@@ -698,6 +703,7 @@ describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendent
         azioni={azioni}
         io={VERA}
         attesaMs={40}
+        adesso={adesso}
         onVaiA={() => {}}
         onFatto={onFatto}
         onRicarica={() => {}}
@@ -717,8 +723,21 @@ describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendent
     monta(azioniFinte({ salva }))
     await userEvent.click(pulsante('Salva'))
     const codice = salva.mock.calls[0][1]
-    expect(invii()).toEqual([{ codice, visitaId: VISITA, clienteId: MARIA, operatriceId: VERA, toccatoIl: expect.any(Number) }])
+    expect(invii()).toEqual([{ codice, visitaId: VISITA, clienteId: MARIA, operatriceId: VERA, invio: 'salva', toccatoIl: expect.any(Number) }])
     expect(window.localStorage.getItem('avstyle.invii')).not.toContain('Maria')
+  })
+
+  it('il record porta il tipo d invio: «Togli» e «Elimina visita» non sono «Salva»', async () => {
+    monta(azioniFinte())
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Conferma' })).getByRole('button', { name: 'Togli' }))
+    expect(invii().map((x) => x.invio)).toEqual(['togli'])
+    cleanup()
+    window.localStorage.clear()
+    monta(azioniFinte())
+    await userEvent.click(pulsante('Elimina visita'))
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Conferma' })).getByRole('button', { name: 'Elimina' }))
+    expect(invii().map((x) => x.invio)).toEqual(['elimina'])
   })
 
   it('e si cancella alla risposta definitiva', async () => {
@@ -885,6 +904,59 @@ describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendent
     })
     expect(onFatto).not.toHaveBeenCalled()
     expect(invii()).toHaveLength(1)
+  })
+
+  it('durante «Non so» i campi sono spenti: una modifica non può sparire sotto un «✓ Risulta salvata» (B2)', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: STATO_ATTIVO }))
+    monta(azioniFinte({ salva: vi.fn(mai) }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByRole('button', { name: 'Controlla' })).toBeTruthy()
+    const campi = () => [
+      within(servizioAlle('10:00')).getByLabelText('Minuti d’inizio'),
+      within(servizioAlle('10:00')).getByLabelText('Operatrice'),
+      screen.getByLabelText('Aggiungi servizio'),
+      screen.getByLabelText('Data'),
+    ] as (HTMLSelectElement | HTMLInputElement)[]
+    // `:disabled` e non `.disabled`: un campo dentro un fieldset spento è spento
+    // per il browser anche se la sua proprietà resta falsa.
+    expect(campi().map((c) => c.matches(':disabled'))).toEqual([true, true, true, true])
+    // la gemella: dopo la riga 1 si torna a scrivere
+    await userEvent.click(pulsante('Controlla'))
+    expect(await screen.findByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    expect(campi().map((c) => c.matches(':disabled'))).toEqual([false, false, false, false])
+  })
+
+  it('un `annullato` come risposta diretta dice che non è stata salvata, invece di sbloccarsi in silenzio', async () => {
+    // Un'altra scheda del browser, o «Esci», può aver bruciato il codice.
+    const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'esito', esito: 'annullato', messaggio: { ...nessuno, testo: '' } }))
+    monta(azioniFinte({ salva }))
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    expect(pulsante('Salva').disabled).toBe(false)
+  })
+
+  it('una scheda incerta da più di 24 ore non chiama «Controlla»: si chiude e rilegge il giorno (§4.4, vita della scheda)', async () => {
+    let ora = Date.UTC(2026, 9, 6, 8, 0)
+    const controlla = vi.fn(mai)
+    const { onFatto } = monta(azioniFinte({ salva: vi.fn(mai) }), controlla, undefined, () => ora)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }).then((b) => {
+      ora += 24 * 60 * 60 * 1000 + 60_000
+      return b
+    }))
+    expect(controlla).not.toHaveBeenCalled()
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('Questa scheda è rimasta aperta più di 24 ore: ricarico il giorno'))
+  })
+
+  it('la gemella: a 23 ore e 59 minuti «Controlla» parte', async () => {
+    let ora = Date.UTC(2026, 9, 6, 8, 0)
+    const controlla = vi.fn(mai)
+    monta(azioniFinte({ salva: vi.fn(mai) }), controlla, undefined, () => ora)
+    await userEvent.click(pulsante('Salva'))
+    const b = await screen.findByRole('button', { name: 'Controlla' })
+    ora += 24 * 60 * 60 * 1000 - 60_000
+    await userEvent.click(b)
+    expect(controlla).toHaveBeenCalledTimes(1)
   })
 
   it('«Controlla» con l account chiuso è l uscita forzata', async () => {

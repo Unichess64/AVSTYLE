@@ -353,3 +353,15 @@
   color: var(--inchiostro);
   font-weight: 700;
 }
+
+/* I campi della scheda in un solo `fieldset`, spento quando la scheda è ferma (revisione del Task 9, B2). */
+.campi {
+  /* le sezioni stanno dentro: il fieldset ripete la colonna e il passo di .corpo */
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

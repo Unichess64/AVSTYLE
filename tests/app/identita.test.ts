@@ -293,6 +293,26 @@ describe('il middleware, chiamato davvero (§4.7)', () => {
     }
   })
 
+  it('sulle rotte /api/ «fuori» è un 401 in JSON, non un rinvio all accesso (revisione del Task 9)', async () => {
+    // `fetch` segue il rinvio e riceve una pagina HTML: il telefono la leggeva
+    // come «Non so» e l'uscita forzata di «Controlla» non arrivava mai.
+    const cookie = await cookieDi(await sessioneDi(VERA_AUTH))
+    await asOwner((pg) => pg.query('update public.operator set is_active = false where id = $1', [VERA]))
+    for (const percorso of ['/api/controlla', '/api/scheda']) {
+      const r = await middleware(richiesta(percorso, cookie))
+      expect(r.status).toBe(401)
+      expect(r.headers.get('location')).toBeNull()
+      expect(await r.json()).toEqual({ tipo: 'uscita_forzata' })
+      expect(cookieDellaRisposta(r).cancellati.length).toBeGreaterThan(0)
+      intestazioniDiSicurezza(r)
+    }
+  })
+
+  it('la gemella: un operatrice attiva passa anche sulle rotte /api/', async () => {
+    const r = await middleware(richiesta('/api/controlla', await cookieDi(await sessioneDi(VERA_AUTH))))
+    expect(passa(r)).toBe(true)
+  })
+
   it('gemella: un operatrice attiva passa senza che nessun cookie venga cancellato', async () => {
     const r = await middleware(richiesta('/agenda', await cookieDi(await sessioneDi(VERA_AUTH))))
     expect(passa(r)).toBe(true)

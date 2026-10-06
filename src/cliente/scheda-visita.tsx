@@ -14,9 +14,13 @@
 // «Controlla» (§4.4, Task 9): senza risposta entro i 10 s di D3-9 la scheda
 // dice «Non so se è stata salvata» e mostra «Controlla», che passa da una
 // rotta con `fetch`, fuori dalla fila delle Server Actions. La decisione è di
-// `decidiControlla`, sulla coppia (riga, esito_invio) — C1 —, e le risposte
-// tardive dell'invio abbandonato si scartano con il numero di generazione
-// (`scheda-viva.ts`).
+// `decidiControlla`, sulla coppia (riga, esito_invio) — C1 —, presa dentro
+// `scheda-viva.ts` con `applica`; le risposte tardive dell'invio abbandonato si
+// scartano con il numero di generazione dello stesso oggetto.
+//
+// Finché la scheda è ferma (invio in corso, «Non so», «Crea di nuovo») i campi
+// sono spenti: una modifica fatta lì sparirebbe sotto un «✓ Risulta salvata»
+// che parla di ciò che era stato inviato (revisione del Task 9, B2).
 //
 // La bozza vive SOLO in memoria (§4.9): stato di React, niente localStorage,
 // niente indirizzo. Le regole stanno in `src/dominio/` (scheda, durate,
@@ -28,7 +32,7 @@ import type { Apertura } from '../dominio/apertura'
 import type { Atteso } from '../dominio/attesi'
 import { type Avviso, calcolaAvvisi, confermaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
 import { fraseDeiConflitti, idInScrittura, trovaConflitti } from '../dominio/conflitti'
-import { type Decisione, type Invio, NON_SO, decidiControlla, schedaPerCreaDiNuovo } from '../dominio/controlla'
+import { type Decisione, type Invio, NON_RISULTA, NON_SO, schedaPerCreaDiNuovo } from '../dominio/controlla'
 import {
   type Catalogo,
   aggiungiServizio,
@@ -202,7 +206,11 @@ interface UltimoInvio {
   readonly inviata: Scheda
   /** Il servizio di un «Togli»: dopo la riga 1 si riaccende la sua conferma. */
   readonly tolto: string | null
+  readonly toccatoIl: number
 }
+
+/** §4.4, vita della scheda: un invio incerto vive al massimo 24 ore in memoria, come in `localStorage`. */
+const VITA_SCHEDA_MS = 24 * 60 * 60 * 1000
 
 /** La scheda caricata. Esportata per le prove sul componente. */
 export function SchedaCompilata({
@@ -212,6 +220,7 @@ export function SchedaCompilata({
   azioni,
   io,
   attesaMs = ATTESA_MS,
+  adesso = Date.now,
   onVaiA,
   onFatto,
   onRicarica,
@@ -223,6 +232,8 @@ export function SchedaCompilata({
   io: string
   /** Solo per le prove: i 10 s di D3-9. */
   attesaMs?: number
+  /** Solo per le prove: l'orologio del tocco e delle 24 ore. */
+  adesso?: () => number
   onVaiA: (appuntamentoId: string, data: string) => void
   onFatto: (testo: string) => void
   onRicarica: (testo: string) => void
@@ -360,7 +371,10 @@ export function SchedaCompilata({
         // Il ✓ chiude la scheda; un esito che ricarica il giorno anche.
         if (m.spunta || m.ricaricaIlGiorno) return onFatto(m.testo)
         if (m.schedaAdottaStato && r.stato) return adotta(r.stato, m.testo)
-        // `annullato`: la risposta si scarta (§4.1).
+        // `annullato` arrivato come risposta: il codice l'ha bruciato qualcun
+        // altro (un'altra scheda del browser, «Esci»), e l'invio non ha
+        // scritto niente. Lo si dice: sbloccarsi muti lasciava credere salvato.
+        if (r.esito === 'annullato') return setEsito(NON_RISULTA)
         if (m.testo !== '') setEsito(m.testo)
         return
       }
@@ -404,14 +418,16 @@ export function SchedaCompilata({
    */
   const invia = async (invio: Invio, inviata: Scheda, chiamata: (codice: string) => Promise<Risposta>, tolto: string | null = null) => {
     const codice = crypto.randomUUID()
-    const gen = viva.current!.salva(invio)
-    ultimo.current = { invio, codice, inviata, tolto }
+    const gen = viva.current!.salva(invio, inviata)
+    const toccatoIl = adesso()
+    ultimo.current = { invio, codice, inviata, tolto, toccatoIl }
     registraInvio(depositoDelTelefono(), {
       codice,
       visitaId: inviata.visitaId,
       clienteId: inviata.cliente?.tipo === 'esistente' ? inviata.cliente.id : null,
       operatriceId: io,
-      toccatoIl: Date.now(),
+      invio,
+      toccatoIl,
     })
     setInCorso(true)
     setEsito(null)
@@ -463,6 +479,12 @@ export function SchedaCompilata({
   const controlla = async () => {
     const u = ultimo.current
     if (u === null) return
+    // Oltre 24 ore il codice può essere già stato ripulito, e «Controlla»
+    // direbbe «non risulta» di un invio salvato: non si chiede, si rilegge.
+    if (adesso() - u.toccatoIl > VITA_SCHEDA_MS) {
+      togliInvio(depositoDelTelefono(), u.codice)
+      return onFatto('Questa scheda è rimasta aperta più di 24 ore: ricarico il giorno')
+    }
     const gen = viva.current!.controlla()
     setInControllo(true)
     let r: Awaited<ReturnType<RichiesteScheda['controlla']>>
@@ -477,7 +499,9 @@ export function SchedaCompilata({
     // Un «Controlla» fallito non brucia niente: di nuovo «Non so», e il codice resta.
     if (r.tipo === 'non_so') return setEsito(NON_SO)
     togliInvio(depositoDelTelefono(), u.codice)
-    eseguiDecisione(decidiControlla(r, u.inviata, u.invio), r.stato, u)
+    viva.current!.applica(gen, r)
+    const d = viva.current!.decisione
+    if (d !== null) eseguiDecisione(d, r.stato, u)
   }
 
   const salva = () => {
@@ -513,6 +537,8 @@ export function SchedaCompilata({
 
   return (
     <div className={stile.corpo}>
+      {/* B2: con la scheda ferma i campi sono spenti, tutti insieme. */}
+      <fieldset className={stile.campi} disabled={fermo}>
       <section className={stile.sezione} aria-labelledby="scheda-cliente">
         <h3 id="scheda-cliente" className={stile.etichetta}>
           Cliente
@@ -686,6 +712,8 @@ export function SchedaCompilata({
           </select>
         </label>
       </section>
+
+      </fieldset>
 
       {mostraConflitto !== null && (
         <div className={stile.conflitto} role="alert">

@@ -15,7 +15,7 @@
 // Il contorno: in navigazione privata `localStorage` può mancare, sollevare a
 // ogni accesso o essere pieno. Niente qui fa cadere l'app: senza deposito il
 // meccanismo tace, e resta «Controlla» nella scheda aperta.
-import { type RispostaControlla } from './controlla'
+import type { Invio, RispostaControlla } from './controlla'
 
 export const CHIAVE = 'avstyle.invii'
 
@@ -31,8 +31,20 @@ export interface InvioPendente {
   readonly visitaId: string
   readonly clienteId: string | null   // solo se ESISTENTE
   readonly operatriceId: string       // chi lo ha scritto
+  /** «Salva», «Togli» o «Elimina visita»: non è un dato personale, e la frase della striscia ne dipende. */
+  readonly invio: Invio
   readonly toccatoIl: number          // epoch ms
 }
+
+const INVII: ReadonlySet<string> = new Set(['salva', 'togli', 'elimina'])
+
+/**
+ * I codici toccati in QUESTA pagina (revisione del Task 9). La conferma
+ * all'abbandono e il «Controlla» di `pagehide` valgono solo per loro: un
+ * codice lasciato da una pagina di ieri non tiene ferma l'operatrice, e uno di
+ * un'altra scheda del browser, magari ancora in volo, non si brucia da qui.
+ */
+const toccatiQui = new Set<string>()
 
 /** Il pezzo di `Storage` che serve. `null` quando il telefono non ne ha uno. */
 export type Deposito = Pick<Storage, 'getItem' | 'setItem'> | null
@@ -55,7 +67,15 @@ function soloIdentificativi(x: unknown): InvioPendente | null {
   if (!testo(r.codice) || !testo(r.visitaId) || !testo(r.operatriceId)) return null
   if (!(r.clienteId === null || testo(r.clienteId))) return null
   if (typeof r.toccatoIl !== 'number' || !Number.isFinite(r.toccatoIl)) return null
-  return { codice: r.codice, visitaId: r.visitaId, clienteId: r.clienteId, operatriceId: r.operatriceId, toccatoIl: r.toccatoIl }
+  if (typeof r.invio !== 'string' || !INVII.has(r.invio)) return null
+  return {
+    codice: r.codice,
+    visitaId: r.visitaId,
+    clienteId: r.clienteId,
+    operatriceId: r.operatriceId,
+    invio: r.invio as Invio,
+    toccatoIl: r.toccatoIl,
+  }
 }
 
 export function leggiInvii(d: Deposito): InvioPendente[] {
@@ -82,11 +102,18 @@ function scrivi(d: Deposito, invii: readonly InvioPendente[]): void {
 export function registraInvio(d: Deposito, invio: InvioPendente): void {
   const pulito = soloIdentificativi(invio)
   if (pulito === null) return
+  toccatiQui.add(pulito.codice)
   scrivi(d, [...leggiInvii(d).filter((x) => x.codice !== pulito.codice), pulito])
+}
+
+/** Gli invii pendenti toccati in questa pagina e non ancora definitivi. */
+export function inQuestaPagina(d: Deposito): InvioPendente[] {
+  return leggiInvii(d).filter((x) => toccatiQui.has(x.codice))
 }
 
 /** Alla risposta DEFINITIVA: un esito, oppure la riga di «Controlla». */
 export function togliInvio(d: Deposito, codice: string): void {
+  toccatiQui.delete(codice)
   const prima = leggiInvii(d)
   const dopo = prima.filter((x) => x.codice !== codice)
   if (dopo.length !== prima.length) scrivi(d, dopo)
@@ -116,6 +143,8 @@ const ORA_A_PERUGIA = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome'
 export function fraseDelPendente(invio: InvioPendente, r: RispostaControlla, nomeLetto: string | null): string {
   const ora = ORA_A_PERUGIA.format(invio.toccatoIl)
   const per = nomeLetto === null ? '' : ` per ${nomeLetto}`
+  // «Elimina visita» è una cancellazione: chiamarla salvataggio confondeva.
+  if (invio.invio === 'elimina' && r.riga === 1) return `La cancellazione delle ${ora}${per} non risulta fatta`
   const il = `Il salvataggio delle ${ora}${per}`
   switch (r.riga) {
     case 1:

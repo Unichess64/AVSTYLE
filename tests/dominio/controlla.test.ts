@@ -287,6 +287,26 @@ describe('le risposte tardive si scartano per numero di generazione (§4.4, §8.
     expect(s.generazione).not.toBe(primo)
   })
 
+  it('la decisione confronta con la scheda INVIATA, non con quella d apertura', () => {
+    // Revisione del Task 9: la scheda usa la decisione del modello, quindi il
+    // modello deve conoscere ciò che l'invio ha mandato.
+    const s = nuovoStatoScheda(SCHEDA)
+    s.salva('salva', schedaDiProva({ inizio: 132 }))
+    s.scaduto()
+    s.controlla()
+    s.applica(s.generazione, { tipo: 'riga', riga: 2, esito_invio: 'salvata', stato: LETTO })
+    expect(s.decisione?.testo).toBe('✓ Risulta salvata')
+  })
+
+  it('e una riga arrivata con una generazione vecchia non lascia nessuna decisione', () => {
+    const s = nuovoStatoScheda(SCHEDA)
+    s.salva('salva', SCHEDA)
+    const vecchia = s.controlla()
+    s.controlla()
+    s.applica(vecchia, { tipo: 'riga', riga: 1, esito_invio: 'annullato', stato: LETTO })
+    expect(s.decisione).toBeNull()
+  })
+
   it('lo scadere dei 10 s NON incrementa la generazione: l invio può ancora arrivare', () => {
     const s = nuovoStatoScheda(SCHEDA)
     const gen = s.salva()

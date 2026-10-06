@@ -26,6 +26,8 @@ import {
   daControllare,
   depositoDelTelefono,
   fraseDelPendente,
+  inQuestaPagina,
+  leggiInvii,
   togliInvio,
 } from '../dominio/invii-pendenti'
 import type { StatoVisita } from '../dominio/stato-visita'
@@ -52,26 +54,29 @@ type Voce =
   | { readonly invio: InvioPendente; readonly stato: 'fatto'; readonly frase: string }
 
 /**
- * Un «Controlla» per un invio pendente: la frase se è definitivo (e il codice
- * si toglie), `null` se è «Non so». `siMostra` dice se l'esito arriva ancora a
- * qualcuno: dopo il limite di «Esci» no, e allora il codice RESTA — togliendolo,
- * un esito che nessuno ha visto sparirebbe (misurato in `next start`).
+ * Un «Controlla» per un invio pendente: la frase se è definitivo, `null` se è
+ * «Non so». ⚠︎ NON toglie il codice: lo toglie chi MOSTRA l'esito. Togliendolo
+ * alla risposta, un esito che nessuno ha visto spariva alla ricarica successiva
+ * (revisione del Task 9, B1; e W8 per «Esci», misurato in `next start`).
  */
-async function controllaUno(
-  invio: InvioPendente,
-  controlla: Controlla,
-  nomeDi: NomeDi | null,
-  siMostra: () => boolean = () => true,
-): Promise<string | null> {
+async function controllaUno(invio: InvioPendente, controlla: Controlla, nomeDi: NomeDi | null): Promise<string | null> {
   const r = await controlla(invio.codice, invio.visitaId).catch((e: unknown) => {
     if (e instanceof UscitaForzata) throw e
     return { tipo: 'non_so' } as const
   })
-  if (r.tipo === 'non_so' || !siMostra()) return null
-  togliInvio(depositoDelTelefono(), invio.codice)
+  if (r.tipo === 'non_so') return null
   const nome = r.stato !== null && nomeDi !== null ? await nomeDi(invio.visitaId, r.stato) : null
   return fraseDelPendente(invio, r, nome)
 }
+
+/**
+ * Quanto dura al massimo un invio sul server: 7 s di ritentativi più gli 8 s
+ * di `statement_timeout`, e un margine. Un codice più giovane può essere di
+ * un'altra scheda del browser con l'invio ancora in volo: bruciarlo da qui lo
+ * farebbe tornare `annullato` (revisione del Task 9). Si aspetta, e se nel
+ * frattempo quella scheda ha avuto la sua risposta il codice non c'è più.
+ */
+const VITA_INVIO_MS = 20_000
 
 const quanti = (n: number) => (n === 1 ? '1 salvataggio da controllare' : `${n} salvataggi da controllare`)
 const ORA = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -81,21 +86,27 @@ export function StrisciaInvii({
   controlla = controllaInvio,
   controllaAllAbbandono = (codice, visitaId) => void controllaInvio(codice, visitaId, true),
   nomeDi = nomeLetto,
+  vitaInvioMs = VITA_INVIO_MS,
 }: {
   /** L'`operator.id` di chi ha fatto l'accesso: si controllano solo i SUOI codici. */
   io: string
   controlla?: Controlla
   controllaAllAbbandono?: (codice: string, visitaId: string) => void
   nomeDi?: NomeDi
+  /** Solo per le prove: quanto può restare in volo un invio. */
+  vitaInvioMs?: number
 }) {
   const [voci, setVoci] = useState<readonly Voce[]>([])
   const [aperta, setAperta] = useState(false)
   const viva = useRef(true)
 
-  const esegui = (dachi: readonly InvioPendente[]) => {
-    setVoci((v) => v.map((x) => (dachi.some((d) => d.codice === x.invio.codice) ? { invio: x.invio, stato: 'in_corso' } : x)))
-    for (const invio of dachi) {
-      controllaUno(invio, controlla, nomeDi).then(
+  const controllaOra = (invio: InvioPendente) => {
+    // Nel frattempo un'altra scheda può averlo chiuso con la sua risposta.
+    if (!leggiInvii(depositoDelTelefono()).some((x) => x.codice === invio.codice)) {
+      setVoci((v) => v.filter((x) => x.invio.codice !== invio.codice))
+      return
+    }
+    controllaUno(invio, controlla, nomeDi).then(
         (frase) => {
           if (!viva.current) return
           setVoci((v) =>
@@ -104,8 +115,23 @@ export function StrisciaInvii({
         },
         () => esciAllAccesso(),
       )
+  }
+
+  const esegui = (dachi: readonly InvioPendente[]) => {
+    setVoci((v) => v.map((x) => (dachi.some((d) => d.codice === x.invio.codice) ? { invio: x.invio, stato: 'in_corso' } : x)))
+    for (const invio of dachi) {
+      const aspetta = invio.toccatoIl + vitaInvioMs - Date.now()
+      if (aspetta <= 0) controllaOra(invio)
+      else attese.current.push(setTimeout(() => viva.current && controllaOra(invio), aspetta))
     }
   }
+  const attese = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  // B1: il codice si toglie quando l'esito SI VEDE, cioè con la striscia aperta.
+  useEffect(() => {
+    if (!aperta) return
+    for (const x of voci) if (x.stato === 'fatto') togliInvio(depositoDelTelefono(), x.invio.codice)
+  }, [aperta, voci])
 
   // Alla riapertura, prima di tutto: una fotografia dei codici rimasti. Quelli
   // che la scheda scriverà da qui in poi non sono di questa striscia.
@@ -116,19 +142,22 @@ export function StrisciaInvii({
     esegui(pendenti)
     return () => {
       viva.current = false
+      for (const t of attese.current.splice(0)) clearTimeout(t)
     }
     // Una volta per caricamento della pagina, e per operatrice.
   }, [io])
 
-  // §4.4 punti 1 e 2: l'abbandono, con TUTTI i codici pendenti dell'operatrice
-  // in quel momento, compresi quelli di una scheda aperta.
+  // §4.4 punti 1 e 2: l'abbandono, con i codici pendenti toccati in QUESTA
+  // pagina (revisione del Task 9). Quelli lasciati da un'altra pagina non
+  // tengono ferma l'operatrice, e quelli di un'altra scheda del browser, forse
+  // ancora in volo, non si bruciano da qui: li controlla la riapertura.
   useEffect(() => {
     const prima = (e: BeforeUnloadEvent) => {
-      if (daControllare(depositoDelTelefono(), io, Date.now()).length === 0) return
+      if (inQuestaPagina(depositoDelTelefono()).length === 0) return
       e.preventDefault()
       e.returnValue = ''
     }
-    const via = (e: PageTransitionEvent) => alPagehide(e.persisted, daControllare(depositoDelTelefono(), io, Date.now()), controllaAllAbbandono)
+    const via = (e: PageTransitionEvent) => alPagehide(e.persisted, inQuestaPagina(depositoDelTelefono()), controllaAllAbbandono)
     window.addEventListener('beforeunload', prima)
     window.addEventListener('pagehide', via)
     return () => {
@@ -198,8 +227,10 @@ export function PulsanteEsci({
     try {
       const tutti = Promise.all(
         pendenti.map(async (p) => {
-          const f = await controllaUno(p, controlla, null, () => !scaduto)
-          if (f !== null) {
+          const f = await controllaUno(p, controlla, null)
+          // Dopo il limite l'esito non lo vede nessuno: il codice RESTA (W8).
+          if (f !== null && !scaduto) {
+            togliInvio(depositoDelTelefono(), p.codice)
             frasi.push(f)
             restano -= 1
           }

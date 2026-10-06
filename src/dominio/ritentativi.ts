@@ -50,8 +50,11 @@ export async function conRitentativi<T>(
     } catch (e) {
       ultimo = e
       if (estraiSqlstate(e) !== '40P01' || tentativo === POLITICA.massimo) throw e
-      if (adesso() - inizio >= scadenzaMs) throw e
-      await dormi(POLITICA.attesaMs(tentativo, caso()))
+      // Il tentativo successivo PARTE dopo l'attesa: è lì che si guarda la
+      // scadenza, non prima (revisione del Task 9: partiva fino a ~8,2 s).
+      const attesa = POLITICA.attesaMs(tentativo, caso())
+      if (adesso() - inizio + attesa >= scadenzaMs) throw e
+      await dormi(attesa)
     }
   }
   // Irraggiungibile: l'ultima iterazione o ritorna o solleva. Sta qui perché

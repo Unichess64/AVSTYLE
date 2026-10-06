@@ -61,7 +61,14 @@ export async function middleware(richiesta: NextRequest) {
       // telefono» (§4.7): `local` chiude solo questa sessione, e i cookie
       // cancellati viaggiano sul redirect.
       await client.auth.signOut({ scope: 'local' })
-      return senzaCache(conCookie(NextResponse.redirect(new URL('/accesso', richiesta.url)), risposta), csp)
+      // Le rotte `/api/` le chiama `fetch`, che SEGUE il rinvio e riceve la
+      // pagina d'accesso in HTML: il telefono la leggeva come «Non so», e
+      // l'uscita forzata di «Controlla» non arrivava mai (revisione del Task 9).
+      // Lì l'uscita è un 401 in JSON, che il telefono riconosce.
+      const uscita = percorso.startsWith('/api/')
+        ? NextResponse.json({ tipo: 'uscita_forzata' }, { status: 401 })
+        : NextResponse.redirect(new URL('/accesso', richiesta.url))
+      return senzaCache(conCookie(uscita, risposta), csp)
     }
   }
 
