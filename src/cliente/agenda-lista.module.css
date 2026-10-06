@@ -1,0 +1,44 @@
+/* src/cliente/agenda-lista.module.css — l'agenda a lista (spec 3a §5.2). */
+
+.lista {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 16px;
+}
+.riga {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* una riga è un bersaglio toccabile (§7): il Task 7 ci aprirà la scheda */
+  min-height: 52px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgb(20 13 24 / 0.12);
+}
+.pallino {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.ora {
+  flex: none;
+  min-width: 3.25em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.testo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nome {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dettaglio {
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

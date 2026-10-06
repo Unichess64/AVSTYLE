@@ -25,10 +25,16 @@ export interface AppuntamentoLetto {
   readonly pausa: number
 }
 
-export interface BloccoAgenda {
+/**
+ * Quanto serve alla contiguità: la settimana (Task 6) concatena come le
+ * colonne, senza leggere nomi di clienti né di servizi.
+ */
+export type Concatenabile = Pick<AppuntamentoLetto, 'id' | 'visitaId' | 'operatriceId' | 'inizio' | 'durata' | 'pausa'>
+
+export interface BloccoAgenda<A extends Concatenabile = AppuntamentoLetto> {
   readonly visitaId: string
   readonly operatriceId: string
-  readonly appuntamenti: readonly AppuntamentoLetto[]
+  readonly appuntamenti: readonly A[]
   /** Confini: `fine` è esclusa ed è la fine dell'ultimo servizio, pausa esclusa. */
   readonly inizio: number
   readonly fine: number
@@ -46,7 +52,7 @@ export interface BloccoAgenda {
 // spec §8.1: «"Contiguous" in §9.1 means *in sequence with only turnaround
 // between*, not *cell-adjacent*». Un confronto `b.inizio === a.inizio + a.durata`
 // spezzerebbe in due blocchi ogni visita con una pausa, che è il caso normale.
-function contigui(a: AppuntamentoLetto, b: AppuntamentoLetto): boolean {
+function contigui(a: Concatenabile, b: Concatenabile): boolean {
   return (
     a.visitaId === b.visitaId &&
     a.operatriceId === b.operatriceId &&
@@ -57,20 +63,20 @@ function contigui(a: AppuntamentoLetto, b: AppuntamentoLetto): boolean {
 const perInizio = (x: { inizio: number; operatriceId: string }, y: { inizio: number; operatriceId: string }) =>
   x.inizio - y.inizio || (x.operatriceId < y.operatriceId ? -1 : x.operatriceId > y.operatriceId ? 1 : 0)
 
-export function componiBlocchi(appuntamenti: readonly AppuntamentoLetto[]): BloccoAgenda[] {
-  const perVisita = new Map<string, AppuntamentoLetto[]>()
+export function componiBlocchi<A extends Concatenabile = AppuntamentoLetto>(appuntamenti: readonly A[]): BloccoAgenda<A>[] {
+  const perVisita = new Map<string, A[]>()
   for (const a of appuntamenti) {
     const gia = perVisita.get(a.visitaId) ?? []
     gia.push(a)
     perVisita.set(a.visitaId, gia)
   }
 
-  const blocchi: BloccoAgenda[] = []
+  const blocchi: BloccoAgenda<A>[] = []
   for (const [visitaId, diVisita] of perVisita) {
     const ordinati = [...diVisita].sort((x, y) => perInizio(x, y) || (x.id < y.id ? -1 : 1))
     // Si concatena dentro ciascuna operatrice: due appuntamenti contigui nel
     // tempo ma su due colonne restano due blocchi.
-    const catene: AppuntamentoLetto[][] = []
+    const catene: A[][] = []
     for (const a of ordinati) {
       const catena = catene.find((c) => contigui(c[c.length - 1], a))
       if (catena) catena.push(a)
@@ -91,6 +97,24 @@ export function componiBlocchi(appuntamenti: readonly AppuntamentoLetto[]): Bloc
     }
   }
   return blocchi.sort(perInizio)
+}
+
+/**
+ * L'agenda a lista (spec §9.2): TUTTI gli appuntamenti del giorno, uno per
+ * riga, in ordine d'ora. A parità d'ora decide l'ordine delle colonne, poi
+ * l'id: due telefoni mostrano la stessa lista.
+ */
+export function righeDellaLista(
+  appuntamenti: readonly AppuntamentoLetto[],
+  ordineOperatrici: readonly string[],
+): AppuntamentoLetto[] {
+  const posto = (id: string) => {
+    const i = ordineOperatrici.indexOf(id)
+    return i < 0 ? ordineOperatrici.length : i
+  }
+  return [...appuntamenti].sort(
+    (x, y) => x.inizio - y.inizio || posto(x.operatriceId) - posto(y.operatriceId) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0),
+  )
 }
 
 /** Una riga ogni mezz'ora (§9.1): sei celle. */

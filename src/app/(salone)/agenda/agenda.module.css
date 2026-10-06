@@ -26,3 +26,21 @@
   margin: 8px 16px 0;
   font-weight: 500;
 }
+/* La seconda riga dell'intestazione: interruttore colonne/lista e selettore (§5.1). */
+.comandi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 16px 0;
+}
+/* D2-1: lo script mette data-vista="lista" sull'html prima della prima pittura. */
+.soloLista {
+  display: none;
+}
+:global(html[data-vista='lista']) .soloColonne {
+  display: none;
+}
+:global(html[data-vista='lista']) .soloLista {
+  display: block;
+}

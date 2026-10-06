@@ -1,0 +1,148 @@
+/* src/cliente/settimana.module.css — la settimana (spec 3a §5.3), l'interruttore e il selettore. */
+
+.settimana {
+  padding: 4px 8px 0;
+}
+.navigazione {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.salto {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--inchiostro);
+  text-decoration: none;
+  border-radius: 10px;
+}
+.intervallo {
+  font-weight: 700;
+}
+/* Sette colonne di circa 48 punti (§5.3): a 375 punti restano 359 fra i margini. */
+.giorni {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+.colonna {
+  min-width: 0;
+}
+.giorno {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 320px;
+  height: 100%;
+  padding: 4px 0 8px;
+  color: var(--inchiostro);
+  text-decoration: none;
+  background: var(--bianco);
+  border: 1.5px solid rgb(20 13 24 / 0.2);
+  border-radius: 10px;
+}
+.giorno:focus-visible,
+.salto:focus-visible,
+.opzione:focus-visible,
+.scelta:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: 1px;
+}
+/* Oggi si segna con il bordo e la sottolineatura, non solo col colore (§6.2). */
+.oggi {
+  border-color: var(--inchiostro);
+  border-width: 2px;
+}
+.oggi .numero {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.testa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgb(20 13 24 / 0.15);
+}
+.iniziale {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.numero {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.ore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 4px;
+}
+.inizio {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* L'interruttore: due bersagli da 44 punti, il premuto con fondo inchiostro. */
+.interruttore {
+  display: flex;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+  overflow: hidden;
+  flex: none;
+}
+.opzione {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--inchiostro);
+  background: var(--bianco);
+  border: 0;
+}
+/* Il premuto si legge dall'attributo che lo script mette prima della pittura. */
+.colonne,
+:global(html[data-vista='lista']) .lista {
+  color: var(--bianco);
+  background: var(--inchiostro);
+}
+:global(html[data-vista='lista']) .colonne {
+  color: var(--inchiostro);
+  background: var(--bianco);
+}
+
+.selettore {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.etichetta {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.scelta {
+  min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 8px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--inchiostro);
+  background: var(--bianco);
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+}

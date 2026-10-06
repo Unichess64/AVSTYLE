@@ -4952,3 +4952,24 @@ Annotati per la fase 2: la contiguità unisce anche sopra un appuntamento d'altr
 quella del catalogo di oggi; un blocco di 5-10 minuti alto 21 punti copre in parte quello dopo; classi fino a 11 colonne;
 la prova dei guasti prova solo il primo; tre attive e una disattivata non scorrono (si segue la spec madre); la chiusura è
 una nota sopra la griglia e non una fascia dentro, chiave React ripetibile; linea dell'ora arrotondata a 5 minuti.
+
+## Esecuzione del Task 6
+
+**6 ottobre 2026.** Prove viste rosse prima del codice. **Gate:** `db reset` 0; `vitest run` **666 verdi su 48 file** (erano 634);
+`test:fuso` **242** (erano 217); `tsc`, `build` 0. **`next start`**, Vera, 375 punti: lista in ordine d'ora (a pari ora l'ordine
+delle colonne), pallini tutti con `stroke` inchiostro; settimana di sette colonne da 49 punti con le sole ore d'inizio (una visita
+contigua dà un'ora sola); lista e settimana ricordate dopo un ricaricamento e riaprendo `/agenda`; un id ricordato non più valido
+ricarica una volta e si dimentica; console senza violazioni della CSP.
+**Sonde** (rosse misurate): `getDay()` 0 a Perugia, **3 su fuso NY** · sei giorni 6 · pallino senza bordo **3** (c'è una prova) ·
+millisecondi locali 1 · senza contiguità 2 · giorni vuoti tolti 7 · senza `operator_id` 3 · senza `lte` 1 · errore muto 1 · attive
+senza `is_active` 1 · `?settimana=` non confrontato 1 · lista senza ordine delle colonne 1, senza ordine 3 · script senza `try` 4,
+senza controllo di `?settimana=` 1, senza la lista 1 · `leggiPreferenza`, `scriviPreferenza` senza `try` 1 e 1 · `?cliente=` 1 ·
+regex dell'id in `operatriceDallIndirizzo` **0**, equivalente: le attive sono id.
+Scelte e divergenze: **D2-1 senza lampo**: il server disegna colonne E lista, uno script col nonce mette `data-vista` sull'`html` da
+`avstyle.vista` prima della pittura, il CSS ne mostra una (`suppressHydrationWarning` sull'`html`; ogni `localStorage` in un `try`).
+**L'operatrice della settimana sta nell'indirizzo**, `?settimana=<operator.id>` validato contro le attive (`PARAMETRI_AMMESSI`
+allargato), e si ricorda in `avstyle.operatriceSettimana`: lo script la riapre al caricamento, il selettore al montaggio. **Toccare
+un giorno** lo apre nella vista colonne/lista ricordata e dimentica la settimana. `leggiSettimana(client, operatriceId, lunedi)`,
+logica in `src/dominio/settimana.ts`, `leggiOperatriciAttive` (solo attive, D2-2); `componiBlocchi` generico su `Concatenabile`.
+Lista: una riga per appuntamento, nome dell'operatrice anche in testo; `coloriDelPallino` in `vista.ts`. Annotati per la fase 2:
+la settimana non segna chiusure né giorni liberi; la sua contiguità usa la pausa del catalogo di oggi; comandi su due righe a 375.

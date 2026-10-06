@@ -42,3 +42,17 @@ export function coloriDelBlocco(colore: string): ColoriDelBlocco {
   const bordo = contrasto(riempimento, SFONDO) >= SOGLIA_BORDO ? riempimento : INCHIOSTRO
   return { riempimento, testo, bordo }
 }
+
+export interface ColoriDelPallino {
+  readonly riempimento: string
+  readonly bordo: string
+}
+
+/**
+ * Il pallino dell'operatrice nella lista (spec 3a §5.2, spec §9.2): il bordo
+ * in inchiostro SEMPRE, non solo sotto 3:1. Il pallino è piccolo, sta su righe
+ * bianche e rosa, e il bianco di Annalisa senza bordo non si vede (1,13).
+ */
+export function coloriDelPallino(colore: string): ColoriDelPallino {
+  return { riempimento: coloriDelBlocco(colore).riempimento, bordo: INCHIOSTRO }
+}

@@ -44,8 +44,9 @@ const METODI_SENZA_VALORE = new Set([
 const COLONNE_AMMESSE_SU_CLIENT = new Set(['id'])
 
 // ⚠︎ I PERMESSI SULL'INDIRIZZO DELLA PAGINA: i soli parametri ammessi. La data
-// sì (Vincoli globali), nient'altro.
-const PARAMETRI_AMMESSI = new Set(['giorno'])
+// sì (Vincoli globali), e l'operatrice della settimana (Task 6), che è un
+// `operator.id` e non un dato di una cliente. Nient'altro.
+const PARAMETRI_AMMESSI = new Set(['giorno', 'settimana'])
 
 interface Chiamata {
   readonly metodo: string
@@ -250,6 +251,8 @@ describe('§4.8: nessun dato personale in un URL', () => {
     expect(parametriNonAmmessi("p.searchParams.set('q', testo)")).toEqual(['q'])
     expect(parametriNonAmmessi('new URLSearchParams({ q: testo })')).toEqual(['q'])
     expect(parametriNonAmmessi('`/agenda?giorno=${data}`')).toEqual([])
+    expect(parametriNonAmmessi('`/agenda?giorno=${data}&settimana=${id}`')).toEqual([])
+    expect(parametriNonAmmessi('`/agenda?giorno=${data}&cliente=${id}`')).toEqual(['cliente'])
     expect(moduloInGet('<form method="get" action="/clienti">')).toHaveLength(1)
     expect(moduloInGet('<form action={esci}>')).toHaveLength(0)
   })

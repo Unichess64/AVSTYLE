@@ -1,12 +1,18 @@
 // src/app/(salone)/agenda/page.tsx
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { AgendaColonne, colonneScorrono } from '../../../cliente/agenda-colonne'
+import { AgendaLista } from '../../../cliente/agenda-lista'
 import stileAgenda from '../../../cliente/agenda.module.css'
+import { SCRIPT_PREFERENZE } from '../../../cliente/preferenze'
+import { InterruttoreVista, SelettoreOperatrice, VistaSettimana } from '../../../cliente/settimana'
 import { ScorrimentoGiorno, StrisciaGiorni, TornaAOggi } from '../../../cliente/striscia-giorni'
 import { confineDellOraAPerugia, oggiAPerugia } from '../../../dominio/perugia'
+import { lunediDi, operatriceDallIndirizzo } from '../../../dominio/settimana'
 import { oraDaConfine, pezziData } from '../../../dominio/tempo'
 import { dataDallIndirizzo } from '../../../dominio/validazione'
 import { leggiGiorno } from '../../../server/lettura-giorno'
+import { leggiOperatriciAttive, leggiSettimana } from '../../../server/lettura-settimana'
 import {
   NonAutenticata,
   NonOperatrice,
@@ -57,17 +63,49 @@ export default async function Agenda({
 
   const adesso = new Date()
   const oggi = oggiAPerugia(adesso)
-  const data = dataDallIndirizzo(giornoDallIndirizzo((await searchParams).giorno), oggi)
+  const parametri = await searchParams
+  const data = dataDallIndirizzo(giornoDallIndirizzo(parametri.giorno), oggi)
+  const attive = await leggiOperatriciAttive(client)
+  // `?settimana=` è un `operator.id` e si valida contro le attive: storto,
+  // ripetuto o di una disattivata vale come assente, e si mostra il giorno.
+  const settimanaDi = operatriceDallIndirizzo(parametri.settimana, attive.map((o) => o.id))
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
+  // D2-1: la vista ricordata la sceglie lo script, prima della prima pittura.
+  const preferenze = <script nonce={nonce} dangerouslySetInnerHTML={{ __html: SCRIPT_PREFERENZE }} />
+  const selettore = <SelettoreOperatrice data={data} settimana={settimanaDi} operatrici={attive} />
+
+  if (settimanaDi !== null) {
+    const settimana = await leggiSettimana(client, settimanaDi, lunediDi(data))
+    const nome = attive.find((o) => o.id === settimanaDi)!.nome
+    return (
+      <section className={stile.pagina}>
+        {preferenze}
+        <header className={stile.testata}>
+          <h1 className={stile.titolo}>Agenda</h1>
+          <p className={stile.data}>Settimana di {nome}</p>
+        </header>
+        <div className={stile.comandi}>{selettore}</div>
+        <VistaSettimana settimana={settimana} oggi={oggi} />
+      </section>
+    )
+  }
+
   const giorno = await leggiGiorno(client, data, io.operatorId)
   const vuoto = giorno.appuntamenti.length === 0
 
   return (
     <section className={stile.pagina}>
+      {preferenze}
       <header className={stile.testata}>
         <h1 className={stile.titolo}>Agenda</h1>
         <p className={stile.data}>{dataEstesa(data)}</p>
         <TornaAOggi data={data} oggi={oggi} />
       </header>
+      <div className={stile.comandi}>
+        <InterruttoreVista />
+        {selettore}
+      </div>
       <StrisciaGiorni data={data} oggi={oggi} />
       {giorno.chiusure.map((c) => (
         <p key={`${c.da}${c.motivo}`} className={stileAgenda.chiusura} role="note">
@@ -77,13 +115,23 @@ export default async function Agenda({
         </p>
       ))}
       {vuoto && <p className={stile.vuoto}>Nessun appuntamento in questo giorno.</p>}
-      <ScorrimentoGiorno data={data} attivo={!colonneScorrono(giorno.operatrici)}>
-        <AgendaColonne
-          giorno={giorno}
-          oggi={oggi}
-          lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
-        />
-      </ScorrimentoGiorno>
+      {/* Tutte e due le viste del giorno, e il CSS ne mostra una (D2-1): cambiare
+          vista non rilegge niente e non lampeggia. */}
+      <div className={stile.soloColonne}>
+        <ScorrimentoGiorno data={data} attivo={!colonneScorrono(giorno.operatrici)}>
+          <AgendaColonne
+            giorno={giorno}
+            oggi={oggi}
+            lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
+          />
+        </ScorrimentoGiorno>
+      </div>
+      <div className={stile.soloLista}>
+        {/* Nella lista le colonne non scorrono di lato: il giorno si cambia sempre scorrendo. */}
+        <ScorrimentoGiorno data={data} attivo>
+          <AgendaLista appuntamenti={giorno.appuntamenti} operatrici={giorno.operatrici} />
+        </ScorrimentoGiorno>
+      </div>
     </section>
   )
 }

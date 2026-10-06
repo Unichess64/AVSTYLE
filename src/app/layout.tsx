@@ -34,7 +34,10 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1 }
 
 export default function Scheletro({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="it" className={`${manrope.variable} ${cinzel.variable} ${cinzelDecorativo.variable}`}>
+    // `suppressHydrationWarning`: lo script delle preferenze dell'agenda
+    // (D2-1) mette `data-vista` sull'html PRIMA dell'idratazione. Vale solo
+    // per gli attributi di questo elemento, non per i figli.
+    <html lang="it" suppressHydrationWarning className={`${manrope.variable} ${cinzel.variable} ${cinzelDecorativo.variable}`}>
       <body>{children}</body>
     </html>
   )
