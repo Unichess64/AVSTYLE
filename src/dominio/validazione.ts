@@ -37,9 +37,15 @@ export function dataDallIndirizzo(grezza: string | null, oggi: string): string {
   }
 }
 
+/**
+ * ⚠︎ `extract: false`: con l'estrazione attiva, che è il predefinito, la
+ * libreria PESCA un numero dentro il testo — `'347 123456a'` dava
+ * '+39347123456', valido e sbagliato. E un interno si rifiuta invece di
+ * scartarlo in silenzio: E.164 non lo porta. Revisione del Task 2.
+ */
 export function telefonoE164(grezzo: string, paese: 'IT' = 'IT'): string {
-  const numero = parseTelefono(grezzo, paese)
-  if (numero === undefined || !numero.isValid()) {
+  const numero = parseTelefono(grezzo, { defaultCountry: paese, extract: false })
+  if (numero === undefined || !numero.isValid() || numero.ext !== undefined) {
     throw new RangeError('numero di telefono non riconosciuto')
   }
   return numero.number
@@ -89,9 +95,14 @@ function chiusuraValida(
 /**
  * CONTORNO-CERCAPOSTI, parte `decodificaFinestra`: §3.2 dice che «l'agenda è il
  * primo chiamante; valida ciò che riceve». `decodificaFinestra` non valida
- * nulla, e le sue tre trappole misurate dal piano della disponibilità —
- * operatrici duplicate che danno righe duplicate, confini fuori dominio,
- * fasce rovesciate — entrerebbero nell'agenda e uscirebbero come blocchi.
+ * nulla: confini fuori dominio, fasce rovesciate, date impossibili e un
+ * appuntamento ripetuto entrerebbero nell'agenda e uscirebbero come blocchi.
+ * (Le operatrici duplicate che danno righe duplicate sono una trappola di
+ * `cercaPosti`, findings della disponibilità riga 375: restano al piano 3b.)
+ *
+ * Non controlla le eccezioni ripetute sulla stessa coppia operatrice-data, di
+ * cui `decodificaFinestra` tiene l'ultima: le esclude già `unique
+ * (operator_id, exception_date)` in `0006_availability.sql:28`.
  *
  * Non si valida dentro `decodificaFinestra`: quella funzione è congelata dal
  * piano 2 e ha le sue prove. Si valida alla porta.

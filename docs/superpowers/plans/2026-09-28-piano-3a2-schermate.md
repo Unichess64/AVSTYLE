@@ -4902,3 +4902,18 @@ Divergenze dal testo:
 - Sonda 2 a New York: «alle 23:50 di Perugia…» resta verde anche senza `timeZone`, perché alle 21:50Z New York è sullo
   stesso giorno di Perugia: quella prova discrimina solo a est di Roma. La mezzanotte la presidia la gemella delle 00:10.
 - Sonda 1 scritta come mezzanotte di Perugia cercata a passi d'un'ora e differenza di istanti.
+
+**Revisione del Task 2** (un revisore, 06/10/2026): nessun bloccante. Corretti:
+- `telefonoE164` con `extract: false`: l'estrazione predefinita pescava un numero nel testo (`'347 123456a'` →
+  `+39347123456`, valido e sbagliato). Un interno (`ext 5`) si rifiuta invece di perderlo. Prove sul fisso e sull'estero.
+- Otto rami di `validaDocumentoFinestra` toglibili senza rosse, perché il documento buono aveva `exceptions: []` e
+  un'operatrice sola (dati degeneri). Ora due operatrici e un'eccezione con due fasce; prove su date e fasce delle
+  eccezioni, chiusure rovesciate o impossibili, `weekday` -1 e 2.5, confini -1 e 108.5. Commento corretto: le
+  operatrici duplicate sono una trappola di `cercaPosti` (3b).
+- 10 mutazioni nuove, tutte a 1 rossa; sonde 4 e 5 → 7, 12 → 10, le altre invariate. **Gate:** 596 verdi su 39 file,
+  `test:fuso` 188, `tsc` e `build` 0.
+
+Annotati: eccezioni ripetute sulla stessa coppia operatrice-data accettate (le esclude `unique` in `0006:28`);
+`dataReale` rifiuta gli anni 0001-0099 (`Date.UTC`), innocuo; `Math.min(…, 288)` in `perugia.ts` non scatta mai
+(massimo 287,8). ⚠︎ **Task 5:** `?giorno=a&giorno=b` arriva da Next come `string[]`: ridurlo a stringa o `null` prima
+di `dataDallIndirizzo`.

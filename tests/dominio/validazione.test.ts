@@ -91,9 +91,25 @@ describe('CONTORNO-CERCAPOSTI, parte decodificaFinestra: l agenda valida ciò ch
   // (0006:56) impone che siano nulli INSIEME. Il documento «buono» la porta
   // apposta: senza, le sei prove negative passerebbero su un documento che non
   // somiglia a quelli veri, e il ramo delle chiusure resterebbe scoperto.
+  //
+  // Revisione del Task 2: con `exceptions: []` e un'operatrice sola, otto
+  // rami del validatore si potevano togliere lasciando tutto verde. Ora il
+  // documento porta due operatrici e un'eccezione con due fasce.
   const documentoBuono = {
-    weekly: [{ operator_id: 'v', weekday: 5, start_boundary: 108, end_boundary: 156 }],
-    exceptions: [],
+    weekly: [
+      { operator_id: 'v', weekday: 5, start_boundary: 108, end_boundary: 156 },
+      { operator_id: 'a', weekday: 0, start_boundary: 0, end_boundary: 288 },
+    ],
+    exceptions: [
+      {
+        operator_id: 'a',
+        date: '2026-10-05',
+        ranges: [
+          { start_boundary: 108, end_boundary: 144 },
+          { start_boundary: 168, end_boundary: 216 },
+        ],
+      },
+    ],
     closures: [
       { start_date: '2026-12-25', end_date: '2026-12-26', from_boundary: null, to_boundary: null, reason: 'Natale' },
       { start_date: '2026-12-24', end_date: '2026-12-24', from_boundary: 156, to_boundary: 288, reason: 'Vigilia' },
@@ -141,10 +157,38 @@ describe('CONTORNO-CERCAPOSTI, parte decodificaFinestra: l agenda valida ciò ch
     ).toThrow(RangeError)
   })
 
-  it('rifiuta un giorno della settimana fuori da 0-6', () => {
+  it('rifiuta un giorno della settimana fuori da 0-6 o non intero', () => {
+    for (const weekday of [7, -1, 2.5]) {
+      expect(() =>
+        validaDocumentoFinestra({ ...documentoBuono, weekly: [{ ...documentoBuono.weekly[0], weekday }] }),
+      ).toThrow(RangeError)
+    }
+  })
+
+  it('rifiuta un eccezione con una data impossibile o con una fascia rovesciata', () => {
+    const eccezione = documentoBuono.exceptions[0]
     expect(() =>
-      validaDocumentoFinestra({ ...documentoBuono, weekly: [{ ...documentoBuono.weekly[0], weekday: 7 }] }),
+      validaDocumentoFinestra({ ...documentoBuono, exceptions: [{ ...eccezione, date: '2026-02-30' }] }),
     ).toThrow(RangeError)
+    expect(() =>
+      validaDocumentoFinestra({
+        ...documentoBuono,
+        exceptions: [{ ...eccezione, ranges: [eccezione.ranges[0], { start_boundary: 216, end_boundary: 168 }] }],
+      }),
+    ).toThrow(RangeError)
+  })
+
+  it('rifiuta una chiusura con le date rovesciate o impossibili', () => {
+    const natale = documentoBuono.closures[0]
+    for (const date of [
+      { start_date: '2026-12-26', end_date: '2026-12-25' },
+      { start_date: '2026-02-30', end_date: '2026-12-26' },
+      { start_date: '2026-12-25', end_date: '2026-12-32' },
+    ]) {
+      expect(() => validaDocumentoFinestra({ ...documentoBuono, closures: [{ ...natale, ...date }] })).toThrow(
+        RangeError,
+      )
+    }
   })
 
   it('rifiuta una fascia che finisce prima di cominciare', () => {
@@ -167,10 +211,16 @@ describe('CONTORNO-CERCAPOSTI, parte decodificaFinestra: l agenda valida ciò ch
     ).toThrow(RangeError)
   })
 
-  it('rifiuta un confine fuori da 0-288', () => {
-    expect(() =>
-      validaDocumentoFinestra({ ...documentoBuono, weekly: [{ ...documentoBuono.weekly[0], end_boundary: 289 }] }),
-    ).toThrow(RangeError)
+  it('rifiuta un confine fuori da 0-288 o non intero', () => {
+    for (const confini of [
+      { end_boundary: 289 },
+      { start_boundary: -1 },
+      { start_boundary: 108.5 },
+    ]) {
+      expect(() =>
+        validaDocumentoFinestra({ ...documentoBuono, weekly: [{ ...documentoBuono.weekly[0], ...confini }] }),
+      ).toThrow(RangeError)
+    }
   })
 
   it('rifiuta una data impossibile in un occupazione', () => {
@@ -198,7 +248,25 @@ describe('il telefono in E.164 (spec riga 511)', () => {
     expect(telefonoE164('+39 347 1234567')).toBe('+393471234567')
   })
 
+  it('normalizza un fisso di Perugia e uno di Roma, e un estero con il prefisso', () => {
+    expect(telefonoE164('075 1234567')).toBe('+390751234567')
+    expect(telefonoE164('+39 0751234567')).toBe('+390751234567')
+    expect(telefonoE164('06 12345678')).toBe('+390612345678')
+    expect(telefonoE164('+44 20 7946 0958')).toBe('+442079460958')
+  })
+
   it('rifiuta un numero che non si normalizza', () => {
     expect(() => telefonoE164('12')).toThrow(RangeError)
+  })
+
+  it('rifiuta un testo con lettere invece di estrarne un numero diverso', () => {
+    // Revisione del Task 2: con l'estrazione attiva, `'347 123456a'` dava
+    // '+39347123456' — un numero valido e SBAGLIATO, salvato in silenzio.
+    expect(() => telefonoE164('347 123456a')).toThrow(RangeError)
+    expect(() => telefonoE164('abc347 1234567')).toThrow(RangeError)
+  })
+
+  it('rifiuta un numero con l interno, che E.164 non può portare', () => {
+    expect(() => telefonoE164('347 1234567 ext 5')).toThrow(RangeError)
   })
 })
