@@ -11,7 +11,7 @@
 // Il codice d'invio arriva dal telefono, uno per invio (§4.4).
 import type { Atteso } from '../dominio/attesi'
 import type { SchedaSerializzata } from '../dominio/scheda'
-import { type Risposta, eliminaVisita, salvaVisita, togliServizio } from './scrittura-visita'
+import { type Risposta, type RichiestaSpostamento, eliminaVisita, riportaVisita, salvaVisita, spostaVisita, togliServizio } from './scrittura-visita'
 import { clientServer } from './supabase'
 
 export async function salva(scheda: SchedaSerializzata, codice: string): Promise<Risposta> {
@@ -24,4 +24,14 @@ export async function togli(scheda: SchedaSerializzata, codice: string): Promise
 
 export async function elimina(visitaId: string, versione: string, attesi: readonly Atteso[], codice: string): Promise<Risposta> {
   return eliminaVisita(await clientServer(), visitaId, versione, attesi, codice)
+}
+
+/** Il rilascio di un trascinamento (Task 10). Le versioni sono `null` al primo gesto: le legge il server. */
+export async function sposta(richiesta: RichiestaSpostamento, codice: string): Promise<Risposta> {
+  return spostaVisita(await clientServer(), richiesta, codice)
+}
+
+/** «Annulla» dopo uno spostamento: un codice d'invio suo, e le versioni adottate. */
+export async function annullaSpostamento(richiesta: RichiestaSpostamento, codice: string): Promise<Risposta> {
+  return riportaVisita(await clientServer(), richiesta, codice)
 }

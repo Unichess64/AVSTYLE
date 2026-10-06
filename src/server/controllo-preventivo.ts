@@ -18,6 +18,7 @@ import { type SchedaSerializzata, compleannoPossibile } from '../dominio/scheda'
 import { CELLE_PER_GIORNO } from '../dominio/tempo'
 import { dataReale, telefonoE164 } from '../dominio/validazione'
 import type { DatiGiorno } from './lettura-scheda'
+import type { RichiestaSpostamento } from './scrittura-visita'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const uuid = (x: unknown): x is string => typeof x === 'string' && UUID.test(x)
@@ -104,6 +105,52 @@ export type Preventivo =
   | { readonly tipo: 'conflitto'; readonly frase: string; readonly vaiA: string | null }
   | { readonly tipo: 'da_confermare'; readonly chiavi: readonly string[] }
 
+// Le chiavi non dipendono dai nomi: il motivo lo scrive il telefono.
+function avvisiDi(s: SchedaSerializzata, giorno: DatiGiorno, nomi: ReadonlyMap<string, string>) {
+  return calcolaAvvisi({
+    visitaId: s.visitaId,
+    data: s.data,
+    cliente: s.cliente === null ? null : { id: s.cliente.id, nome: '' },
+    servizi: s.servizi,
+    giorno: { risolti: new Map(Object.entries(giorno.risolti)), appuntamenti: giorno.appuntamenti },
+    nomiOperatrici: nomi,
+    nomiServizi: new Map(),
+  })
+}
+
+/**
+ * Le chiavi degli avvisi di una scheda sul giorno letto. Serve al gesto
+ * (§5.1): gli avvisi che la posizione di PARTENZA aveva già si passano come
+ * confermati, e le chiavi non dipendono dalla posizione (`avvisi.ts`).
+ */
+export function chiaviDegliAvvisi(s: SchedaSerializzata, giorno: DatiGiorno): string[] {
+  return avvisiDi(s, giorno, new Map(giorno.operatrici.map((o) => [o.id, o.nome]))).map((a) => a.chiave)
+}
+
+/**
+ * Il passo 2 del gesto (Task 10). Come `validaScheda`, non si fida della
+ * forma: il telefono manda uno scarto non nullo e dentro il giorno, ma una
+ * Server Action si raggiunge con un POST diretto. Il confronto con la durata
+ * (oltre la mezzanotte) lo fa il corpo, che legge la visita.
+ */
+export function validaSpostamento(r: RichiestaSpostamento, codice: string, versioniObbligatorie: boolean): string | null {
+  if (!uuid(codice)) return 'Codice d’invio non valido.'
+  if (typeof r !== 'object' || r === null || !uuid(r.visitaId) || !dataValida(r.data)) return 'Spostamento non valido.'
+  if (!Array.isArray(r.mossi) || r.mossi.length === 0 || r.mossi.length > CELLE_PER_GIORNO) return 'Spostamento non valido.'
+  const visti = new Set<string>()
+  for (const m of r.mossi) {
+    if (typeof m !== 'object' || m === null || !uuid(m.id) || visti.has(m.id)) return 'Spostamento non valido.'
+    visti.add(m.id)
+    for (const c of [m.da, m.a]) if (!intero(c) || c < 0 || c >= CELLE_PER_GIORNO) return 'L’orario non è valido.'
+  }
+  // Uno scarto di zero celle non si manda: `sposta_visita_a` alzerebbe le versioni per niente.
+  if (r.mossi.every((m) => m.a === m.da)) return 'Lo spostamento è nullo.'
+  const v = r.versioni
+  if (v === null || v === undefined) return versioniObbligatorie ? 'Spostamento non valido.' : null
+  if (typeof v !== 'object' || !versione(v.visita) || !attesiValidi(v.attesi)) return 'Spostamento non valido.'
+  return null
+}
+
 /**
  * Il passo 3 sul giorno letto: prima i conflitti, che fermano sempre, poi gli
  * avvisi, che fermano solo con una chiave non confermata. `null` = si scrive.
@@ -115,16 +162,7 @@ export function controlloPreventivo(s: SchedaSerializzata, giorno: DatiGiorno): 
   )
   if (conflitti !== null) return { tipo: 'conflitto', frase: conflitti.frase, vaiA: conflitti.vaiA }
 
-  // Le chiavi non dipendono dai nomi: il motivo lo scrive il telefono.
-  const avvisi = calcolaAvvisi({
-    visitaId: s.visitaId,
-    data: s.data,
-    cliente: s.cliente === null ? null : { id: s.cliente.id, nome: '' },
-    servizi: s.servizi,
-    giorno: { risolti: new Map(Object.entries(giorno.risolti)), appuntamenti: giorno.appuntamenti },
-    nomiOperatrici: nomi,
-    nomiServizi: new Map(),
-  })
+  const avvisi = avvisiDi(s, giorno, nomi)
   const confermati = new Set(s.avvisiConfermati)
   if (!fermaIlSalvataggio(avvisi, confermati)) return null
   return { tipo: 'da_confermare', chiavi: avvisi.map((a) => a.chiave).filter((k) => !confermati.has(k)) }

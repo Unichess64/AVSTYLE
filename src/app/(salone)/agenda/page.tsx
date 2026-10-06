@@ -8,11 +8,12 @@ import { SchedaDellAgenda } from '../../../cliente/apri-scheda'
 import { SCRIPT_PREFERENZE } from '../../../cliente/preferenze'
 import { InterruttoreVista, SelettoreOperatrice, VistaSettimana } from '../../../cliente/settimana'
 import { ScorrimentoGiorno, StrisciaGiorni, TornaAOggi } from '../../../cliente/striscia-giorni'
+import { Trascina } from '../../../cliente/trascina'
 import { confineDellOraAPerugia, oggiAPerugia } from '../../../dominio/perugia'
 import { lunediDi, operatriceDallIndirizzo } from '../../../dominio/settimana'
 import { oraDaConfine, pezziData } from '../../../dominio/tempo'
 import { dataDallIndirizzo } from '../../../dominio/validazione'
-import { elimina, salva, togli } from '../../../server/azioni-visita'
+import { annullaSpostamento, elimina, salva, sposta, togli } from '../../../server/azioni-visita'
 import { leggiGiorno } from '../../../server/lettura-giorno'
 import { leggiOperatriciAttive, leggiSettimana } from '../../../server/lettura-settimana'
 import {
@@ -128,11 +129,29 @@ export default async function Agenda({
       >
         <div className={stile.soloColonne}>
           <ScorrimentoGiorno data={data} attivo={!colonneScorrono(giorno.operatrici)}>
-            <AgendaColonne
-              giorno={giorno}
-              oggi={oggi}
-              lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
-            />
+            {/* Il trascinamento (Task 10): solo nelle colonne, e solo identificativi e celle. */}
+            <Trascina
+              data={data}
+              finestra={giorno.finestra}
+              azioni={{ sposta, annulla: annullaSpostamento }}
+              io={io.operatorId}
+              appuntamenti={giorno.appuntamenti.map((x) => ({
+                id: x.id,
+                visitaId: x.visitaId,
+                clienteId: x.clienteId,
+                operatriceId: x.operatriceId,
+                servizioId: x.servizioId,
+                inizio: x.inizio,
+                durata: x.durata,
+                pausa: x.pausa,
+              }))}
+            >
+              <AgendaColonne
+                giorno={giorno}
+                oggi={oggi}
+                lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
+              />
+            </Trascina>
           </ScorrimentoGiorno>
         </div>
         <div className={stile.soloLista}>

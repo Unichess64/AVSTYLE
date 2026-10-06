@@ -123,6 +123,63 @@
   overflow: hidden;
   display: flex;
   align-items: flex-start;
+  /* D3-15: la pressione lunga arma il trascinamento, quindi niente selezione
+   * del testo né menu contestuale di iOS sul blocco. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Il trascinamento (Task 10). Il blocco preso si alza; durante l'invio porta
+ * «Salvo…», «In attesa…» o «?» ben visibili (§5.1, spec §10.3). La posizione
+ * la scrive `trascina.tsx` con il CSSOM, non con un attributo `style`. */
+.blocco[data-trascinato] {
+  z-index: 4;
+  box-shadow: 0 6px 16px rgb(20 13 24 / 0.35);
+  outline: 2px solid var(--inchiostro);
+  outline-offset: 1px;
+  border-radius: 6px;
+}
+.blocco[data-etichetta]::after {
+  content: attr(data-etichetta);
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 1px 6px;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 999px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.trascinabile {
+  -webkit-tap-highlight-color: transparent;
+}
+.esitoGesto {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 12px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+  font-weight: 700;
+}
+.annulla {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 999px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+  font: inherit;
+  font-weight: 700;
 }
 .fondo {
   position: absolute;

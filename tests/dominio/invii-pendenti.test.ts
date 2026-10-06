@@ -154,8 +154,27 @@ describe('il tipo d invio (revisione del Task 9)', () => {
   it('un record senza tipo, o con un tipo ignoto, si scarta', () => {
     const d = deposito()
     const { invio: _tolto, ...senza } = invio()
-    d.setItem(CHIAVE, JSON.stringify([senza, { ...invio(), invio: 'sposta' }]))
+    d.setItem(CHIAVE, JSON.stringify([senza, { ...invio(), invio: 'ignoto' }]))
     expect(leggiInvii(d)).toEqual([])
+  })
+
+  it('il trascinamento e «Annulla» (Task 10) sono tipi d invio: si registrano e si rileggono', () => {
+    const d = deposito()
+    const s = invio({ invio: 'sposta' })
+    const a = invio({ invio: 'annulla' })
+    registraInvio(d, s)
+    registraInvio(d, a)
+    expect(leggiInvii(d).map((x) => x.invio)).toEqual(['sposta', 'annulla'])
+  })
+
+  it('la striscia dice «lo spostamento» e «l annullamento», non «il salvataggio»', () => {
+    const stato = { visita: 'v', data: '2026-10-08', cliente: 'c', appuntamenti: [] }
+    const s = invio({ invio: 'sposta' })
+    expect(fraseDelPendente(s, { riga: 1, esito_invio: 'annullato', stato: null }, null)).toBe('Lo spostamento delle 10:04 non risulta salvato')
+    expect(fraseDelPendente(s, { riga: 2, esito_invio: 'salvata', stato }, 'Maria Rossi')).toBe('✓ Lo spostamento delle 10:04 per Maria Rossi risulta salvato')
+    const a = invio({ invio: 'annulla' })
+    expect(fraseDelPendente(a, { riga: 1, esito_invio: 'annullato', stato: null }, null)).toBe('L’annullamento delle 10:04 non risulta salvato')
+    expect(fraseDelPendente(a, { riga: 2, esito_invio: 'salvata', stato }, null)).toBe('✓ L’annullamento delle 10:04 risulta salvato')
   })
 })
 

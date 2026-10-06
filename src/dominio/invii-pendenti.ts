@@ -31,12 +31,12 @@ export interface InvioPendente {
   readonly visitaId: string
   readonly clienteId: string | null   // solo se ESISTENTE
   readonly operatriceId: string       // chi lo ha scritto
-  /** «Salva», «Togli» o «Elimina visita»: non è un dato personale, e la frase della striscia ne dipende. */
+  /** «Salva», «Togli», «Elimina visita», il trascinamento o «Annulla»: non è un dato personale, e la frase della striscia ne dipende. */
   readonly invio: Invio
   readonly toccatoIl: number          // epoch ms
 }
 
-const INVII: ReadonlySet<string> = new Set(['salva', 'togli', 'elimina'])
+const INVII: ReadonlySet<string> = new Set(['salva', 'togli', 'elimina', 'sposta', 'annulla'])
 
 /**
  * I codici toccati in QUESTA pagina (revisione del Task 9). La conferma
@@ -145,7 +145,13 @@ export function fraseDelPendente(invio: InvioPendente, r: RispostaControlla, nom
   const per = nomeLetto === null ? '' : ` per ${nomeLetto}`
   // «Elimina visita» è una cancellazione: chiamarla salvataggio confondeva.
   if (invio.invio === 'elimina' && r.riga === 1) return `La cancellazione delle ${ora}${per} non risulta fatta`
-  const il = `Il salvataggio delle ${ora}${per}`
+  // Tutti al maschile: le desinenze qui sotto valgono per i tre.
+  const il =
+    invio.invio === 'sposta'
+      ? `Lo spostamento delle ${ora}${per}`
+      : invio.invio === 'annulla'
+        ? `L’annullamento delle ${ora}${per}`
+        : `Il salvataggio delle ${ora}${per}`
   switch (r.riga) {
     case 1:
       return `${il} non risulta salvato`

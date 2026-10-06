@@ -17,7 +17,9 @@ const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { AgendaLista } from '../../src/cliente/agenda-lista'
-import { SchedaDellAgenda } from '../../src/cliente/apri-scheda'
+import { ApriScheda, SchedaDellAgenda } from '../../src/cliente/apri-scheda'
+import { useContext } from 'react'
+import type { Apertura } from '../../src/dominio/apertura'
 import { type RichiesteScheda, UscitaForzata } from '../../src/cliente/richieste-scheda'
 import { type AzioniScheda, SchedaCompilata } from '../../src/cliente/scheda-visita'
 import type { Atteso } from '../../src/dominio/attesi'
@@ -968,5 +970,43 @@ describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendent
     await userEvent.click(pulsante('Salva'))
     await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
     await waitFor(() => expect(JSON.stringify(errori.mock.calls.map((c) => String(c[0])))).toContain('navigation'))
+  })
+})
+
+describe('la scheda aperta da un gesto fermato dal server (Task 10, §5.1)', () => {
+  // Il trascinamento apre la scheda con `ApriScheda` quando il server risponde
+  // `da_confermare` o con un conflitto: gli appuntamenti nella posizione del
+  // gesto, e gli avvisi che la posizione letta aveva già passati come confermati.
+  function Apri({ a }: { a: Apertura }) {
+    const apri = useContext(ApriScheda)
+    return (
+      <button type="button" onClick={() => apri(a)}>
+        apri dal gesto
+      </button>
+    )
+  }
+  const monta = async (inizioA2: number) => {
+    const r = richieste()
+    render(
+      <SchedaDellAgenda data={DATA} occupati={[]} richieste={r} azioni={azioniFinte()} io={VERA}>
+        <Apri a={{ tipo: 'visita', visitaId: VISITA, data: DATA, sposta: [{ id: A2, inizio: inizioA2 }] }} />
+      </SchedaDellAgenda>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'apri dal gesto' }))
+    return r
+  }
+
+  it('si apre con l appuntamento nella posizione del gesto, e l avviso NUOVO ferma «Salva»', async () => {
+    // Alessandra lavora fino alle 19:00: alle 19:10 il massaggio è fuori orario.
+    await monta(230)
+    expect(await screen.findByRole('listitem', { name: /alle 19:10$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Salva comunque/ })).toBeTruthy()
+  })
+
+  it('la gemella: l avviso che la posizione letta aveva già (Annalisa non lavora) passa come confermato', async () => {
+    await monta(150)
+    expect(await screen.findByRole('listitem', { name: /alle 12:30$/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Salva comunque/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /^Salva$/ })).toBeTruthy()
   })
 })

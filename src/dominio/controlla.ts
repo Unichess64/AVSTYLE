@@ -37,7 +37,10 @@ export interface RispostaControlla {
 /** Ciò che la rotta `POST /api/controlla` restituisce al telefono. */
 export type RispostaDellaRotta = ({ readonly tipo: 'riga' } & RispostaControlla) | { readonly tipo: 'non_so' }
 
-export type Invio = 'salva' | 'elimina' | 'togli'
+// «sposta» e «annulla» sono gli invii del trascinamento (Task 10): servono agli
+// invii pendenti e alla loro frase. `decidiControlla` non li vede mai: per il
+// gesto la decisione è di `messaggioDiSpostamento` e `messaggioDiAnnulla`.
+export type Invio = 'salva' | 'elimina' | 'togli' | 'sposta' | 'annulla'
 
 export type Decisione = {
   readonly testo: string

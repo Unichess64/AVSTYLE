@@ -6,7 +6,18 @@
 import { inizioDalTocco } from './blocchi'
 
 export type Apertura =
-  | { readonly tipo: 'visita'; readonly visitaId: string; readonly data: string }
+  | {
+      readonly tipo: 'visita'
+      readonly visitaId: string
+      readonly data: string
+      /**
+       * Il trascinamento (Task 10): la scheda si apre con questi appuntamenti
+       * già spostati — la posizione nuova del gesto, o quella di prima per
+       * «Annulla» —, perché un avviso nuovo o un conflitto lì si vedano e si
+       * decidano nella scheda (§5.1).
+       */
+      readonly sposta?: readonly { readonly id: string; readonly inizio: number }[]
+    }
   | { readonly tipo: 'vuota'; readonly data: string; readonly operatriceId: string; readonly inizio: number }
 
 export interface Tocco {

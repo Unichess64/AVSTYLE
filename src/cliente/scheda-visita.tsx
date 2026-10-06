@@ -62,6 +62,7 @@ import {
 import { type SchedaViva, nuovoStatoScheda } from '../dominio/scheda-viva'
 import type { StatoVisita } from '../dominio/stato-visita'
 import { oraDaCella } from '../dominio/tempo'
+import { schedaDalGesto } from '../dominio/trascinamento'
 import { dataReale } from '../dominio/validazione'
 import type { DatiGiorno, RispostaApri } from '../server/lettura-scheda'
 import type { Risposta } from '../server/scrittura-visita'
@@ -130,7 +131,10 @@ export function SchedaVisita({
         } else if (dati.stato === null) {
           setCaricamento({ tipo: 'assente' })
         } else {
-          setCaricamento({ tipo: 'pronta', dati, scheda: apriSchedaSuVisita(dati.stato, apertura.visitaId) })
+          const letta = apriSchedaSuVisita(dati.stato, apertura.visitaId)
+          // Dal trascinamento (Task 10): la scheda si apre sulla posizione del gesto.
+          const scheda = apertura.sposta === undefined ? letta : schedaDalGesto(letta, apertura.sposta, dati.giorno)
+          setCaricamento({ tipo: 'pronta', dati, scheda })
         }
       },
       (e) => {

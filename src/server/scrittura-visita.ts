@@ -33,7 +33,9 @@ import { type Esito, type Messaggio, messaggioPerEsito, serveRicontrolloAccount 
 import { conRitentativi } from '../dominio/ritentativi'
 import { type SchedaSerializzata, appuntamentiDaInviare, ugualeAllaScheda } from '../dominio/scheda'
 import { type StatoVisita, leggiStatoVisita } from '../dominio/stato-visita'
-import { controlloPreventivo, validaEliminazione, validaScheda } from './controllo-preventivo'
+import type { Mosso } from '../dominio/trascinamento'
+import { CELLE_PER_GIORNO } from '../dominio/tempo'
+import { chiaviDegliAvvisi, controlloPreventivo, validaEliminazione, validaScheda, validaSpostamento } from './controllo-preventivo'
 import { avvolgi, sqlstateDi } from './involucro'
 import { leggiDatiGiorno, leggiStato } from './lettura-scheda'
 import { NonAutenticata, NonOperatrice, operatriceCorrente } from './supabase'
@@ -49,7 +51,16 @@ export type Risposta =
     }
   // `messaggio` in più rispetto al piano: porta anche che cosa fa la scheda
   // (23503 su servizio od operatrice la ricarica, 42501 ricarica il giorno).
-  | { readonly tipo: 'fallita'; readonly sqlstate: string; readonly testo: string; readonly messaggio: Messaggio }
+  | {
+      readonly tipo: 'fallita'
+      readonly sqlstate: string
+      readonly testo: string
+      readonly messaggio: Messaggio
+      // Solo per il gesto (Task 10): la visita riletta dopo l'errore, perché
+      // il blocco vada alla posizione LETTA. `null` = sparita, assente = la
+      // rilettura non è riuscita.
+      readonly stato?: StatoVisita | null
+    }
   | { readonly tipo: 'non_so' } // → «Controlla», Task 9
   | { readonly tipo: 'da_confermare'; readonly chiavi: readonly string[] }
   // `vaiA` è `null` per un conflitto fra due servizi della scheda, che
@@ -149,7 +160,7 @@ function primaDellaScrittura(e: unknown, id: string): Risposta {
 /** I passi 4 e 5. Il codice d'invio è in `argomenti`, deciso PRIMA del ciclo: è così che resta lo stesso. */
 async function chiama(
   client: SupabaseClient,
-  funzione: 'salva_visita' | 'cancella_visita',
+  funzione: 'salva_visita' | 'cancella_visita' | 'sposta_visita_a',
   argomenti: Readonly<Record<string, unknown>>,
   o: OpzioniScrittura,
 ): Promise<RispostaFunzione> {
@@ -383,6 +394,214 @@ async function corpoElimina(
   }
   // `cancellata` ha sempre tolto una riga: la regola 11 l'ha contata.
   return dopoUnEsito(client, r, true, null, id)
+}
+
+// ---------------------------------------------------------------------------
+// Il trascinamento e «Annulla» (spec 3a §5.1, D3-15; piano 3a-2 Task 10).
+
+/**
+ * Un gesto, come il telefono lo manda. Le destinazioni sono ASSOLUTE (`a`),
+ * calcolate dall'app conservando gli scarti (§4.1): un invio ripetuto con lo
+ * scarto sposterebbe due volte. `da` è dove l'agenda mostrava ciascun
+ * appuntamento al momento del gesto.
+ */
+export interface RichiestaSpostamento {
+  readonly visitaId: string
+  readonly data: string
+  readonly mossi: readonly Mosso[]
+  /**
+   * Le versioni ADOTTATE dopo l'ultimo ✓ di questa visita. `null` al primo
+   * gesto: le legge il server con `stato_visita` (sotto), dopo aver
+   * controllato che la visita letta sia dove l'agenda la mostrava.
+   */
+  readonly versioni: { readonly visita: string; readonly attesi: readonly Atteso[] } | null
+}
+
+/** La visita com'è ora, data a chi l'ha trovata diversa. Nessuna scrittura è partita. */
+function statoDiverso(stato: StatoVisita): Risposta {
+  return {
+    tipo: 'esito',
+    esito: 'modificata_altrove',
+    messaggio: messaggioPerEsito('modificata_altrove', false),
+    visita: stato.visita,
+    appuntamenti: proiettaAttesi(stato.appuntamenti),
+    stato,
+  }
+}
+
+/**
+ * Dopo un errore certo il blocco va alla posizione LETTA, non a quella che il
+ * telefono ricorda (§5.1): la risposta porta la visita riletta. Una rilettura
+ * fallita non cambia il fatto — la scrittura è annullata —: la risposta resta
+ * senza `stato`, e decide il giorno riletto.
+ */
+async function conRilettura(client: SupabaseClient, r: Risposta, visitaId: string, id: string): Promise<Risposta> {
+  if (r.tipo !== 'fallita') return r
+  try {
+    return { ...r, stato: await leggiStato(client, visitaId) }
+  } catch (e) {
+    console.error('invio: rilettura fallita', { code: sqlstateDi(e) ?? 'nessuno', id })
+    return r
+  }
+}
+
+async function corpoSposta(
+  client: SupabaseClient,
+  richiesta: RichiestaSpostamento,
+  codice: string,
+  o: OpzioniScrittura,
+  comeAnnulla: boolean,
+  id: string,
+): Promise<Risposta> {
+  // 1
+  let io: string
+  try {
+    io = (await operatriceCorrente(client)).operatorId
+  } catch (e) {
+    if (e instanceof NonAutenticata || e instanceof NonOperatrice) return USCITA
+    return primaDellaScrittura(e, id)
+  }
+
+  // 2. «Annulla» riscrive con le versioni ADOTTATE dopo il ✓, sempre (§5.1).
+  const motivo = validaSpostamento(richiesta, codice, comeAnnulla)
+  if (motivo !== null) return { tipo: 'non_valida', motivo }
+  const { visitaId, data, mossi, versioni } = richiesta
+
+  // Lo stato della visita: le versioni al primo gesto, l'insieme completo per
+  // `salva_visita`, le durate e gli avvisi della partenza.
+  let stato: StatoVisita | null
+  try {
+    stato = await leggiStato(client, visitaId)
+  } catch (e) {
+    return primaDellaScrittura(e, id)
+  }
+
+  const destinazioni = mossi.map((m) => ({ id: m.id, inizio: m.a }))
+  // C3: proiettati e ordinati a ogni chiamata, qualunque cosa il telefono abbia mandato.
+  const attesi = proiettaAttesi(versioni?.attesi ?? stato?.appuntamenti ?? [])
+  const attesa = versioni?.visita ?? stato?.visita ?? ''
+
+  let r: RispostaFunzione
+  let scheda: SchedaSerializzata | null = null
+  let intera = true
+  try {
+    if (stato === null) {
+      // La visita non si legge: la funzione dice se è cancellata o non trovata,
+      // e non scrive niente (registra soltanto l'esito del codice).
+      r = await chiama(client, 'sposta_visita_a', { p_codice: codice, p_visita: visitaId, p_data: data, p_destinazioni: destinazioni, p_visita_attesa: attesa, p_attesi: attesi }, o)
+    } else {
+      const letti = new Map(stato.appuntamenti.map((a) => [a.id, a]))
+      // Un appuntamento del gesto che la visita non ha più: è cambiata, e il
+      // gesto non ha più senso. Niente si scrive.
+      if (mossi.some((m) => !letti.has(m.id))) return statoDiverso(stato)
+      // Il primo gesto, con le versioni lette QUI: la visita dev'essere dove
+      // l'agenda la mostrava. Se no l'agenda era vecchia, e scrivere con
+      // versioni fresche cancellerebbe in silenzio lo spostamento di una collega.
+      if (versioni === null && (stato.data !== data || mossi.some((m) => letti.get(m.id)!.inizio !== m.da))) return statoDiverso(stato)
+      if (mossi.some((m) => m.a + letti.get(m.id)!.durata > CELLE_PER_GIORNO)) {
+        return { tipo: 'non_valida', motivo: 'Un servizio finirebbe dopo mezzanotte.' }
+      }
+
+      // Blocco di TUTTA la visita → `sposta_visita_a`; di una parte →
+      // `salva_visita` con l'insieme completo (§5.1). Lo decide la lettura,
+      // non il telefono.
+      intera = stato.appuntamenti.length === mossi.length
+      const dove = new Map(mossi.map((m) => [m.id, m.a]))
+      const partenza = (fine: boolean): SchedaSerializzata => ({
+        visitaId,
+        modo: 'modifica',
+        cliente: { tipo: 'esistente', id: stato!.cliente },
+        clienteEsisteAncora: true,
+        data,
+        servizi: stato!.appuntamenti.map((a) => ({
+          id: a.id,
+          nuovo: false,
+          operatriceId: a.operatrice,
+          servizioId: a.servizio,
+          inizio: fine ? (dove.get(a.id) ?? a.inizio) : a.inizio,
+          durata: a.durata,
+          durataAMano: true,
+          segueIlPrecedente: false,
+        })),
+        versioneVisita: attesa,
+        attesi,
+        avvisiConfermati: [],
+        partenza: { operatriceId: stato!.appuntamenti[0]?.operatrice ?? '', inizio: stato!.appuntamenti[0]?.inizio ?? 0 },
+      })
+
+      // 3. Gli avvisi che la posizione di PARTENZA aveva già passano come
+      // confermati (§5.1). Per «Annulla» la destinazione È la posizione di
+      // prima: i suoi avvisi erano già stati accettati, e annullare verso una
+      // posizione fuori orario non riapre la scheda.
+      let giorno
+      try {
+        giorno = await leggiDatiGiorno(client, data, io)
+      } catch (e) {
+        return primaDellaScrittura(e, id)
+      }
+      const arrivo = partenza(true)
+      const confermati = new Set(chiaviDegliAvvisi(partenza(false), giorno))
+      if (comeAnnulla) for (const k of chiaviDegliAvvisi(arrivo, giorno)) confermati.add(k)
+      scheda = { ...arrivo, avvisiConfermati: [...confermati].sort() }
+      const fermo = controlloPreventivo(scheda, giorno)
+      if (fermo !== null) return fermo
+
+      // 4 e 5
+      r = intera
+        ? await chiama(client, 'sposta_visita_a', { p_codice: codice, p_visita: visitaId, p_data: data, p_destinazioni: destinazioni, p_visita_attesa: attesa, p_attesi: attesi }, o)
+        : await chiama(
+            client,
+            'salva_visita',
+            {
+              p_codice: codice,
+              p_visita: visitaId,
+              p_cliente: stato.cliente,
+              p_cliente_nuova: null,
+              p_data: data,
+              p_appuntamenti: appuntamentiDaInviare({ ...scheda, avvisiConfermati: new Set() }),
+              p_visita_attesa: attesa,
+              p_attesi: attesi,
+            },
+            o,
+          )
+    }
+  } catch (e) {
+    const sqlstate = sqlstateDi(e)
+    if (sqlstate === null) throw e   // 8: fuori dal database, all'involucro
+    return conRilettura(client, await dopoUnErrore(client, sqlstate, (e as GuastoScrittura).vincolo, scheda, io, id), visitaId, id)
+  }
+
+  // 7. `sposta_visita_a` è esente dalla regola 8 e alza sempre le versioni:
+  // un suo `salvata` ha sempre scritto. `salva_visita` aggiorna solo ciò che
+  // cambia: lo dicono le versioni, come in «Salva».
+  const haFattoUpdate =
+    intera || r.visita !== attesa || JSON.stringify(r.appuntamenti ?? null) !== JSON.stringify(attesi)
+  return dopoUnEsito(client, r, haFattoUpdate, scheda, id)
+}
+
+/** Il rilascio di un trascinamento (§5.1). */
+export async function spostaVisita(
+  client: SupabaseClient,
+  richiesta: RichiestaSpostamento,
+  codice: string,
+  o: OpzioniScrittura = {},
+): Promise<Risposta> {
+  const id = crypto.randomUUID()
+  return inRisposta(await avvolgi('invio', id, () => corpoSposta(client, richiesta, codice, o, false, id)))
+}
+
+/**
+ * «Annulla» (§5.1): la posizione di prima, con le versioni adottate dopo il ✓
+ * e un codice d'invio SUO, mai quello dello spostamento.
+ */
+export async function riportaVisita(
+  client: SupabaseClient,
+  richiesta: RichiestaSpostamento,
+  codice: string,
+  o: OpzioniScrittura = {},
+): Promise<Risposta> {
+  const id = crypto.randomUUID()
+  return inRisposta(await avvolgi('invio', id, () => corpoSposta(client, richiesta, codice, o, true, id)))
 }
 
 function inRisposta(x: Risposta | Classe): Risposta {

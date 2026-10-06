@@ -14,11 +14,18 @@
 // `popstate` che la toglie chiude la scheda. «Chiudi» fa lo stesso passando da
 // `history.back()`, così la voce non resta orfana.
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import { type Apertura, type Tocco, aperturaDalTocco } from '../dominio/apertura'
 import type { RichiesteScheda } from './richieste-scheda'
 import { type AzioniScheda, SchedaVisita } from './scheda-visita'
 import stile from './scheda-visita.module.css'
+
+/**
+ * Chi apre la scheda senza un tocco: il trascinamento (Task 10), quando il
+ * server ferma un gesto con `da_confermare` o un conflitto (§5.1). Fuori da
+ * `SchedaDellAgenda` non apre niente.
+ */
+export const ApriScheda = createContext<(a: Apertura) => void>(() => {})
 
 /** Il segno della voce di cronologia della scheda. */
 const VOCE = { schedaAperta: true }
@@ -107,7 +114,7 @@ export function SchedaDellAgenda({
         }
       }}
     >
-      {children}
+      <ApriScheda.Provider value={apri}>{children}</ApriScheda.Provider>
       {esito !== null && (
         <p className={stile.esitoAgenda} role="status">
           {esito}
