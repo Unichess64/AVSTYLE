@@ -1,0 +1,190 @@
+// @vitest-environment jsdom
+//
+// tests/dominio/striscia-invii.test.tsx
+//
+// La striscia degli invii pendenti in testa all'agenda (D2-4) e «Esci» che
+// controlla prima di chiudere la sessione (spec 3a §4.4 punti 2-4). Niente
+// Supabase: «Controlla» è finto, e la prova gira anche in test:fuso.
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PulsanteEsci, StrisciaInvii } from '../../src/cliente/striscia-invii'
+import { CHIAVE, type InvioPendente } from '../../src/dominio/invii-pendenti'
+
+const VERA = '10000000-0000-4000-8000-000000000001'
+const ALESSANDRA = '10000000-0000-4000-8000-000000000003'
+const ORE = 60 * 60 * 1000
+
+let n = 0
+function invio(altro: Partial<InvioPendente> = {}): InvioPendente {
+  n += 1
+  return {
+    codice: `70000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    visitaId: `50000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    clienteId: null,
+    operatriceId: VERA,
+    toccatoIl: Date.now() - ORE,
+    ...altro,
+  }
+}
+const metti = (...xs: InvioPendente[]) => window.localStorage.setItem(CHIAVE, JSON.stringify(xs))
+const rimasti = () => (JSON.parse(window.localStorage.getItem(CHIAVE) ?? '[]') as InvioPendente[]).map((x) => x.codice)
+const mai = () => new Promise<never>(() => {})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  window.localStorage.clear()
+})
+
+describe('D2-4: la striscia alla riapertura', () => {
+  it('controlla i soli codici dell operatrice entrata, e dice quanti sono da controllare', async () => {
+    const mio1 = invio()
+    const mio2 = invio()
+    const suo = invio({ operatriceId: ALESSANDRA })
+    const vecchio = invio({ toccatoIl: Date.now() - 25 * ORE })
+    metti(mio1, mio2, suo, vecchio)
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: null }))
+    render(<StrisciaInvii io={VERA} controlla={controlla} nomeDi={async () => null} />)
+    expect(await screen.findByRole('button', { name: '2 salvataggi da controllare' })).toBeTruthy()
+    await waitFor(() => expect(controlla).toHaveBeenCalledTimes(2))
+    expect(controlla.mock.calls.map((c) => c[0]).sort()).toEqual([mio1.codice, mio2.codice].sort())
+    // il vecchio è buttato senza controllarlo, quello di Alessandra resta per lei
+    await waitFor(() => expect(rimasti()).toEqual([suo.codice]))
+  })
+
+  it('si apre a richiesta e mostra l esito di ciascuno, con il nome solo se letto', async () => {
+    const a = invio({ toccatoIl: Date.UTC(2026, 9, 8, 8, 4) })
+    const b = invio({ toccatoIl: Date.UTC(2026, 9, 8, 9, 30) })
+    metti(a, b)
+    const stato = { visita: 'v', data: '2026-10-08', cliente: 'c', appuntamenti: [] }
+    const controlla = vi.fn(async (codice: string) =>
+      codice === a.codice
+        ? { tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: null }
+        : { tipo: 'riga' as const, riga: 2 as const, esito_invio: 'salvata' as const, stato },
+    )
+    render(<StrisciaInvii io={VERA} controlla={controlla} nomeDi={async () => 'Lucia Bianchi'} />)
+    expect(screen.queryByText(/non risulta salvato/)).toBeNull()
+    await userEvent.click(await screen.findByRole('button', { name: '2 salvataggi da controllare' }))
+    expect(await screen.findByText('Il salvataggio delle 10:04 non risulta salvato')).toBeTruthy()
+    expect(await screen.findByText('✓ Il salvataggio delle 11:30 per Lucia Bianchi risulta salvato')).toBeTruthy()
+  })
+
+  it('un «Controlla» che fallisce lascia il codice in memoria, e si può ritentare', async () => {
+    const a = invio()
+    metti(a)
+    const controlla = vi
+      .fn()
+      .mockResolvedValueOnce({ tipo: 'non_so' })
+      .mockResolvedValueOnce({ tipo: 'riga', riga: 1, esito_invio: 'annullato', stato: null })
+    render(<StrisciaInvii io={VERA} controlla={controlla} nomeDi={async () => null} />)
+    await userEvent.click(await screen.findByRole('button', { name: '1 salvataggio da controllare' }))
+    expect(await screen.findByText(/Non so se è stato salvato/)).toBeTruthy()
+    expect(rimasti()).toEqual([a.codice])
+    await userEvent.click(screen.getByRole('button', { name: 'Controlla di nuovo' }))
+    await waitFor(() => expect(rimasti()).toEqual([]))
+  })
+
+  it('senza invii pendenti non c è nessuna striscia', () => {
+    metti(invio({ operatriceId: ALESSANDRA }))
+    const controlla = vi.fn()
+    const { container } = render(<StrisciaInvii io={VERA} controlla={controlla} nomeDi={async () => null} />)
+    expect(container.textContent).toBe('')
+    expect(controlla).not.toHaveBeenCalled()
+  })
+})
+
+describe('l abbandono della pagina (§4.4 punti 1 e 2)', () => {
+  it('`pagehide` con la pagina scartata manda «Controlla» in keepalive; con `persisted` no', () => {
+    const a = invio()
+    metti(a)
+    const keepalive = vi.fn()
+    render(<StrisciaInvii io={VERA} controlla={vi.fn(mai)} controllaAllAbbandono={keepalive} nomeDi={async () => null} />)
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
+    })
+    expect(keepalive).not.toHaveBeenCalled()
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
+    })
+    expect(keepalive).toHaveBeenCalledWith(a.codice, a.visitaId)
+  })
+
+  it('lasciare la pagina con un invio pendente chiede conferma, senza invii no', () => {
+    render(<StrisciaInvii io={VERA} controlla={vi.fn(mai)} nomeDi={async () => null} />)
+    const senza = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(senza)
+    expect(senza.defaultPrevented).toBe(false)
+    metti(invio())
+    const con = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(con)
+    expect(con.defaultPrevented).toBe(true)
+  })
+})
+
+describe('«Esci» (§4.4 punto 4)', () => {
+  it('«Esci» controlla prima di chiudere la sessione', async () => {
+    const a = invio()
+    metti(a)
+    const ordine: string[] = []
+    const controlla = vi.fn(async () => {
+      ordine.push('controlla')
+      return { tipo: 'riga' as const, riga: 2 as const, esito_invio: 'salvata' as const, stato: null }
+    })
+    const esci = vi.fn(async () => void ordine.push('esci'))
+    render(<PulsanteEsci io={VERA} esci={esci} controlla={controlla} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Esci' }))
+    await waitFor(() => expect(esci).toHaveBeenCalled())
+    expect(ordine).toEqual(['controlla', 'esci'])
+    expect(rimasti()).toEqual([])
+  })
+
+  it('un esito da guardare si mostra prima di uscire', async () => {
+    metti(invio({ toccatoIl: Date.UTC(2026, 9, 8, 8, 4) }))
+    const esci = vi.fn(async () => {})
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: null }))
+    render(<PulsanteEsci io={VERA} esci={esci} controlla={controlla} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Esci' }))
+    expect(await screen.findByText('Il salvataggio delle 10:04 non risulta salvato')).toBeTruthy()
+    expect(esci).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Esci ora' }))
+    expect(esci).toHaveBeenCalled()
+  })
+
+  it('oltre il limite «Esci comunque»: i codici restano e si controllano alla riapertura', async () => {
+    const a = invio()
+    metti(a)
+    const esci = vi.fn(async () => {})
+    render(<PulsanteEsci io={VERA} esci={esci} controlla={vi.fn(mai)} limiteMs={30} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Esci' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Esci comunque' }))
+    expect(esci).toHaveBeenCalled()
+    expect(rimasti()).toEqual([a.codice])
+  })
+
+  it('un «Controlla» che risponde DOPO il limite non toglie il codice: l esito non l ha visto nessuno', async () => {
+    // Misurato in `next start`: dopo «Esci comunque» il «Controlla» in volo
+    // rispondeva e cancellava il codice, e alla riapertura non restava niente.
+    const a = invio()
+    metti(a)
+    let risolvi!: (r: { tipo: 'riga'; riga: 1; esito_invio: 'annullato'; stato: null }) => void
+    const tardivo = new Promise<{ tipo: 'riga'; riga: 1; esito_invio: 'annullato'; stato: null }>((r) => (risolvi = r))
+    render(<PulsanteEsci io={VERA} esci={vi.fn(async () => {})} controlla={vi.fn(() => tardivo)} limiteMs={30} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Esci' }))
+    expect(await screen.findByRole('button', { name: 'Esci comunque' })).toBeTruthy()
+    await act(async () => {
+      risolvi({ tipo: 'riga', riga: 1, esito_invio: 'annullato', stato: null })
+      await tardivo
+    })
+    expect(rimasti()).toEqual([a.codice])
+  })
+
+  it('senza invii pendenti «Esci» esce subito', async () => {
+    const esci = vi.fn(async () => {})
+    const controlla = vi.fn()
+    render(<PulsanteEsci io={VERA} esci={esci} controlla={controlla} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Esci' }))
+    expect(esci).toHaveBeenCalled()
+    expect(controlla).not.toHaveBeenCalled()
+  })
+})

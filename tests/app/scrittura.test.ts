@@ -500,3 +500,48 @@ describe('revisione del Task 8: dopo la funzione, niente frasi false né vuote',
     expect(r).toEqual({ tipo: 'non_so' })
   })
 })
+
+describe('la quinta decisione: nessun ritentativo dopo 7 s dal tocco (opzione b, 06/10/2026)', () => {
+  // Il server smette quando il telefono smette di aspettare: quattro tentativi
+  // da 8 s costerebbero 32 s contro i 10 s di D3-9. L'orologio è finto, e
+  // ogni tentativo lo fa avanzare di `passo` millisecondi.
+  const sempre40P01 = async () => {
+    const token = (await sessioneDi(VERA_AUTH)).accessToken
+    return createClient(URL, ANON, {
+      global: {
+        headers: { Authorization: `Bearer ${token}` },
+        fetch: async (input, init) =>
+          String(input).includes('/rpc/salva_visita')
+            ? new Response(JSON.stringify({ code: '40P01', message: 'deadlock detected' }), { status: 500, headers: { 'content-type': 'application/json' } })
+            : fetch(input, init),
+      },
+    })
+  }
+  async function tentativiCon(passo: number) {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    let t = 0
+    const spia: number[] = []
+    const r = await salvaVisita(await sempre40P01(), nuovaScheda(), codice(), {
+      spiaTentativi: (n) => {
+        spia.push(n)
+        t += passo
+      },
+      dormi: async () => {},
+      adesso: () => t,
+    })
+    return { r, spia }
+  }
+
+  it('oltre i 7 s i tentativi si fermano prima di 4, e la risposta è la fallita del 40P01', async () => {
+    const { r, spia } = await tentativiCon(4_000)
+    expect(spia.length).toBeLessThan(4)
+    expect(spia).toEqual([0, 1])
+    expect(r).toMatchObject({ tipo: 'fallita', sqlstate: '40P01', testo: 'Non sono riuscita a salvare, riprova' })
+  })
+
+  it('la gemella: sotto i 7 s arriva a 4 tentativi, cioè 3 ritentativi', async () => {
+    const { r, spia } = await tentativiCon(1_000)
+    expect(spia).toEqual([0, 1, 2, 3])
+    expect(r).toMatchObject({ tipo: 'fallita', sqlstate: '40P01' })
+  })
+})

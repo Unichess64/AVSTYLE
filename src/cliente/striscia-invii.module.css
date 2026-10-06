@@ -1,0 +1,77 @@
+/* La striscia degli invii pendenti in testa all'agenda (D2-4) e il foglio di «Esci». */
+.striscia {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--rosa-cipria);
+  border-bottom: 1.5px solid var(--inchiostro);
+}
+
+.apri {
+  min-height: 44px;
+  width: 100%;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  color: var(--inchiostro);
+  background: var(--bianco);
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+}
+
+.voci {
+  margin: 8px 0 0;
+  padding: 0 0 0 18px;
+  line-height: 1.4;
+}
+.voci li + li {
+  margin-top: 6px;
+}
+
+.secondario,
+.primario {
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 600;
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 10px;
+}
+.secondario {
+  color: var(--inchiostro);
+  background: var(--bianco);
+}
+.primario {
+  color: var(--bianco);
+  background: var(--rosa-profondo);
+  border-color: var(--rosa-profondo);
+}
+.apri:focus-visible,
+.secondario:focus-visible,
+.primario:focus-visible {
+  outline: 3px solid var(--rosa-profondo);
+  outline-offset: 2px;
+}
+
+/* «Esci» con salvataggi in sospeso: un foglio sotto la testata. */
+.uscita {
+  position: fixed;
+  top: 56px;
+  left: 16px;
+  right: 16px;
+  z-index: 30;
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--bianco);
+  border: 1.5px solid var(--inchiostro);
+  border-radius: 12px;
+}
+.uscita p {
+  margin: 0 0 8px;
+}
+.pulsanti {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -44,6 +44,7 @@ export function SchedaDellAgenda({
   children,
   richieste,
   azioni,
+  io,
 }: {
   data: string
   /** Gli appuntamenti del giorno, per l'orario di §5.1 su uno spazio libero. */
@@ -52,6 +53,8 @@ export function SchedaDellAgenda({
   richieste?: RichiesteScheda
   /** Le Server Actions di scrittura: obbligatorie, così la pagina non può dimenticarle. */
   azioni: AzioniScheda
+  /** L'`operator.id` di chi ha fatto l'accesso: firma gli invii pendenti (§4.4 punto 3). */
+  io: string
 }) {
   const router = useRouter()
   const [apertura, setApertura] = useState<Apertura | null>(null)
@@ -115,6 +118,7 @@ export function SchedaDellAgenda({
           apertura={apertura}
           richieste={richieste}
           azioni={azioni}
+          io={io}
           onChiudi={() => window.history.back()}
           onFatto={(testo) => {
             // La scheda si chiude come con «Chiudi», e il giorno si rilegge

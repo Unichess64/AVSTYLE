@@ -123,6 +123,7 @@ export default async function Agenda({
       <SchedaDellAgenda
         data={data}
         azioni={{ salva, togli, elimina }}
+        io={io.operatorId}
         occupati={giorno.appuntamenti.map((x) => ({ operatriceId: x.operatriceId, inizio: x.inizio, durata: x.durata }))}
       >
         <div className={stile.soloColonne}>

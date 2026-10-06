@@ -36,10 +36,9 @@ export async function conRitentativi<T>(
   estraiSqlstate: (e: unknown) => string | null,
   dormi: (ms: number) => Promise<void>,
   caso: () => number,
-  // ⚠︎ Il posto dove il tetto di tempo potrà entrare. La quinta decisione (in
-  // fondo al piano 3a-2) non è presa, e finché non lo è vale l'opzione (a) —
-  // nessun tetto —, che è ciò che §4.3 passo 5 dice alla lettera. Chiuderla
-  // costerà una riga al chiamante, non una firma nuova.
+  // Il tetto di tempo. La quinta decisione è presa (06/10/2026, opzione b): il
+  // chiamante passa 7 s (`scrittura-visita.ts`). Il predefinito resta
+  // `Infinity`, che la prova 10b del Task 4 presidia.
   scadenzaMs: number = Infinity,
   adesso: () => number = Date.now,
 ): Promise<{ valore: T; tentativi: number }> {

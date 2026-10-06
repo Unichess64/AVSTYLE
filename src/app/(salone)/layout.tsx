@@ -1,6 +1,7 @@
 // src/app/(salone)/layout.tsx
 import { redirect } from 'next/navigation'
 import { Navigazione } from '../../cliente/navigazione'
+import { PulsanteEsci, StrisciaInvii } from '../../cliente/striscia-invii'
 import {
   NonAutenticata,
   NonOperatrice,
@@ -28,13 +29,11 @@ export default async function Guscio({ children }: { children: React.ReactNode }
         <img src="/AV-style-logo.png" alt="" width={40} height={37} className={stile.logo} />
         <span className={stile.titolo}>AVStyle</span>
         <span className={stile.chi}>{operatrice.nome}</span>
-        <form action={esci}>
-          <button type="submit" className={stile.esci}>
-            Esci
-          </button>
-        </form>
+        {/* §4.4 punto 4: «Esci» controlla gli invii pendenti prima di chiudere la sessione. */}
+        <PulsanteEsci io={operatrice.operatorId} esci={esci} classe={stile.esci} />
       </header>
-      {/* Qui il Task 9 mette la striscia degli invii pendenti (D2-4). */}
+      {/* D2-4: gli invii pendenti trovati alla riapertura, bene in vista e toccabili. */}
+      <StrisciaInvii io={operatrice.operatorId} />
       <main className={stile.contenuto}>{children}</main>
       <Navigazione />
     </div>

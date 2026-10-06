@@ -30,6 +30,8 @@ vi.mock('next/navigation', () => ({
 
 const { entra } = await import('../../src/app/accesso/azioni')
 const { default: Guscio } = await import('../../src/app/(salone)/layout')
+const { esci } = await import('../../src/app/(salone)/azioni')
+const { PulsanteEsci, StrisciaInvii } = await import('../../src/cliente/striscia-invii')
 
 const URL = 'http://127.0.0.1:54321'
 const ANON =
@@ -120,6 +122,22 @@ describe('il guscio chiama davvero operatriceCorrente', () => {
 
   it('senza sessione rimanda all accesso', async () => {
     await expect(Guscio({ children: null })).rejects.toThrow('REDIRECT /accesso')
+  })
+
+  it('monta la striscia degli invii pendenti ed «Esci», firmati con l operator.id di chi è entrata (Task 9)', async () => {
+    await accedi('vera@example.test')
+    const elementi: { type: unknown; props: Record<string, unknown> }[] = []
+    const visita = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(visita)
+      if (n !== null && typeof n === 'object' && 'props' in n) {
+        const e = n as { type: unknown; props: Record<string, unknown> }
+        elementi.push(e)
+        visita(e.props.children)
+      }
+    }
+    visita(await Guscio({ children: null }))
+    expect(elementi.find((e) => e.type === StrisciaInvii)?.props.io).toBe(VERA)
+    expect(elementi.find((e) => e.type === PulsanteEsci)?.props).toMatchObject({ io: VERA, esci })
   })
 
   it('un operatrice disattivata dopo l accesso viene rimandata all accesso (D3-17)', async () => {

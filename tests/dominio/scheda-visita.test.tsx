@@ -18,7 +18,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { AgendaLista } from '../../src/cliente/agenda-lista'
 import { SchedaDellAgenda } from '../../src/cliente/apri-scheda'
-import type { RichiesteScheda } from '../../src/cliente/richieste-scheda'
+import { type RichiesteScheda, UscitaForzata } from '../../src/cliente/richieste-scheda'
 import { type AzioniScheda, SchedaCompilata } from '../../src/cliente/scheda-visita'
 import type { Atteso } from '../../src/dominio/attesi'
 import { type SchedaSerializzata, apriSchedaSuVisita, apriSchedaVuota } from '../../src/dominio/scheda'
@@ -657,5 +657,244 @@ describe('Task 8: SchedaDellAgenda chiude la scheda sull esito e rilegge il gior
     await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.getByText('✓ Salvata')).toBeTruthy()
+  })
+})
+
+describe('Task 9: «Controlla» nella scheda, la generazione e gli invii pendenti', () => {
+  const STATO_ATTIVO: StatoVisita = {
+    visita: '2026-10-03T09:00:00.123456Z',
+    data: DATA,
+    cliente: MARIA,
+    appuntamenti: [
+      { id: A1, versione: 'v1', operatrice: VERA, servizio: REFILL, inizio: 120, durata: 15 },
+      { id: A2, versione: 'v2', operatrice: ALESSANDRA, servizio: MASSAGGIO, inizio: 140, durata: 12 },
+    ],
+  }
+  // Lo stato letto da «Controlla»: una collega ha spostato il Refill alle 10:20.
+  const LETTO: StatoVisita = {
+    ...STATO_ATTIVO,
+    visita: '2026-10-03T09:05:00.654321Z',
+    appuntamenti: [{ ...STATO_ATTIVO.appuntamenti[0], versione: 'v1b', inizio: 124 }, STATO_ATTIVO.appuntamenti[1]],
+  }
+  const nessuno = { spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false }
+  const salvata: Risposta = { tipo: 'esito', esito: 'salvata', messaggio: { ...nessuno, testo: '✓ Salvata', spunta: true }, visita: 'v9', appuntamenti: [] }
+  const invii = () => JSON.parse(window.localStorage.getItem('avstyle.invii') ?? '[]') as Record<string, unknown>[]
+
+  /** Una promessa che la prova risolve quando vuole: la Server Action «tardiva». */
+  function differita<T>() {
+    let risolvi!: (v: T) => void
+    const promessa = new Promise<T>((r) => (risolvi = r))
+    return { promessa, risolvi }
+  }
+
+  function monta(azioni: AzioniScheda, controlla: RichiesteScheda['controlla'] = vi.fn(mai), iniziale = apriSchedaSuVisita(STATO_ATTIVO, VISITA)) {
+    const onFatto = vi.fn()
+    const r = richieste({ controlla })
+    render(
+      <SchedaCompilata
+        iniziale={iniziale}
+        dati={dati({ stato: STATO_ATTIVO })}
+        richieste={r}
+        azioni={azioni}
+        io={VERA}
+        attesaMs={40}
+        onVaiA={() => {}}
+        onFatto={onFatto}
+        onRicarica={() => {}}
+      />,
+    )
+    return { onFatto, controlla }
+  }
+  const servizioAlle = (ora: string) => screen.getByRole('listitem', { name: new RegExp(`alle ${ora}$`) })
+  const pulsante = (nome: string) => screen.getByRole('button', { name: nome }) as HTMLButtonElement
+
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('il codice si scrive in localStorage al TOCCO, prima della risposta, senza nomi né telefoni', async () => {
+    const salva = vi.fn(mai)
+    monta(azioniFinte({ salva }))
+    await userEvent.click(pulsante('Salva'))
+    const codice = salva.mock.calls[0][1]
+    expect(invii()).toEqual([{ codice, visitaId: VISITA, clienteId: MARIA, operatriceId: VERA, toccatoIl: expect.any(Number) }])
+    expect(window.localStorage.getItem('avstyle.invii')).not.toContain('Maria')
+  })
+
+  it('e si cancella alla risposta definitiva', async () => {
+    monta(azioniFinte({ salva: vi.fn(async () => salvata) }))
+    await userEvent.click(pulsante('Salva'))
+    await waitFor(() => expect(invii()).toEqual([]))
+  })
+
+  it('la gemella: un «Non so» del server NON lo cancella, perché l invio può ancora arrivare', async () => {
+    monta(azioniFinte({ salva: vi.fn(async (): Promise<Risposta> => ({ tipo: 'non_so' })) }))
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+    expect(invii()).toHaveLength(1)
+  })
+
+  it('senza risposta entro il limite di D3-9: «Non so», «Salva» spento e il solo «Controlla»', async () => {
+    monta(azioniFinte({ salva: vi.fn(mai) }))
+    expect(screen.queryByRole('button', { name: 'Controlla' })).toBeNull()
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+    expect(pulsante('Salva').disabled).toBe(true)
+    expect(pulsante('Elimina visita').disabled).toBe(true)
+    expect(pulsante('Controlla').disabled).toBe(false)
+  })
+
+  it('«Controlla» manda lo STESSO codice dell invio, e dopo la riga 1 `annullato` «Salva» riparte con le versioni di partenza (C1)', async () => {
+    const salva = vi.fn<AzioniScheda['salva']>().mockImplementation(mai)
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: LETTO }))
+    monta(azioniFinte({ salva }), controlla)
+    await userEvent.selectOptions(within(servizioAlle('10:00')).getByLabelText('Minuti d’inizio'), '10')
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    expect(controlla).toHaveBeenCalledWith(salva.mock.calls[0][1], VISITA)
+    expect(await screen.findByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    expect(invii()).toEqual([])
+    // la modifica dell'operatrice c'è ancora, e il servizio NON è dove l'ha messo la collega
+    expect(servizioAlle('10:10')).toBeTruthy()
+    await userEvent.click(pulsante('Salva'))
+    const [seconda, codice] = salva.mock.calls[1] as unknown as [SchedaSerializzata, string]
+    expect(seconda.versioneVisita).toBe(STATO_ATTIVO.visita)
+    expect(seconda.attesi).toEqual([{ id: A1, versione: 'v1' }, { id: A2, versione: 'v2' }])
+    expect(codice).not.toBe(salva.mock.calls[0][1])
+  })
+
+  it('la risposta tardiva dell invio abbandonato non tocca più la scheda (numero di generazione)', async () => {
+    const tardiva = differita<Risposta>()
+    const salva = vi.fn<AzioniScheda['salva']>().mockReturnValueOnce(tardiva.promessa)
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: LETTO }))
+    const { onFatto } = monta(azioniFinte({ salva }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    expect(await screen.findByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    await act(async () => {
+      tardiva.risolvi(salvata)
+      await tardiva.promessa
+    })
+    expect(onFatto).not.toHaveBeenCalled()
+    expect(screen.getByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    expect(pulsante('Salva').disabled).toBe(false)
+  })
+
+  it('la gemella: scaduto il limite ma senza «Controlla», la risposta che arriva si applica ancora', async () => {
+    const tardiva = differita<Risposta>()
+    const { onFatto } = monta(azioniFinte({ salva: vi.fn<AzioniScheda['salva']>().mockReturnValueOnce(tardiva.promessa) }))
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+    await act(async () => {
+      tardiva.risolvi(salvata)
+      await tardiva.promessa
+    })
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('✓ Salvata'))
+    expect(invii()).toEqual([])
+  })
+
+  it('«Controlla» che trova la visita uguale: «✓ Risulta salvata», e la scheda si chiude', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 2 as const, esito_invio: 'salvata' as const, stato: STATO_ATTIVO }))
+    const { onFatto } = monta(azioniFinte({ salva: vi.fn(mai) }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('✓ Risulta salvata'))
+  })
+
+  it('riga 1 con `non_trovata`: la scheda adotta lo stato letto, e la modifica non inviata si perde', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'non_trovata' as const, stato: LETTO }))
+    const salva = vi.fn<AzioniScheda['salva']>().mockImplementation(mai)
+    monta(azioniFinte({ salva }), controlla)
+    await userEvent.selectOptions(within(servizioAlle('10:00')).getByLabelText('Minuti d’inizio'), '10')
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    expect(await screen.findByText('Non risulta salvata: l’invio non ha scritto nulla')).toBeTruthy()
+    expect(servizioAlle('10:20')).toBeTruthy()
+    await userEvent.click(pulsante('Salva'))
+    expect((salva.mock.calls[1] as unknown as [SchedaSerializzata])[0].versioneVisita).toBe(LETTO.visita)
+  })
+
+  it('un «Controlla» che fallisce dà di nuovo «Non so», con «Controlla» ancora disponibile', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'non_so' as const }))
+    monta(azioniFinte({ salva: vi.fn(mai) }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    await waitFor(() => expect(controlla).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('Non so se è stata salvata')).toBeTruthy()
+    expect(pulsante('Controlla').disabled).toBe(false)
+    expect(pulsante('Salva').disabled).toBe(true)
+    expect(invii()).toHaveLength(1)
+  })
+
+  it('dopo la riga 1 di un «Togli» si riaccende «Togli», con la stessa conferma', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 1 as const, esito_invio: 'annullato' as const, stato: STATO_ATTIVO }))
+    const togli = vi.fn<AzioniScheda['togli']>().mockImplementation(mai)
+    monta(azioniFinte({ togli }), controlla)
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Conferma' })).getByRole('button', { name: 'Togli' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    const dialogo = await screen.findByRole('alertdialog', { name: 'Conferma' })
+    expect(within(dialogo).getByText('Togliere questo servizio dalla visita?')).toBeTruthy()
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Togli' }))
+    expect((togli.mock.calls[1] as unknown as [SchedaSerializzata])[0].servizi.map((s) => s.id)).toEqual([A1])
+  })
+
+  it('riga 4: «Crea di nuovo» con id nuovi e un codice nuovo', async () => {
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 4 as const, esito_invio: 'salvata' as const, stato: null }))
+    const salva = vi.fn<AzioniScheda['salva']>().mockImplementation(mai)
+    monta(azioniFinte({ salva }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    expect(await screen.findByText('È stata cancellata dopo il salvataggio')).toBeTruthy()
+    await userEvent.click(pulsante('Crea di nuovo'))
+    const [nuova, codice] = salva.mock.calls[1] as unknown as [SchedaSerializzata, string]
+    expect(nuova.visitaId).not.toBe(VISITA)
+    expect(nuova.modo).toBe('creazione')
+    expect(nuova.servizi.map((s) => s.id)).not.toContain(A1)
+    expect(nuova.cliente).toEqual({ tipo: 'esistente', id: MARIA })
+    expect(codice).not.toBe(salva.mock.calls[0][1])
+  })
+
+  it('dopo «La cliente è stata cancellata» (23503) la riga 4 NON offre «Crea di nuovo»', async () => {
+    const m = { ...nessuno, testo: 'La cliente è stata cancellata' }
+    const salva = vi
+      .fn<AzioniScheda['salva']>()
+      .mockResolvedValueOnce({ tipo: 'fallita', sqlstate: '23503', testo: m.testo, messaggio: m })
+      .mockImplementation(mai)
+    const controlla = vi.fn(async () => ({ tipo: 'riga' as const, riga: 4 as const, esito_invio: 'salvata' as const, stato: null }))
+    const { onFatto } = monta(azioniFinte({ salva }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    expect(await screen.findByText('La cliente è stata cancellata')).toBeTruthy()
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    await waitFor(() => expect(onFatto).toHaveBeenCalledWith('È stata cancellata dopo il salvataggio'))
+    expect(screen.queryByRole('button', { name: 'Crea di nuovo' })).toBeNull()
+  })
+
+  it('una risposta che arriva DOPO la chiusura della scheda si scarta, e il codice resta per la striscia', async () => {
+    // «Chiudi» con l'invio in volo (§4.4, scheda abbandonata): senza scarto la
+    // risposta chiamava `onFatto`, cioè `history.back()` su una scheda già chiusa.
+    const tardiva = differita<Risposta>()
+    const salva = vi.fn<AzioniScheda['salva']>().mockReturnValueOnce(tardiva.promessa)
+    const { onFatto } = monta(azioniFinte({ salva }))
+    await userEvent.click(pulsante('Salva'))
+    cleanup()
+    await act(async () => {
+      tardiva.risolvi(salvata)
+      await tardiva.promessa
+    })
+    expect(onFatto).not.toHaveBeenCalled()
+    expect(invii()).toHaveLength(1)
+  })
+
+  it('«Controlla» con l account chiuso è l uscita forzata', async () => {
+    const errori = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const controlla = vi.fn(async () => {
+      throw new UscitaForzata()
+    })
+    monta(azioniFinte({ salva: vi.fn(mai) }), controlla)
+    await userEvent.click(pulsante('Salva'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Controlla' }))
+    await waitFor(() => expect(JSON.stringify(errori.mock.calls.map((c) => String(c[0])))).toContain('navigation'))
   })
 })

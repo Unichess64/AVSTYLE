@@ -4,7 +4,7 @@
 // visita» (spec 3a §4.3, piano 3a-2 Task 8). Prende il client come argomento:
 // il guscio `'use server'` (`azioni-visita.ts`) gli passa quello di
 // `clientServer()`, le prove uno con il token. Le iniezioni di prova
-// (`spiaTentativi`, `dormi`, `caso`) sono opzioni di QUESTE funzioni e mai
+// (`spiaTentativi`, `dormi`, `caso`, `adesso`) sono opzioni di QUESTE funzioni e mai
 // argomenti della Server Action esposta.
 //
 // Gli otto passi di §4.3, nell'ordine, e nessuno saltato:
@@ -67,7 +67,17 @@ export interface OpzioniScrittura {
   readonly spiaTentativi?: (tentativo: number) => void | Promise<void>
   readonly dormi?: (ms: number) => Promise<void>
   readonly caso?: () => number
+  /** L'orologio del tetto di 7 s: la prova lo fa avanzare senza aspettare. */
+  readonly adesso?: () => number
 }
+
+/**
+ * La quinta decisione, opzione (b), presa dall'utente il 06/10/2026: nessun
+ * ritentativo PARTE dopo 7 s dall'inizio della Server Action. Il telefono
+ * smette di aspettare a 10 s (D3-9), e il server smette con lui: quattro
+ * tentativi da 8 s costerebbero 32 s. §4.3 passo 5 vale «fino a 3, entro 7 s».
+ */
+export const TETTO_RITENTATIVI_MS = 7_000
 
 /** Un errore della funzione, ridotto al codice e al NOME del vincolo: mai `details` né `hint` (§4.9). */
 class GuastoScrittura extends Error {
@@ -153,6 +163,8 @@ async function chiama(
     sqlstateDi,
     o.dormi ?? ((ms) => new Promise((fatto) => setTimeout(fatto, ms))),
     o.caso ?? Math.random,
+    TETTO_RITENTATIVI_MS,
+    o.adesso ?? Date.now,
   )
   return leggiRispostaFunzione(valore)
 }

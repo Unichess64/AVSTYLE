@@ -70,6 +70,9 @@ export function classifica(soggetto: Soggetto, guasto: GuastoGrezzo): Classe {
 
 export const RIPROVA = 'Non sono riuscita a salvare, riprova'
 
+/** §4.3 passo 6, 23503 su `visit.client_id`. Il telefono lo riconosce per spegnere «Crea di nuovo» (§4.4 riga 4). */
+export const CLIENTE_CANCELLATA = 'La cliente è stata cancellata'
+
 // I nomi che PostgreSQL dà ai vincoli dichiarati in linea in
 // `0004_visit_appointment.sql` e `0003_client.sql`.
 const CLIENTE_DELLA_VISITA = 'visit_client_id_fkey'
@@ -95,7 +98,7 @@ export function messaggioPerSqlstate(sqlstate: string, nomeVincolo?: string): st
     case '57014':
       return RIPROVA
     case '23503':
-      if (nomeVincolo === CLIENTE_DELLA_VISITA) return 'La cliente è stata cancellata'
+      if (nomeVincolo === CLIENTE_DELLA_VISITA) return CLIENTE_CANCELLATA
       if (nomeVincolo !== undefined && SERVIZIO_O_OPERATRICE.has(nomeVincolo)) {
         return 'Il servizio o l’operatrice non esiste più'
       }
