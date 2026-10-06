@@ -12,6 +12,7 @@
 //   3. `ugualeAllaScheda` è la definizione di §4.4, alla lettera.
 import { type Atteso, proiettaAttesi } from './attesi'
 import type { StatoVisita } from './stato-visita'
+import { CELLE_PER_GIORNO } from './tempo'
 import { telefonoE164 } from './validazione'
 
 export interface ClienteScelta {
@@ -232,4 +233,24 @@ export function compleannoPossibile(mese: number | null, giorno: number | null):
   if (mese === null && giorno === null) return true
   if (mese === null || giorno === null) return false
   return Number.isInteger(mese) && mese >= 1 && mese <= 12 && Number.isInteger(giorno) && giorno >= 1 && giorno <= GIORNI_DEL_MESE[mese - 1]
+}
+
+/**
+ * Che cosa tiene spento «Salva», oltre a D2-2: la cliente, il suo nome, un
+ * telefono scritto e non riconosciuto, un compleanno impossibile, almeno un
+ * servizio, e nessun servizio oltre la mezzanotte. `telefonoErrato` viene dal
+ * modulo: il modello tiene solo l'E.164, e senza questo un numero storto
+ * diventava `null` in silenzio (revisione del Task 7, B1).
+ */
+export function cosaManca(scheda: Scheda, telefonoErrato: boolean): string | null {
+  const c = scheda.cliente
+  if (c === null) return 'Scegli la cliente.'
+  if (c.tipo === 'nuova') {
+    if (c.nome.trim() === '') return 'Scrivi il nome della cliente.'
+    if (telefonoErrato) return 'Il numero di telefono non è valido.'
+    if (!compleannoPossibile(c.meseDiNascita, c.giornoDiNascita)) return 'Il compleanno non esiste.'
+  }
+  if (scheda.servizi.length === 0) return 'Aggiungi almeno un servizio.'
+  if (scheda.servizi.some((s) => s.inizio + s.durata > CELLE_PER_GIORNO)) return 'Un servizio finisce dopo mezzanotte.'
+  return null
 }

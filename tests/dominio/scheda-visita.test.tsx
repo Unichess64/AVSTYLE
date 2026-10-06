@@ -13,7 +13,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Fuori da Next non c'è il router dell'App Router: «vai lì» su un altro giorno
 // è l'unico che lo usa.
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { AgendaLista } from '../../src/cliente/agenda-lista'
 import { SchedaDellAgenda } from '../../src/cliente/apri-scheda'
@@ -97,6 +98,8 @@ function richieste(altro: Partial<RichiesteScheda> = {}): RichiesteScheda {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  router.push.mockReset()
+  router.replace.mockReset()
 })
 
 describe('D2-2: l elenco delle operatrici della scheda', () => {
@@ -304,5 +307,89 @@ describe('il collegamento con le viste vere del giorno', () => {
     // tocco alle 13:40 nella colonna di Alessandra: quarto 13:30, il suo massaggio finisce alle 13:35
     expect(screen.getByRole('listitem', { name: 'Massaggio alle 13:35' })).toBeTruthy()
     expect(within(screen.getByRole('listitem', { name: 'Massaggio alle 13:35' })).getByLabelText('Operatrice')).toHaveProperty('value', ALESSANDRA)
+  })
+})
+
+describe('la revisione del Task 7: il collegamento di «Salva» e della frase dei conflitti', () => {
+  const salvaSpento = () => (screen.getByRole('button', { name: /^Salva/ }) as HTMLButtonElement).disabled
+
+  it('«Salva» resta spento senza cliente, e si accende quando la cliente è scelta (C4)', async () => {
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={{}} onVaiA={() => {}} />)
+    await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
+    expect(salvaSpento()).toBe(true)
+    expect(screen.getByText('Scegli la cliente.')).toBeTruthy()
+    await userEvent.type(screen.getByLabelText('Cerca la cliente per nome o telefono'), 'maria')
+    await userEvent.click(await screen.findByRole('button', { name: 'Maria Rossi · +393331234567' }))
+    expect(salvaSpento()).toBe(false)
+  })
+
+  it('un telefono non riconosciuto spegne «Salva» invece di sparire in silenzio (B1)', async () => {
+    const salva = vi.fn()
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste({ doppioni: vi.fn(async () => []) })} azioni={{ salva }} onVaiA={() => {}} />)
+    await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
+    await userEvent.click(screen.getByRole('button', { name: 'Nuova cliente' }))
+    await userEvent.type(screen.getByLabelText('Nome e cognome'), 'Giulia Bianchi')
+    await userEvent.type(screen.getByLabelText('Telefono'), '333 12')
+    expect(screen.getByText('Il numero di telefono non è valido.')).toBeTruthy()
+    expect(salvaSpento()).toBe(true)
+    await userEvent.type(screen.getByLabelText('Telefono'), '34567')
+    expect(salvaSpento()).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(salva.mock.calls[0][0].cliente).toMatchObject({ tipo: 'nuova', nome: 'Giulia Bianchi', telefono: '+393331234567' })
+  })
+
+  it('la frase del conflitto compare nella scheda, e «Vai lì» porta all appuntamento e al suo giorno (C4)', async () => {
+    const onVaiA = vi.fn()
+    const conMaria = dati({
+      giorno: {
+        ...dati().giorno,
+        appuntamenti: [{
+          id: A2, visitaId: 'vi-altra', operatriceId: VERA, servizioId: REFILL, servizioNome: 'Refill gel',
+          clienteId: MARIA, clienteNome: 'Maria Rossi', inizio: 126, durata: 6, pausa: 0,
+        }],
+      },
+    })
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={conMaria} richieste={richieste()} azioni={{}} onVaiA={onVaiA} />)
+    await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
+    expect(screen.getByRole('alert').textContent).toContain('Vera ha un appuntamento alle 10:30 con Maria Rossi')
+    await userEvent.click(screen.getByRole('button', { name: 'Vai lì' }))
+    expect(onVaiA).toHaveBeenCalledWith(A2, DATA)
+  })
+
+  it('un conflitto fra due servizi della scheda non offre «Vai lì», che chiuderebbe la scheda (C2)', async () => {
+    render(<SchedaCompilata iniziale={apriSchedaVuota(DATA, VERA, 120)} dati={dati()} richieste={richieste()} azioni={{}} onVaiA={() => {}} />)
+    await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
+    await userEvent.selectOptions(screen.getByLabelText('Aggiungi servizio'), REFILL)
+    const [, secondo] = screen.getAllByLabelText('Minuti d’inizio')
+    await userEvent.selectOptions(secondo, '5')
+    expect(screen.getByRole('alert').textContent).toContain('Vera ha già un servizio alle 10:00 in questa visita')
+    expect(screen.queryByRole('button', { name: 'Vai lì' })).toBeNull()
+  })
+
+  it('«Vai lì» verso un altro giorno lo apre davvero: replace, non back seguito da push (C3)', async () => {
+    const altroGiorno = '2026-10-09'
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    const r = richieste({
+      giorno: vi.fn(async () => ({
+        ...dati().giorno,
+        data: altroGiorno,
+        appuntamenti: [{
+          id: 'ap-altro', visitaId: 'vi-altra', operatriceId: ALESSANDRA, servizioId: MASSAGGIO, servizioNome: 'Massaggio',
+          clienteId: MARIA, clienteNome: 'Maria Rossi', inizio: 140, durata: 12, pausa: 3,
+        }],
+      })),
+    })
+    render(
+      <SchedaDellAgenda data={DATA} occupati={[]} richieste={r}>
+        <article data-visita={VISITA} role="button" tabIndex={0} aria-label="blocco">Maria Rossi</article>
+      </SchedaDellAgenda>,
+    )
+    await userEvent.click(screen.getByText('Maria Rossi'))
+    fireEvent.change(await screen.findByLabelText('Data'), { target: { value: altroGiorno } })
+    await userEvent.click(await screen.findByRole('button', { name: 'Vai lì' }))
+    expect(router.replace).toHaveBeenCalledWith(`/agenda?giorno=${altroGiorno}`)
+    expect(router.push).not.toHaveBeenCalled()
+    expect(back).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

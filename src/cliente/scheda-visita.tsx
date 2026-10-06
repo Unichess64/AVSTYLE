@@ -30,9 +30,10 @@ import {
   apriSchedaSuVisita,
   apriSchedaVuota,
   bloccoDelSalva,
-  compleannoPossibile,
+  cosaManca,
   operatriceScelta,
   serializza,
+  telefonoDalModulo,
   togli,
 } from '../dominio/scheda'
 import { oraDaCella } from '../dominio/tempo'
@@ -166,6 +167,7 @@ export function SchedaCompilata({
   const [mostraTutti, setMostraTutti] = useState(false)
   const [conferma, setConferma] = useState<{ tipo: 'elimina' } | { tipo: 'togli'; id: string } | null>(null)
   const [guasto, setGuasto] = useState(false)
+  const [telefonoScritto, setTelefonoScritto] = useState('')
 
   const catalogo: Catalogo = dati.catalogo
   const attive = dati.attive.map((o) => o.id)
@@ -216,17 +218,7 @@ export function SchedaCompilata({
   const ferma = fermaIlSalvataggio(avvisi, scheda.avvisiConfermati)
 
   const bloccoD22 = bloccoDelSalva(scheda, attive)
-  const nuova = cliente?.tipo === 'nuova' ? cliente : null
-  const mancante =
-    cliente === null
-      ? 'Scegli la cliente.'
-      : nuova !== null && nuova.nome.trim() === ''
-        ? 'Scrivi il nome della cliente.'
-        : nuova !== null && !compleannoPossibile(nuova.meseDiNascita, nuova.giornoDiNascita)
-          ? 'Il compleanno non esiste.'
-          : scheda.servizi.length === 0
-            ? 'Aggiungi almeno un servizio.'
-            : null
+  const mancante = cosaManca(scheda, cliente?.tipo === 'nuova' && telefonoDalModulo(telefonoScritto).errato)
 
   const servizi = (fn: (s: readonly ServizioInScheda[]) => ServizioInScheda[]) =>
     setScheda((s) => ({ ...s, servizi: fn(s.servizi) }))
@@ -251,6 +243,8 @@ export function SchedaCompilata({
           nome={clienteNome}
           richieste={richieste}
           onGuasto={suGuasto}
+          telefonoScritto={telefonoScritto}
+          onTelefonoScritto={setTelefonoScritto}
           onCambia={(c, nome) => {
             setScheda((s) => ({ ...s, cliente: c }))
             setClienteNome(nome)
@@ -416,9 +410,12 @@ export function SchedaCompilata({
       {conflitto !== null && (
         <div className={stile.conflitto} role="alert">
           <p>{conflitto.frase}</p>
-          <button type="button" className={stile.secondario} onClick={() => onVaiA(conflitto.vaiA, scheda.data)}>
-            Vai lì
-          </button>
+          {/* Un conflitto fra due servizi della scheda non ha un posto nell'agenda (C2). */}
+          {conflitto.vaiA !== null && (
+            <button type="button" className={stile.secondario} onClick={() => onVaiA(conflitto.vaiA!, scheda.data)}>
+              Vai lì
+            </button>
+          )}
         </div>
       )}
 

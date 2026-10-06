@@ -11,6 +11,7 @@
 //     (`buffer_after_cells`, `0002:16`); i servizi accodati seguono il
 //     precedente finché non vengono spostati a mano.
 import type { Partenza, ServizioInScheda } from './scheda'
+import { CELLE_PER_GIORNO } from './tempo'
 
 export interface ServizioDelCatalogo {
   readonly id: string
@@ -45,6 +46,11 @@ export function pausaDi(c: Catalogo, servizioId: string): number {
   return servizioDi(c, servizioId).pausa
 }
 
+// Un accodato non comincia dopo le 23:55: oltre, `oraDaCella` solleva e la
+// scheda cadeva (revisione del Task 7, C1). Che finisca dopo mezzanotte lo dice
+// `cosaManca`, che tiene spento «Salva».
+const ULTIMA_CELLA = CELLE_PER_GIORNO - 1
+
 /**
  * Riporta ogni servizio accodato dietro al precedente: `inizio` = inizio del
  * precedente + la sua durata + la sua pausa. Si percorre in ordine, così una
@@ -56,7 +62,7 @@ function riallinea(servizi: readonly ServizioInScheda[], c: Catalogo): ServizioI
     const prima = fuori[fuori.length - 1]
     fuori.push(
       s.segueIlPrecedente && prima !== undefined
-        ? { ...s, inizio: prima.inizio + prima.durata + pausaDi(c, prima.servizioId) }
+        ? { ...s, inizio: Math.min(prima.inizio + prima.durata + pausaDi(c, prima.servizioId), ULTIMA_CELLA) }
         : s,
     )
   }

@@ -70,7 +70,15 @@ describe('trovaConflitti (spec §10.1)', () => {
   it('due servizi della scheda sulla stessa operatrice che si sovrappongono sono un conflitto', () => {
     // il vincolo di occupazione li rifiuterebbe comunque: meglio dirlo prima
     const c = trovaConflitti([voluto('a', VERA, 120, 12), voluto('b', VERA, 126, 6)], [], [], NOMI)
-    expect(c).toEqual([{ appuntamentoId: 'a', frase: 'Vera ha già un servizio alle 10:00 in questa visita' }])
+    // Il bersaglio di «vai lì» è nell'agenda: un servizio della scheda non ci
+    // sta, e cercarlo chiudeva la scheda buttando la bozza (revisione, C2).
+    expect(c).toEqual([{ appuntamentoId: null, frase: 'Vera ha già un servizio alle 10:00 in questa visita' }])
+    expect(fraseDeiConflitti(c)).toEqual({ frase: 'Vera ha già un servizio alle 10:00 in questa visita', vaiA: null })
+  })
+
+  it('con un conflitto interno e uno nell agenda, «vai lì» porta a quello nell agenda', () => {
+    const c = trovaConflitti([voluto('a', VERA, 110, 12), voluto('b', VERA, 112, 6)], [letto('x', VERA, 120, 6)], [], NOMI)
+    expect(fraseDeiConflitti(c)?.vaiA).toBe('x')
   })
 })
 

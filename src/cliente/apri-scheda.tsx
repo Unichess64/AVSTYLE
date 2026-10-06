@@ -92,11 +92,17 @@ export function SchedaDellAgenda({
           azioni={azioni}
           onChiudi={() => window.history.back()}
           onVaiA={(appuntamentoId, giorno) => {
-            window.history.back()
             if (giorno !== data) {
-              router.push(`/agenda?giorno=${giorno}`)
+              // Un altro giorno: la voce della scheda DIVENTA quel giorno.
+              // `back()` seguito da `push` non ci arrivava: il `popstate` del
+              // ritorno scarta la navigazione ancora in corso (misurato in
+              // `next start`, revisione del Task 7, C3). «Indietro» poi torna
+              // al giorno di partenza.
+              setApertura(null)
+              router.replace(`/agenda?giorno=${giorno}`)
               return
             }
+            window.history.back()
             // Il blocco o la riga visibile che contiene quell'appuntamento.
             requestAnimationFrame(() => {
               const visibile = [...document.querySelectorAll<HTMLElement>('[data-appuntamenti]')].find(

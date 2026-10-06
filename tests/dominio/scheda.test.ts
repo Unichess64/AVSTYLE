@@ -13,6 +13,7 @@ import {
   appuntamentiDaInviare,
   bloccoDelSalva,
   compleannoPossibile,
+  cosaManca,
   nuovaCliente,
   operatriceScelta,
   serializza,
@@ -258,5 +259,34 @@ describe('il modulo «Nuova cliente»', () => {
     expect(compleannoPossibile(2, 30)).toBe(false)
     expect(compleannoPossibile(4, null)).toBe(false)
     expect(compleannoPossibile(13, 1)).toBe(false)
+  })
+})
+
+describe('cosaManca: che cosa tiene spento «Salva» oltre a D2-2', () => {
+  const pronta: Scheda = { ...apriSchedaSuVisita(STATO, VISITA) }
+  const nuova = (campi: Record<string, unknown>) => ({ ...nuovaCliente(), nome: 'Giulia Bianchi', ...campi })
+
+  it('la gemella positiva: una scheda completa non manca di niente', () => {
+    expect(cosaManca(pronta, false)).toBeNull()
+    expect(cosaManca({ ...pronta, cliente: nuova({ telefono: '+393331234567' }) }, false)).toBeNull()
+  })
+
+  it('senza cliente, senza nome, con un compleanno impossibile, senza servizi', () => {
+    expect(cosaManca({ ...pronta, cliente: null }, false)).toBe('Scegli la cliente.')
+    expect(cosaManca({ ...pronta, cliente: nuova({ nome: '  ' }) }, false)).toBe('Scrivi il nome della cliente.')
+    expect(cosaManca({ ...pronta, cliente: nuova({ meseDiNascita: 4, giornoDiNascita: 31 }) }, false)).toBe('Il compleanno non esiste.')
+    expect(cosaManca({ ...pronta, servizi: [] }, false)).toBe('Aggiungi almeno un servizio.')
+  })
+
+  it('un telefono scritto e non riconosciuto ferma «Salva»: non si crea la cliente senza il numero (revisione, B1)', () => {
+    expect(cosaManca({ ...pronta, cliente: nuova({ telefono: null }) }, true)).toBe('Il numero di telefono non è valido.')
+    // il telefono conta solo per una cliente nuova
+    expect(cosaManca(pronta, true)).toBeNull()
+  })
+
+  it('un servizio che finisce dopo mezzanotte ferma «Salva» (revisione, C1)', () => {
+    const tardi = { ...pronta.servizi[0], inizio: 280, durata: 9 }
+    expect(cosaManca({ ...pronta, servizi: [tardi] }, false)).toBe('Un servizio finisce dopo mezzanotte.')
+    expect(cosaManca({ ...pronta, servizi: [{ ...tardi, durata: 8 }] }, false)).toBeNull()
   })
 })

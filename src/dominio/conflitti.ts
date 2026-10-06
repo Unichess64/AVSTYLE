@@ -23,8 +23,12 @@ export interface Voluto {
 }
 
 export interface Conflitto {
-  /** Il bersaglio di «vai lì»: l'appuntamento che possiede la cella. */
-  readonly appuntamentoId: string
+  /**
+   * Il bersaglio di «vai lì»: l'appuntamento che possiede la cella. `null` per
+   * un conflitto fra due servizi della scheda stessa, che nell'agenda non c'è
+   * (revisione del Task 7, C2).
+   */
+  readonly appuntamentoId: string | null
   readonly frase: string
 }
 
@@ -52,7 +56,7 @@ export function trovaConflitti(
     escludi,
   )
 
-  const trovati = new Map<string, Conflitto & { inizio: number }>()
+  const trovati = new Map<string, Conflitto & { inizio: number; chiave: string }>()
   for (const v of voluti) {
     for (const b of occupati) {
       const a = perId.get(b.appointmentId)!
@@ -62,6 +66,7 @@ export function trovaConflitti(
         appuntamentoId: a.id,
         frase: `${nome(a.operatriceId)} ha un appuntamento alle ${oraDaCella(a.inizio)} con ${a.clienteNome}`,
         inizio: a.inizio,
+        chiave: a.id,
       })
     }
   }
@@ -74,20 +79,27 @@ export function trovaConflitti(
       const [x, y] = [ordinati[p], ordinati[q]]
       if (x.operatriceId !== y.operatriceId || !sovrapposti(x, y) || trovati.has(x.id)) continue
       trovati.set(x.id, {
-        appuntamentoId: x.id,
+        appuntamentoId: null,
         frase: `${nome(x.operatriceId)} ha già un servizio alle ${oraDaCella(x.inizio)} in questa visita`,
         inizio: x.inizio,
+        chiave: x.id,
       })
     }
   }
 
   return [...trovati.values()]
-    .sort((x, y) => x.inizio - y.inizio || (x.appuntamentoId < y.appuntamentoId ? -1 : 1))
+    .sort((x, y) => x.inizio - y.inizio || (x.chiave < y.chiave ? -1 : 1))
     .map(({ appuntamentoId, frase }) => ({ appuntamentoId, frase }))
 }
 
-/** La frase con TUTTI i conflitti (§10.1), e il bersaglio del primo. */
-export function fraseDeiConflitti(conflitti: readonly Conflitto[]): { frase: string; vaiA: string } | null {
+/**
+ * La frase con TUTTI i conflitti (§10.1), e il bersaglio del primo che sta
+ * nell'agenda: `null` se sono tutti fra servizi della scheda.
+ */
+export function fraseDeiConflitti(conflitti: readonly Conflitto[]): { frase: string; vaiA: string | null } | null {
   if (conflitti.length === 0) return null
-  return { frase: conflitti.map((c) => c.frase).join('; '), vaiA: conflitti[0].appuntamentoId }
+  return {
+    frase: conflitti.map((c) => c.frase).join('; '),
+    vaiA: conflitti.find((c) => c.appuntamentoId !== null)?.appuntamentoId ?? null,
+  }
 }

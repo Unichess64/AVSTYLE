@@ -5004,3 +5004,16 @@ indirizzo, così «indietro» chiude la scheda, e «Chiudi» passa da `history.b
 «Salva», «Togli», «Elimina visita» chiamano `AzioniScheda`, oggi vuote. **Divergenze:** in più `segueIlPrecedente` e `Scheda.partenza`
 (ignorati da `ugualeAllaScheda`); id della cliente nuova al tocco di «Nuova cliente»; «il secondo NON lo segue più» letto «se spostato a
 mano»; `senzaEsclusi` estratta da `proposeStarts`. Annotati: gli avvisi già presenti si riconfermano; «+ Aggiungi» propone la disattivata.
+
+**Revisione del Task 7** (un revisore, 06/10/2026): un bloccante, corretto con gli altri su decisione dell'utente.
+- **B1:** un telefono scritto e non riconosciuto diventava `null` in silenzio con «Salva» acceso. Ora il testo scritto sta nella scheda
+  e `cosaManca` (in `scheda.ts`, che raccoglie i motivi prima sparsi nel componente) spegne «Salva».
+- **C1:** un accodato oltre la mezzanotte faceva sollevare `oraDaCella` e cadere la scheda: tetto a 23:55, e «finisce dopo mezzanotte».
+- **C2:** «Vai lì» su un conflitto fra due servizi della scheda chiudeva la scheda: ora `appuntamentoId: null` e nessun pulsante.
+  ⚠︎ Al Task 8: `vaiA` è `string | null`. **C3**, misurato in `next start`: `back()` più `push` restava sul giorno vecchio; ora `replace`.
+- **C4:** «Salva» senza `mancante` e la riga del conflitto nascosta davano 0 rosse: prove sul componente.
+- Sonde, rosse misurate: telefono ignorato 2, collegamento 1, senza tetto 1, mezzanotte accettata 1, bersaglio interno 3, «Vai lì» sempre
+  1, `back`+`push` 1, «Salva» senza `mancante` **0 → 2**, conflitto nascosto **0 → 3**. **Gate:** 771 verdi su 55 file, `test:fuso` 331,
+  `tsc` e `build` 0. Annotati: chi è disattivato arriva alla rotta già rimandato dal middleware, e vede «Riprova» invece dell'uscita; con
+  la rilettura del giorno fallita spariscono avvisi e conflitti (il Task 8 li ricalcola); «Togli» invia anche la bozza non salvata, da
+  decidere al Task 8; dopo una ricarica con la scheda aperta servono due «indietro».

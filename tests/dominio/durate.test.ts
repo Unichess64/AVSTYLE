@@ -161,3 +161,12 @@ describe('serviziPerLaScelta: quelli che l operatrice fa, e «mostra tutti» (sp
     ])
   })
 })
+
+describe('il tetto della giornata (revisione, C1)', () => {
+  it('un servizio accodato non comincia dopo l ultima cella del giorno, 23:55', () => {
+    // Refill di Vera alle 23:00 per 15 celle, pausa 2: accodato cadrebbe a 293
+    const due = aggiungiServizio([servizio('a', { inizio: 276 })], { operatriceId: VERA, inizio: 0 }, MASSAGGIO, CATALOGO)
+    expect(due[1].inizio).toBe(287)
+    expect(cambiaDurata(due, 'a', 96, CATALOGO)[1].inizio).toBe(287)
+  })
+})

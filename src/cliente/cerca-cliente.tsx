@@ -65,6 +65,8 @@ export function CercaCliente({
   richieste,
   onCambia,
   onGuasto,
+  telefonoScritto,
+  onTelefonoScritto,
 }: {
   cliente: ClienteScelta | ClienteNuova | null
   /** Il nome della cliente esistente scelta, da mostrare. */
@@ -72,9 +74,15 @@ export function CercaCliente({
   richieste: RichiesteScheda
   onCambia: (cliente: ClienteScelta | ClienteNuova | null, nome: string | null) => void
   onGuasto: (e: unknown) => void
+  /**
+   * Il telefono COME SCRITTO. Sta nella scheda e non qui: il modello tiene solo
+   * l'E.164, e la scheda deve sapere se un numero scritto non è stato
+   * riconosciuto per tenere spento «Salva» (revisione del Task 7, B1).
+   */
+  telefonoScritto: string
+  onTelefonoScritto: (testo: string) => void
 }) {
   const [testo, setTesto] = useState('')
-  const [telefonoScritto, setTelefonoScritto] = useState('')
 
   const cerca = cliente === null && testo.trim().length >= 2 ? testo.trim() : null
   const trovate = useLettura<ClienteTrovata[]>(cerca, () => richieste.cerca(cerca!), onGuasto)
@@ -129,7 +137,7 @@ export function CercaCliente({
             autoComplete="off"
             value={telefonoScritto}
             onChange={(e) => {
-              setTelefonoScritto(e.target.value)
+              onTelefonoScritto(e.target.value)
               aggiorna({ telefono: telefonoDalModulo(e.target.value).e164 })
             }}
           />
@@ -223,7 +231,7 @@ export function CercaCliente({
           // Ciò che è già scritto nella ricerca passa alla cliente nuova: nel
           // telefono se ha cifre, altrimenti nel nome.
           const numero = /\d/.test(testo)
-          setTelefonoScritto(numero ? testo.trim() : '')
+          onTelefonoScritto(numero ? testo.trim() : '')
           onCambia(
             { ...nuovaCliente(), nome: numero ? '' : testo.trim(), telefono: numero ? telefonoDalModulo(testo).e164 : null },
             null,
