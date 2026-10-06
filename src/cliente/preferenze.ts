@@ -30,6 +30,38 @@ export function scriviPreferenza(chiave: string, valore: string | null): void {
 }
 
 /**
+ * La vista che l'interruttore applica al montaggio. Legge la PREFERENZA, non
+ * l'attributo `data-vista`: dopo una navigazione dal client lo script non ha
+ * girato e l'attributo manca (revisione del Task 6, misurato dopo l'accesso).
+ */
+export function vistaRicordata(preferenza: string | null): 'colonne' | 'lista' {
+  return preferenza === 'lista' ? 'lista' : 'colonne'
+}
+
+/**
+ * Che cosa fa il selettore dell'operatrice al montaggio.
+ *
+ * - sulla settimana: la ricorda;
+ * - sul giorno, arrivandoci (accesso, barra in basso): riapre la settimana
+ *   ricordata, se l'operatrice è ancora attiva, altrimenti la dimentica;
+ * - sul giorno, tornando INDIETRO: la dimentica. Riaprirla sostituiva la voce
+ *   del giorno con la settimana, e servivano tre «indietro» per uscire
+ *   (revisione del Task 6, misurato). Chi torna indietro al giorno ha lasciato
+ *   la settimana come chi tocca «Tutte · giorno».
+ */
+export function decisioneSettimana(stato: {
+  settimana: string | null
+  ricordata: string | null
+  attive: readonly string[]
+  daIndietro: boolean
+}): 'ricorda' | 'riapri' | 'dimentica' | 'niente' {
+  if (stato.settimana !== null) return 'ricorda'
+  if (stato.ricordata === null) return 'niente'
+  if (stato.daIndietro || !stato.attive.includes(stato.ricordata)) return 'dimentica'
+  return 'riapri'
+}
+
+/**
  * Lo script in testa all'agenda, che gira PRIMA della prima pittura: il
  * server non vede `localStorage`, e senza questo chi ha scelto la lista
  * vedrebbe un lampo di colonne a ogni apertura.
@@ -40,8 +72,10 @@ export function scriviPreferenza(chiave: string, valore: string | null): void {
  *   riapre la sua settimana con `location.replace`, tenendo il giorno.
  *
  * Gira solo al caricamento vero della pagina: React non esegue gli script che
- * inserisce in una navigazione dal client. Lo stesso lavoro, dopo, lo fanno
- * `InterruttoreVista` e `SelettoreOperatrice`.
+ * inserisce in una navigazione dal client — l'accesso (`redirect('/agenda')`)
+ * e la barra in basso lo sono. Dopo, lo stesso lavoro lo fanno
+ * `InterruttoreVista` con `vistaRicordata` e `SelettoreOperatrice` con
+ * `decisioneSettimana`, che leggono `localStorage` e non l'attributo.
  *
  * ⚠︎ È una stringa, con il nonce della CSP: niente `unsafe-inline`. Si valuta
  * nelle prove così com'è.

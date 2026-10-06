@@ -14,7 +14,14 @@ import { giornoSettimana } from '../dominio/tempo'
 import { oraDaCella } from '../dominio/tempo'
 import type { Settimana } from '../dominio/settimana'
 import { settimanaAccanto } from '../dominio/settimana'
-import { CHIAVE_OPERATRICE, CHIAVE_VISTA, leggiPreferenza, scriviPreferenza } from './preferenze'
+import {
+  CHIAVE_OPERATRICE,
+  CHIAVE_VISTA,
+  decisioneSettimana,
+  leggiPreferenza,
+  scriviPreferenza,
+  vistaRicordata,
+} from './preferenze'
 import stile from './settimana.module.css'
 
 const INIZIALI = ['L', 'M', 'M', 'G', 'V', 'S', 'D']
@@ -93,14 +100,19 @@ function intervallo(s: Settimana): string {
  */
 export function InterruttoreVista() {
   const [lista, setLista] = useState(false)
+  // Al montaggio si riapplica la preferenza: dopo l'accesso o la barra in
+  // basso lo script non ha girato, e senza questo la lista ricordata spariva.
   useEffect(() => {
-    setLista(document.documentElement.getAttribute('data-vista') === 'lista')
+    applica(vistaRicordata(leggiPreferenza(CHIAVE_VISTA)))
   }, [])
-  const scegli = (vista: 'colonne' | 'lista') => {
+  const applica = (vista: 'colonne' | 'lista') => {
     if (vista === 'lista') document.documentElement.setAttribute('data-vista', 'lista')
     else document.documentElement.removeAttribute('data-vista')
-    scriviPreferenza(CHIAVE_VISTA, vista)
     setLista(vista === 'lista')
+  }
+  const scegli = (vista: 'colonne' | 'lista') => {
+    applica(vista)
+    scriviPreferenza(CHIAVE_VISTA, vista)
   }
   return (
     <div role="group" aria-label="Vista" className={stile.interruttore}>
@@ -114,13 +126,25 @@ export function InterruttoreVista() {
   )
 }
 
+// L'indirizzo su cui è arrivato l'ultimo «indietro» o «avanti» del browser:
+// `popstate` arriva prima che Next disegni la rotta, e il selettore lo
+// consuma al montaggio. Vale solo se il selettore si monta su QUELL'indirizzo:
+// un «indietro» finito su /clienti non deve contare quando poi si tocca
+// «Agenda» nella barra. Si ascolta una volta, al caricamento del modulo.
+let indietroSu: string | null = null
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    indietroSu = window.location.href
+  })
+}
+
 /**
  * Il selettore dell'operatrice (spec §9.3): «Tutte» è il giorno, un nome è la
  * sua settimana. Solo le attive (D2-2).
  *
- * Al montaggio fa ciò che `SCRIPT_PREFERENZE` fa al caricamento, per chi
- * arriva all'agenda navigando dal client: riapre la settimana ricordata, o
- * dimentica un'operatrice che non è più fra le attive.
+ * Al montaggio esegue `decisioneSettimana`: per chi arriva all'agenda
+ * navigando dal client fa ciò che `SCRIPT_PREFERENZE` fa al caricamento, e
+ * chi torna indietro dalla settimana al giorno resta sul giorno.
  */
 export function SelettoreOperatrice({
   data,
@@ -133,14 +157,20 @@ export function SelettoreOperatrice({
 }) {
   const router = useRouter()
   useEffect(() => {
-    if (settimana !== null) {
-      scriviPreferenza(CHIAVE_OPERATRICE, settimana)
-      return
-    }
+    const daIndietro = indietroSu === window.location.href
+    indietroSu = null
     const ricordata = leggiPreferenza(CHIAVE_OPERATRICE)
-    if (ricordata === null) return
-    if (operatrici.some((o) => o.id === ricordata)) router.replace(settimanaIndirizzo(data, ricordata))
-    else scriviPreferenza(CHIAVE_OPERATRICE, null)
+    switch (decisioneSettimana({ settimana, ricordata, attive: operatrici.map((o) => o.id), daIndietro })) {
+      case 'ricorda':
+        scriviPreferenza(CHIAVE_OPERATRICE, settimana)
+        break
+      case 'riapri':
+        router.replace(settimanaIndirizzo(data, ricordata!))
+        break
+      case 'dimentica':
+        scriviPreferenza(CHIAVE_OPERATRICE, null)
+        break
+    }
   }, [data, settimana, operatrici, router])
 
   return (

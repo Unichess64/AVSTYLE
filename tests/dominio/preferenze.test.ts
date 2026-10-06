@@ -9,7 +9,9 @@ import {
   CHIAVE_OPERATRICE,
   CHIAVE_VISTA,
   SCRIPT_PREFERENZE,
+  decisioneSettimana,
   leggiPreferenza,
+  vistaRicordata,
   scriviPreferenza,
 } from '../../src/cliente/preferenze'
 
@@ -94,5 +96,44 @@ describe('leggiPreferenza e scriviPreferenza: mai un errore verso la pagina', ()
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+// La revisione del Task 6 ha misurato due difetti dei componenti nel browser:
+// la lista ricordata spariva dopo l'accesso (l'interruttore leggeva solo
+// l'attributo dello script, che gira solo al caricamento vero), e «indietro»
+// dalla settimana al giorno rimbalzava sulla settimana. Le due decisioni
+// stanno qui, pure, e i componenti le eseguono.
+describe('vistaRicordata: la decisione dell interruttore al montaggio', () => {
+  it('legge la preferenza, non l attributo: lista solo se ricordata lista', () => {
+    expect(vistaRicordata('lista')).toBe('lista')
+    expect(vistaRicordata('colonne')).toBe('colonne')
+    expect(vistaRicordata(null)).toBe('colonne')
+    expect(vistaRicordata('qualunque')).toBe('colonne')
+  })
+})
+
+describe('decisioneSettimana: la decisione del selettore al montaggio', () => {
+  const ATTIVE = [ID, '10000000-0000-4000-8000-000000000003']
+
+  it('sulla settimana la ricorda', () => {
+    expect(decisioneSettimana({ settimana: ID, ricordata: null, attive: ATTIVE, daIndietro: false })).toBe('ricorda')
+    expect(decisioneSettimana({ settimana: ID, ricordata: ID, attive: ATTIVE, daIndietro: true })).toBe('ricorda')
+  })
+
+  it('sul giorno, arrivando all agenda (accesso, barra in basso), riapre la settimana ricordata', () => {
+    expect(decisioneSettimana({ settimana: null, ricordata: ID, attive: ATTIVE, daIndietro: false })).toBe('riapri')
+  })
+
+  it('sul giorno, tornando INDIETRO dalla settimana, la dimentica invece di rimbalzare', () => {
+    expect(decisioneSettimana({ settimana: null, ricordata: ID, attive: ATTIVE, daIndietro: true })).toBe('dimentica')
+  })
+
+  it('un operatrice ricordata che non è più fra le attive si dimentica; niente ricordato, niente da fare', () => {
+    expect(
+      decisioneSettimana({ settimana: null, ricordata: '10000000-0000-4000-8000-0000000000aa', attive: ATTIVE, daIndietro: false }),
+    ).toBe('dimentica')
+    expect(decisioneSettimana({ settimana: null, ricordata: null, attive: ATTIVE, daIndietro: false })).toBe('niente')
+    expect(decisioneSettimana({ settimana: null, ricordata: null, attive: ATTIVE, daIndietro: true })).toBe('niente')
   })
 })

@@ -4973,3 +4973,13 @@ un giorno** lo apre nella vista colonne/lista ricordata e dimentica la settimana
 logica in `src/dominio/settimana.ts`, `leggiOperatriciAttive` (solo attive, D2-2); `componiBlocchi` generico su `Concatenabile`.
 Lista: una riga per appuntamento, nome dell'operatrice anche in testo; `coloriDelPallino` in `vista.ts`. Annotati per la fase 2:
 la settimana non segna chiusure né giorni liberi; la sua contiguità usa la pausa del catalogo di oggi; comandi su due righe a 375.
+
+**Revisione del Task 6** (un revisore, 06/10/2026): nessun bloccante. Corretti, su decisione dell'utente, i due difetti misurati
+dal revisore in `next start`: la lista ricordata spariva dopo l'accesso e dalla barra in basso, perché l'interruttore leggeva
+l'attributo dello script, che gira solo al caricamento vero (ora `vistaRicordata` legge `localStorage`); «indietro» dalla settimana
+al giorno rimbalzava sulla settimana, e servivano tre «indietro» per uscire (ora `decisioneSettimana` la dimentica se il selettore
+si monta sull'indirizzo di un `popstate`). Ridotti a funzioni pure in `preferenze.ts`. Sonde: lista ignorata, «indietro» che
+riapre, disattivata riaperta, settimana non ricordata, una rossa ciascuna. Verificati in `next start`: lista dopo l'accesso,
+un «indietro» resta sul giorno, «Agenda» dalla barra riapre la settimana. **Gate:** 671 verdi su 48 file, `test:fuso` 247, `tsc`
+e `build` 0. Restano per il Task 12 il collegamento dei componenti (togliere le chiamate dà zero rosse) e le preferenze che
+sopravvivono a «Esci»; fuori task: «Esci» non sembra ricaricare la pagina (§4.9), da verificare.
