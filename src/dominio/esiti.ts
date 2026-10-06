@@ -16,19 +16,23 @@ export interface Messaggio {
   readonly spunta: boolean          // il ✓ di §4.4, ultimo capoverso
   readonly schedaAdottaStato: boolean
   readonly ricaricaIlGiorno: boolean
+  readonly ricaricaLaScheda: boolean   // §4.3 passo 6, 23503 su servizio od operatrice
+  /** §4.4: l'account è chiuso. Si va all'accesso, senza affermazioni sulla visita. */
+  readonly uscitaForzata: boolean
 }
 
-// La stessa frase della schermata d'accesso (Task 3) per un account non attivo.
-const ACCOUNT_CHIUSO = 'Questo account non è attivo. Chiedi a chi gestisce il salone.'
-
-const nessuno = { spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false } as const
+const nessuno = {
+  spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false,
+} as const
 
 export function messaggioPerEsito(esito: Esito, accountChiuso: boolean): Messaggio {
   // §4.3 passo 7: il ricontrollo dell'account viene PRIMA della scelta del
   // messaggio e prima che la scheda adotti lo stato restituito. Un account
   // chiuso riceve `modificata_altrove` con uno stato «corrente» vuoto, e un
-  // `salvata` senza UPDATE che non prova niente: nessun ✓, nessuno stato.
-  if (accountChiuso) return { ...nessuno, testo: ACCOUNT_CHIUSO }
+  // `salvata` senza UPDATE che non prova niente: nessun ✓, nessuno stato. È
+  // l'uscita forzata di §4.4, senza frase: prima c'era solo un testo, e niente
+  // diceva a chi chiama di far uscire l'operatrice (revisione del Task 4).
+  if (accountChiuso) return { ...nessuno, testo: '', uscitaForzata: true }
 
   switch (esito) {
     case 'salvata':

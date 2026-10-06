@@ -4850,7 +4850,8 @@ ogni percorso in `.png/.svg/.webp`; due copie della regola d'identità e 4 lettu
 1 → **4** · 2, 3, 4, 5, 6, 6b, 6c → 1 · 7 → 2 · 7b, 7c, 8 → 1 · 9 → 2 · 10 → 3 · 10b → 1 · 11 → 2 · 12, 13, 14 → 1 ·
 15 → 2 · 18 → 1 (gemella). Frasi nuove: 23514 → generica 1, 42501 → generica 1, tutte e due su «23514 e 42501 hanno le loro frasi».
 **16** (`localeCompare`) → 0: misurato che nessun uuid minuscolo separa le due regole (tutte le coppie che differiscono
-in un carattere, in ogni posizione, più 10⁶ coppie casuali: 1.008.192 confronti, 0 diversi). Dichiarato.
+in un carattere, in ogni posizione, più 10⁶ coppie casuali, 0 diversi; la revisione conta 7.680 coppie
+davvero diverse, non 8.192: il totale dichiarato è sbagliato, la conclusione no). Dichiarato.
 **17**, misurata riscrivendo (`sort` sul posto prima di `map`) invece di dichiararla equivalente: dava **0**, perché le
 prove precedenti ordinavano `STATO` sul posto prima che «non modifica l elenco» lo fotografasse. Corretta la prova:
 `STATO` congelato e un ingresso fresco decrescente → **4**.
@@ -4859,10 +4860,25 @@ Divergenze dal testo:
 - Le due frasi decise il 05/10 con l'apostrofo tipografico (`L’orario`), come le altre frasi del piano.
 - `messaggioPerSqlstate`: un `23503` o `23505` su un vincolo che nessun ramo nomina dà la frase generica, non `''`;
   le chiavi primarie sono `visit_pkey`, `appointment_pkey` e `client_pkey`. Una prova in più.
-- `messaggioPerEsito` con `accountChiuso` dà per **ogni** esito la frase del Task 3 per l'account non attivo, senza ✓ e
-  senza adottare lo stato (§4.3 passo 7: un `modificata_altrove` con l'account chiuso porta uno stato vuoto). La sonda 9
-  è adattata a questa forma. `ricaricaIlGiorno` è vero per `cancellata_altrove`, `gia_cancellata` e `non_trovata`
-  **[proposta]**; `modificata_altrove` ha il testo vuoto (§4.1 non dà una frase). Tre prove in più, gemella compresa.
-- Nessun campo nuovo per il comportamento di 23514 e 42501: lo esegue il Task 8 a partire dal codice.
+- `messaggioPerEsito` con `accountChiuso` non adotta lo stato e non dà il ✓ (§4.3 passo 7). ⚠︎ Superato dalla
+  revisione: ora è l'uscita forzata senza frase (vedi sotto). `ricaricaIlGiorno` è vero per `cancellata_altrove`, `gia_cancellata` e `non_trovata`
+  **[proposta]**; `modificata_altrove` ha il testo vuoto (§4.1 non dà una frase). Due prove in più (non tre).
 - `niente-date.test.ts` nella forma del Passo 11, con il percorso risolto da `import.meta.url`.
 - Quinta decisione aperta: `scadenzaMs = Infinity`, presidiata dalla 10b.
+
+**Revisione del Task 4** (due revisori, 06/10/2026): nessun bloccante; i moduli non hanno ancora un chiamante. Corretti
+perché il Task 8 non li erediti:
+- `classifica` riconosce come SQLSTATE solo cinque caratteri `[0-9A-Z]`: `PGRST116` e simili tornano «Non so»
+  (§4.3 passo 8). La prova che si chiamava «errore di PostgREST» non passava mai un codice PGRST.
+- `Messaggio` ha `uscitaForzata` e `ricaricaLaScheda`. Con l'account chiuso ogni esito è l'uscita forzata, senza frase.
+  `messaggioPerAnnullato(sqlstate, vincolo)` dà il messaggio intero di un invio annullato: 23503 su servizio od
+  operatrice ricarica la scheda, 42501 ricarica il giorno. Il comportamento non vive più solo nel testo.
+- Prove: ogni esito confrontato con il `Messaggio` intero e il ✓ cercato anche nel testo; attese dei ritentativi a
+  valori esatti, il caso che arriva a ogni attesa, nessuna attesa dopo l'ultimo tentativo; 42883 e 42P01 su «Controlla».
+- 10 mutazioni, tutte con ≥ 1 rossa: la sonda 1 (ancora 4), le cinque della revisione che davano 0 (✓ su
+  `modificata_altrove`, account chiuso che ricarica, attesa fissa, attesa dopo l'ultimo, 42xxx come uscita) e 4 sulle
+  correzioni. **Gate:** 558 verdi su 37 file, `test:fuso` 150, `tsc` e `build` 0.
+
+Annotati: §4.1 e §4.4 non concordano su quando dire «questa visita non esiste più», e per trascinamento e «Annulla» la
+frase di `non_trovata` cambia (il Task 10 sceglie per azione); `cancellata` senza righe ricontrolla l'account, una
+lettura in più; `azioneMancante` su «Controlla» non è raggiungibile; la spia di C4 è per riga; quinta decisione aperta.

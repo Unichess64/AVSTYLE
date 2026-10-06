@@ -23,6 +23,8 @@
 //    è fra i sei: applicare il criterio del punto 1 anche a «Controlla» darebbe
 //    esattamente la frase vietata.
 
+import type { Messaggio } from './esiti'
+
 export type Soggetto = 'invio' | 'controlla'
 
 export interface GuastoGrezzo {
@@ -45,7 +47,11 @@ export function classifica(soggetto: Soggetto, guasto: GuastoGrezzo): Classe {
   if (guasto.azioneMancante === true) return { tipo: 'app_aggiornata' }
 
   const sqlstate = guasto.sqlstate
-  const presente = typeof sqlstate === 'string' && sqlstate.length > 0
+  // Un SQLSTATE di PostgreSQL sono CINQUE caratteri, cifre e maiuscole. Il
+  // `code` di PostgREST porta anche i suoi (`PGRST116`, `PGRST000`…): sono
+  // FUORI dal database, non provano nessun annullamento, e §4.3 passo 8 li
+  // manda su «Non so» (revisione del Task 4).
+  const presente = typeof sqlstate === 'string' && /^[0-9A-Z]{5}$/.test(sqlstate)
 
   if (soggetto === 'controlla') {
     // §4.4: 42501 è l'uscita forzata, senza affermazioni sulla visita. Tutto il
@@ -108,5 +114,25 @@ export function messaggioPerSqlstate(sqlstate: string, nomeVincolo?: string): st
       // passo 2 doveva impedire. Si registra per chi sviluppa; all'operatrice
       // non serve il codice.
       return RIPROVA
+  }
+}
+
+/**
+ * Il messaggio INTERO di un invio annullato con un SQLSTATE: la frase e ciò che
+ * la scheda fa, nella stessa forma degli esiti, così il Task 8 non tiene il
+ * comportamento in due posti (revisione del Task 4). §4.3 passo 6: 23503 su
+ * servizio od operatrice ricarica la scheda. 42501 con l'account ANCORA
+ * ATTIVO chiude la scheda e ricarica il giorno (decisione del 05/10/2026);
+ * con l'account chiuso è `messaggioPerEsito(…, true)`, l'uscita forzata.
+ */
+export function messaggioPerAnnullato(sqlstate: string, nomeVincolo?: string): Messaggio {
+  return {
+    testo: messaggioPerSqlstate(sqlstate, nomeVincolo),
+    spunta: false,
+    schedaAdottaStato: false,
+    ricaricaIlGiorno: sqlstate === '42501',
+    ricaricaLaScheda:
+      sqlstate === '23503' && nomeVincolo !== undefined && SERVIZIO_O_OPERATRICE.has(nomeVincolo),
+    uscitaForzata: false,
   }
 }

@@ -15,20 +15,27 @@ describe('RETRY-40P01 (§4.3 passo 5, §3.2)', () => {
       () => 0.5,
     )
     expect(esito).toEqual({ valore: 'salvata', tentativi: 3 })
-    expect(dormito).toHaveLength(2)
+    // ⚠︎ Revisione del Task 4: `toHaveLength(2)` restava verde con un'attesa
+    // fissa. I valori esatti provano che tentativo e caso arrivano a
+    // POLITICA.attesaMs: 50·2^t·(1 + 2·caso), con caso 0,5.
+    expect(dormito).toEqual([100, 200])
   })
 
   it('quattro 40P01: solleva, e i tentativi sono 4 — uno più i tre ritentativi', async () => {
     let n = 0
+    const dormito: number[] = []
     await expect(
       conRitentativi(
         async () => { n += 1; throw guasto('40P01') },
         sqlstateDi,
-        async () => {},
+        async (ms) => { dormito.push(ms) },
         () => 0.5,
       ),
     ).rejects.toThrow()
     expect(n).toBe(1 + POLITICA.massimo)
+    // Tre attese, non quattro: dopo l'ultimo tentativo non si dorme (fino a
+    // 0,6 s sprecati dentro i 10 s di D3-9).
+    expect(dormito).toEqual([100, 200, 400])
     expect(POLITICA.massimo).toBe(3)
   })
 
@@ -101,5 +108,19 @@ describe('RETRY-40P01 (§4.3 passo 5, §3.2)', () => {
         () => 1000,                           // un orologio fermo, oltre la scadenza
       ),
     ).rejects.toThrow().then(() => expect(n).toBe(1))
+  })
+
+  it('il caso arriva a ogni attesa: due scrittori in conflitto non ritentano all unisono', async () => {
+    const dormito: number[] = []
+    const casi = [0, 0.999]
+    let n = 0
+    await conRitentativi(
+      async () => { n += 1; if (n <= 2) throw guasto('40P01'); return 'ok' },
+      sqlstateDi,
+      async (ms) => { dormito.push(ms) },
+      () => casi.shift()!,
+    )
+    expect(dormito).toEqual([POLITICA.attesaMs(0, 0), POLITICA.attesaMs(1, 0.999)])
+    expect(dormito).toEqual([50, 300])
   })
 })

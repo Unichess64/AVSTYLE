@@ -4,68 +4,53 @@ import { messaggioPerEsito, serveRicontrolloAccount } from '../../src/dominio/es
 const ESITI = ['salvata', 'cancellata', 'gia_cancellata', 'esiste_gia', 'modificata_altrove',
                'cancellata_altrove', 'non_trovata', 'annullato'] as const
 
+// ⚠︎ Revisione del Task 4: le prove guardavano un campo alla volta, e
+// `modificata_altrove` con il testo «✓ Salvata» restava verde. Ora ogni esito
+// si confronta con il Messaggio INTERO: un campo in più o un testo sbagliato
+// arrossiscono.
+const fermo = {
+  spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false,
+}
+const ATTESO = {
+  salvata: { ...fermo, testo: '✓ Salvata', spunta: true },
+  cancellata: { ...fermo, testo: '✓ Cancellata', spunta: true },
+  gia_cancellata: { ...fermo, testo: 'Era già stata cancellata', ricaricaIlGiorno: true },
+  esiste_gia: { ...fermo, testo: '' },                                   // il server rilegge e mostra
+  modificata_altrove: { ...fermo, testo: '', schedaAdottaStato: true },  // «La scheda aggiornata»
+  cancellata_altrove: { ...fermo, testo: 'È stata cancellata da un’altra parte', ricaricaIlGiorno: true },
+  non_trovata: { ...fermo, testo: 'Questa visita non esiste più', ricaricaIlGiorno: true },
+  annullato: { ...fermo, testo: '' },                                    // la risposta si scarta (§4.1)
+} as const
+
 describe('ogni esito ha il suo messaggio (§4.1)', () => {
-  it('salvata e cancellata portano il ✓; nessun altro lo porta', () => {
-    expect(messaggioPerEsito('salvata', false)).toMatchObject({ testo: '✓ Salvata', spunta: true })
-    expect(messaggioPerEsito('cancellata', false)).toMatchObject({ testo: '✓ Cancellata', spunta: true })
-    for (const e of ['gia_cancellata', 'esiste_gia', 'modificata_altrove',
-                     'cancellata_altrove', 'non_trovata', 'annullato'] as const) {
-      expect(messaggioPerEsito(e, false).spunta).toBe(false)
-    }
-  })
+  for (const e of ESITI) {
+    it(`${e}: il messaggio intero`, () => {
+      expect(messaggioPerEsito(e, false)).toEqual(ATTESO[e])
+    })
+  }
 
-  it('modificata_altrove fa adottare lo stato corrente alla scheda («La scheda aggiornata»)', () => {
-    expect(messaggioPerEsito('modificata_altrove', false).schedaAdottaStato).toBe(true)
-    // gemella: nessun altro esito lo fa
-    for (const e of ESITI.filter((x) => x !== 'modificata_altrove')) {
-      expect(messaggioPerEsito(e, false).schedaAdottaStato).toBe(false)
-    }
-  })
-
-  it('gia_cancellata dice «Era già stata cancellata» e non offre di ricreare', () => {
-    expect(messaggioPerEsito('gia_cancellata', false).testo).toBe('Era già stata cancellata')
-  })
-
-  it('cancellata_altrove dice che è stata cancellata da un altra parte', () => {
-    expect(messaggioPerEsito('cancellata_altrove', false).testo)
-      .toBe('È stata cancellata da un’altra parte')
-  })
-
-  it('non_trovata ha DUE messaggi, e li separa il ricontrollo dell account', () => {
-    expect(messaggioPerEsito('non_trovata', true).testo).toMatch(/account/i)
-    expect(messaggioPerEsito('non_trovata', false).testo).toBe('Questa visita non esiste più')
-  })
-
-  it('annullato non è un messaggio per l operatrice: la risposta si scarta (§4.1)', () => {
-    expect(messaggioPerEsito('annullato', false).testo).toBe('')
-  })
-
-  it('esiste_gia non ha messaggio: il server rilegge e mostra (§4.1)', () => {
-    expect(messaggioPerEsito('esiste_gia', false).testo).toBe('')
-  })
-
-  it('con l account chiuso nessun esito dà il ✓ né fa adottare lo stato (§4.3 passo 7)', () => {
-    // «si ricontrolla l'account prima di scegliere il messaggio e prima che la
-    // scheda adotti lo stato restituito»: un account chiuso fra due letture
-    // riceve `modificata_altrove` con uno stato «corrente» VUOTO, e adottarlo
-    // svuoterebbe la scheda. E un `salvata` senza UPDATE è falso.
+  it('il ✓ sta solo su salvata e cancellata, nel campo E nel testo (§4.4)', () => {
     for (const e of ESITI) {
-      const m = messaggioPerEsito(e, true)
-      expect(m.spunta).toBe(false)
-      expect(m.schedaAdottaStato).toBe(false)
-      expect(m.testo).toMatch(/account/i)
+      const m = messaggioPerEsito(e, false)
+      const conSpunta = e === 'salvata' || e === 'cancellata'
+      expect(m.spunta).toBe(conSpunta)
+      expect(m.testo.includes('✓')).toBe(conSpunta)
     }
   })
 
-  it('ricaricano il giorno gli esiti che affermano che la visita non c è più', () => {
-    // [proposta del Task 4] La scheda non ha più niente da mostrare: l'agenda
-    // dietro va riletta. Gli altri esiti la lasciano com'è.
-    for (const e of ['cancellata_altrove', 'gia_cancellata', 'non_trovata'] as const) {
-      expect(messaggioPerEsito(e, false).ricaricaIlGiorno).toBe(true)
+  it('con l account chiuso ogni esito è l uscita forzata, senza frase né stato (§4.3 passo 7, §4.4)', () => {
+    // Un account chiuso fra due letture riceve `modificata_altrove` con uno
+    // stato «corrente» VUOTO, e adottarlo svuoterebbe la scheda; un `salvata`
+    // senza UPDATE è falso. Prima c'era solo una frase, e niente diceva di
+    // far uscire l'operatrice.
+    for (const e of ESITI) {
+      expect(messaggioPerEsito(e, true)).toEqual({ ...fermo, testo: '', uscitaForzata: true })
     }
-    for (const e of ['salvata', 'cancellata', 'esiste_gia', 'modificata_altrove', 'annullato'] as const) {
-      expect(messaggioPerEsito(e, false).ricaricaIlGiorno).toBe(false)
-    }
+  })
+
+  it('non_trovata ha DUE risposte, e le separa il ricontrollo dell account', () => {
+    expect(messaggioPerEsito('non_trovata', false).testo).toBe('Questa visita non esiste più')
+    expect(messaggioPerEsito('non_trovata', true).uscitaForzata).toBe(true)
   })
 })
 

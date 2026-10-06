@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SEI_CON_MESSAGGIO_PROPRIO, classifica, messaggioPerSqlstate } from '../../src/dominio/errori'
+import { SEI_CON_MESSAGGIO_PROPRIO, classifica, messaggioPerAnnullato, messaggioPerSqlstate } from '../../src/dominio/errori'
 
 describe('l involucro distingue per SOGGETTO prima che per codice (§4.3 passo 8)', () => {
   // ————— soggetto «invio» —————
@@ -34,6 +34,13 @@ describe('l involucro distingue per SOGGETTO prima che per codice (§4.3 passo 8
     // Un 500 generico, un PGRST…: sono FUORI dal database, e §4.3 passo 8 li
     // manda su «Non so se è stata salvata» con «Controlla».
     expect(classifica('invio', { sqlstate: undefined })).toEqual({ tipo: 'non_so' })
+    // ⚠︎ Revisione del Task 4: la prova portava questo nome ma non passava mai
+    // un codice PGRST, e `PGRST116` diventava «annullato».
+    for (const codice of ['PGRST116', 'PGRST000', 'PGRST301']) {
+      expect(classifica('invio', { sqlstate: codice })).toEqual({ tipo: 'non_so' })
+    }
+    // gemella: un SQLSTATE vero di cinque caratteri, lettere comprese, resta annullato
+    expect(classifica('invio', { sqlstate: '22P02' }).tipo).toBe('annullato')
   })
 
   it('un azione che non esiste più è un rilascio nuovo, non un guasto del database', () => {
@@ -53,7 +60,9 @@ describe('l involucro distingue per SOGGETTO prima che per codice (§4.3 passo 8
   })
 
   it('anche i codici che PER L INVIO sono un fallimento, per «Controlla» sono «Non so»', () => {
-    for (const codice of ['57014', '40P01', '40001', '23505', '22P02', 'P0003']) {
+    // 42883 è della STESSA famiglia di 42501: senza, un ramo «42xxx → uscita»
+    // restava verde (revisione del Task 4).
+    for (const codice of ['57014', '40P01', '40001', '23505', '22P02', 'P0003', '42883', '42P01']) {
       expect(classifica('controlla', { sqlstate: codice })).toEqual({ tipo: 'non_so' })
     }
   })
@@ -132,5 +141,37 @@ describe('i sei SQLSTATE con un messaggio proprio (§4.3 passi 5, 6, 7)', () => 
     expect(messaggioPerSqlstate('23505')).toBe('Non sono riuscita a salvare, riprova')
     expect(messaggioPerSqlstate('23503', 'appointment_visit_date_fk'))
       .toBe('Non sono riuscita a salvare, riprova')
+  })
+})
+
+describe('il messaggio intero di un invio annullato, nella forma degli esiti (revisione del Task 4)', () => {
+  const resta = {
+    spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false,
+  }
+
+  it('23503 su servizio od operatrice ricarica la scheda; sulla cliente no (§4.3 passo 6)', () => {
+    for (const v of ['appointment_service_id_fkey', 'appointment_operator_id_fkey']) {
+      expect(messaggioPerAnnullato('23503', v)).toEqual({
+        ...resta, testo: 'Il servizio o l’operatrice non esiste più', ricaricaLaScheda: true,
+      })
+    }
+    expect(messaggioPerAnnullato('23503', 'visit_client_id_fkey')).toEqual({
+      ...resta, testo: 'La cliente è stata cancellata',
+    })
+  })
+
+  it('42501 con l account ancora attivo chiude la scheda e ricarica il giorno', () => {
+    expect(messaggioPerAnnullato('42501')).toEqual({
+      ...resta, testo: 'Questa visita non è più accessibile. Ricarico il giorno.', ricaricaIlGiorno: true,
+    })
+  })
+
+  it('gli altri lasciano la scheda com era, e nessuno porta il ✓ né fa uscire', () => {
+    expect(messaggioPerAnnullato('23514')).toEqual({
+      ...resta, testo: 'L’orario o la durata non sono validi. Controlla la scheda e riprova.',
+    })
+    for (const c of ['40P01', '57014', '22023']) {
+      expect(messaggioPerAnnullato(c)).toEqual({ ...resta, testo: 'Non sono riuscita a salvare, riprova' })
+    }
   })
 })
