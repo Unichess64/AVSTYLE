@@ -4882,3 +4882,23 @@ perché il Task 8 non li erediti:
 Annotati: §4.1 e §4.4 non concordano su quando dire «questa visita non esiste più», e per trascinamento e «Annulla» la
 frase di `non_trovata` cambia (il Task 10 sceglie per azione); `cancellata` senza righe ricontrolla l'account, una
 lettura in più; `azioneMancante` su «Controlla» non è raggiungibile; la spia di C4 è per riga; quinta decisione aperta.
+
+## Esecuzione del Task 2
+
+**6 ottobre 2026, eseguito dopo i Task 1, 3 e 4.** `perugia.ts` e `validazione.ts` in `src/dominio/`; in `tempo.ts`
+solo l'`export` di `pezziData` e la guardia sui minuti di `confineDaOra`. Passi 2 e 5: il file non si carica (0 prove).
+Il reperto misurato prima della guardia: **1 rossa su 25**, solo `09:70`. `libphonenumber-js/min` esiste nella 1.13.14
+e il suo export predefinito restituisce `undefined`: import del piano, invariato. Passo 7: 33 verdi su tutti e due i fusi.
+**Gate:** `db reset` 0; `vitest run` **591 verdi su 39 file** (erano 558); `test:fuso` **183** (erano 150); `tsc` 0;
+`build` 0. **Sonde**, copia di scorta e ripristino dalla copia, rosse misurate su `tests/dominio`:
+1 → 3 · 2 → 0 a Perugia, **5** a New York prima e **6** dopo la prova delle 22:00 · 3 → **0**, poi **1** · 4, 5 → 5 ·
+6, 7, 8, 8b → 1 · 9, 10, 11 → 2 (una in `tempo.test.ts`, una nuova) · 12 → **7**, poi **8** · 13 → **0**, poi **1** ·
+13b → 2 · 13c, 14 → 1.
+
+Divergenze dal testo:
+- Due prove in più, quelle che il piano prescrive se le sonde 3 e 13 danno zero: la linea alle 22:00 sta a 264
+  (`h12` legge «10»), e una fascia vuota 108-108 è rifiutata.
+- Sonda 12: il piano dice 8 prove negative del contorno, erano **7**; con la fascia vuota sono 8, e arrossiscono tutte.
+- Sonda 2 a New York: «alle 23:50 di Perugia…» resta verde anche senza `timeZone`, perché alle 21:50Z New York è sullo
+  stesso giorno di Perugia: quella prova discrimina solo a est di Roma. La mezzanotte la presidia la gemella delle 00:10.
+- Sonda 1 scritta come mezzanotte di Perugia cercata a passi d'un'ora e differenza di istanti.

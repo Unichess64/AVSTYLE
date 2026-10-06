@@ -33,6 +33,12 @@ export function oraDaCella(cella: IndiceCella): string {
 export function confineDaOra(ora: string): IndiceConfine {
   const pezzi = /^(\d{2}):(\d{2})$/.exec(ora)
   if (pezzi === null) throw new RangeError(`orario non nella forma HH:MM: ${ora}`)
+  // ⚠︎ AGGIUNTA il 28/09/2026 dopo la revisione avversariale. Senza questa
+  // riga `'09:70'` non solleva: 9·60+70 = 610, che è multiplo di 5 e sta sotto
+  // 288, quindi passa indenne tutte e due le guardie sotto e la funzione
+  // restituisce 122 — le 10:10. La griglia da cinque minuti non implica un
+  // orologio valido, e la regex della FORMA nemmeno.
+  if (Number(pezzi[2]) > 59) throw new RangeError(`minuti oltre i 59: ${ora}`)
   const minuti = Number(pezzi[1]) * 60 + Number(pezzi[2])
   if (minuti % MINUTI_PER_CELLA !== 0) {
     throw new RangeError(`orario fuori dalla griglia da cinque minuti: ${ora}`)
@@ -42,7 +48,7 @@ export function confineDaOra(ora: string): IndiceConfine {
   return confine
 }
 
-function pezziData(data: string): [number, number, number] {
+export function pezziData(data: string): [number, number, number] {
   const pezzi = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data)
   if (pezzi === null) throw new RangeError(`data non nella forma YYYY-MM-DD: ${data}`)
   return [Number(pezzi[1]), Number(pezzi[2]), Number(pezzi[3])]
