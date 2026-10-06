@@ -19,7 +19,7 @@ import { adottaStato, apriSchedaSuVisita, serializza, type SchedaSerializzata, t
 import type { StatoVisita } from '../../src/dominio/stato-visita'
 import { leggiStato } from '../../src/server/lettura-scheda'
 import { eliminaVisita, salvaVisita, togliServizio } from '../../src/server/scrittura-visita'
-import { ALESSANDRA, ANNALISA, OUTSIDER_AUTH, VERA, VERA_AUTH, asOwner, resetData } from '../helpers/db'
+import { ALESSANDRA, ANNALISA, OUTSIDER_AUTH, VERA, VERA_AUTH, asOwner, connect, resetData } from '../helpers/db'
 import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, SERVICE_MASSAGE, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
 import { sessioneDi } from '../helpers/sessioni'
 
@@ -376,5 +376,127 @@ describe('passi 6 e 7: dopo la scrittura', () => {
       },
     })
     expect(r).toEqual({ tipo: 'uscita_forzata' })
+  })
+})
+
+describe('revisione del Task 8: dopo la funzione, niente frasi false né vuote', () => {
+  /** Il client di Vera con un `fetch` che la prova governa: `dopo` vede ogni richiesta e può sostituire la risposta. */
+  const conFetch = async (dopo: (url: string, vera: () => Promise<Response>) => Promise<Response>) => {
+    const token = (await sessioneDi(VERA_AUTH)).accessToken
+    return createClient(URL, ANON, {
+      global: { headers: { Authorization: `Bearer ${token}` }, fetch: (input, init) => dopo(String(input), () => fetch(input, init)) },
+    })
+  }
+  const PER_SEMPRE = 'per-sempre'
+  let guastoUtente = ''
+  /** Dopo la risposta di `salva_visita`, ogni `GET /auth/v1/user` cade per la rete. */
+  const ricontrolloInGuasto = () =>
+    conFetch(async (url, vera) => {
+      if (url.includes('/rpc/salva_visita')) guastoUtente = PER_SEMPRE
+      if (url.includes('/auth/v1/user') && guastoUtente === PER_SEMPRE) throw new TypeError('fetch failed')
+      return vera()
+    })
+
+  beforeEach(() => {
+    guastoUtente = ''
+  })
+
+  it('una rilettura fallita dopo esiste_gia è «Non so», non «riprova»: la visita c è (reperto 1)', async () => {
+    await creaV1()
+    const client = await conFetch(async (url, vera) =>
+      url.includes('/rpc/stato_visita')
+        ? new Response(JSON.stringify({ code: '57014', message: 'canceling statement due to statement timeout' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          })
+        : vera(),
+    )
+    expect(await salvaVisita(client, nuovaScheda(), codice())).toEqual({ tipo: 'non_so' })
+  })
+
+  it('un modificata_altrove col ricontrollo in guasto dà «riprova»: la funzione non ha scritto (reperto 2)', async () => {
+    await creaV1()
+    const vecchia = await riaperta()
+    await asOwner((c) => c.query('update appointment set start_cell = 150 where id = $1', [A2]))
+    const r = await salvaVisita(await ricontrolloInGuasto(), vecchia, codice())
+    expect(r).toMatchObject({ tipo: 'fallita', testo: 'Non sono riuscita a salvare, riprova' })
+  })
+
+  it('la gemella: un salvata senza UPDATE col ricontrollo in guasto resta «Non so», perché non prova niente', async () => {
+    await creaV1()
+    expect(await salvaVisita(await ricontrolloInGuasto(), await riaperta(), codice())).toEqual({ tipo: 'non_so' })
+  })
+
+  it('un 42501 col ricontrollo in guasto dà la frase del 42501, non «Non so»: la scrittura è annullata (reperto 2)', async () => {
+    const r = await salvaVisita(await ricontrolloInGuasto(), nuovaScheda(), codice(), {
+      // La sessione sparisce prima della funzione: `is_active_operator()` è falsa, e la funzione risponde 42501.
+      spiaTentativi: async (t) => {
+        if (t === 0) await asOwner((c) => c.query('delete from auth.sessions where user_id = $1', [VERA_AUTH]))
+      },
+    })
+    expect(r).toMatchObject({ tipo: 'fallita', sqlstate: '42501', messaggio: { ricaricaIlGiorno: true } })
+  })
+
+  it('un 23505 sulla cella che alla rilettura non trova più il conflitto dice «riprova», mai una riga vuota (reperto 3)', async () => {
+    const client = await conFetch(async (url, vera) => {
+      const r = await vera()
+      // La collega che aveva preso la cella la libera subito dopo.
+      if (url.includes('/rpc/salva_visita')) await asOwner((c) => c.query('delete from visit where id = $1', [V2]))
+      return r
+    })
+    const r = await salvaVisita(client, nuovaScheda(), codice(), {
+      spiaTentativi: async (t) => {
+        if (t !== 0) return
+        await asOwner(async (c) => {
+          await c.query('insert into visit (id, client_id, visit_date) values ($1, $2, $3)', [V2, CLIENT_LUCIA, DAY_ONE])
+          await c.query(
+            `insert into appointment (id, visit_id, operator_id, service_id, appointment_date, start_cell, cell_count)
+             values ($1, $2, $3, $4, $5, 120, 15)`,
+            [B1, V2, VERA, SERVICE_REFILL, DAY_ONE],
+          )
+        })
+      },
+    })
+    expect(r).toMatchObject({ tipo: 'fallita', sqlstate: '23505', testo: 'Non sono riuscita a salvare, riprova' })
+  })
+
+  it('un invio doppio concorrente (23505 su visit_pkey) non ripete: rilegge e mostra la visita (reperto 4)', async () => {
+    // Un'altra transazione crea V1 e non ha ancora committato: la funzione non
+    // la vede, la inserisce, e aspetta sull'indice; al commit dell'altra, 23505.
+    const altra = await connect()
+    const osservatrice = await connect()
+    try {
+      await altra.query('begin')
+      await altra.query('insert into visit (id, client_id, visit_date) values ($1, $2, $3)', [V1, CLIENT_MARIA, DAY_ONE])
+      const pid = (await altra.query<{ p: number }>('select pg_backend_pid() p')).rows[0].p
+      const inVolo = salvaVisita(await vera(), nuovaScheda(), codice())
+      const fine = Date.now() + 5_000
+      while ((await osservatrice.query<{ n: number }>('select count(*)::int n from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rows[0].n === 0) {
+        if (Date.now() > fine) throw new Error('la funzione non si è mai fermata sulla chiave')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      await altra.query('commit')
+      const r = await inVolo
+      expect(r).toMatchObject({
+        tipo: 'esito',
+        esito: 'esiste_gia',
+        messaggio: { testo: 'È diversa da come l’avevi lasciata: ecco com’è ora', schedaAdottaStato: true },
+      })
+    } finally {
+      await altra.query('rollback').catch(() => {})
+      await altra.end()
+      await osservatrice.end()
+    }
+  })
+
+  it('si ritenta SOLO su 40P01: un guasto senza SQLSTATE è un tentativo solo, e «Non so» (C5, reperto 5)', async () => {
+    const client = await conFetch(async (url, vera) => {
+      if (url.includes('/rpc/salva_visita')) throw new TypeError('fetch failed')
+      return vera()
+    })
+    const spia: number[] = []
+    const r = await salvaVisita(client, nuovaScheda(), codice(), { spiaTentativi: (t) => void spia.push(t), dormi: async () => {} })
+    expect(spia).toEqual([0])
+    expect(r).toEqual({ tipo: 'non_so' })
   })
 })

@@ -529,6 +529,24 @@ describe('Task 8: ogni pulsante chiama la sua Server Action, e la scheda legge l
     expect(seconda.attesi).toEqual([{ id: A1, versione: 'v1b' }, { id: A2, versione: 'v2' }])
   })
 
+  it('dopo «La scheda aggiornata» «Togli» confronta con la scheda ADOTTATA: riportare a mano il vecchio orario è una modifica (revisione, reperto 6)', async () => {
+    const letto: StatoVisita = {
+      ...STATO_ATTIVO,
+      visita: '2026-10-03T09:05:00.654321Z',
+      appuntamenti: [{ ...STATO_ATTIVO.appuntamenti[0], versione: 'v1b', inizio: 124 }, STATO_ATTIVO.appuntamenti[1]],
+    }
+    const salva = vi
+      .fn<AzioniScheda['salva']>()
+      .mockResolvedValueOnce({ tipo: 'esito', esito: 'modificata_altrove', messaggio: { ...nessuno, testo: '', schedaAdottaStato: true }, stato: letto })
+    monta(azioniFinte({ salva }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salva' }))
+    expect(await screen.findByText(/^La scheda aggiornata/)).toBeTruthy()
+    // La collega l'ha messo alle 10:20; l'operatrice lo riporta alle 10:00, com'era all'apertura.
+    await userEvent.selectOptions(within(servizioAlle('10:20')).getByLabelText('Minuti d’inizio'), '0')
+    await userEvent.click(within(servizioAlle('11:40')).getByRole('button', { name: 'Togli' }))
+    expect(within(conferma()).getByText('Togliere questo servizio e salvare le altre modifiche?')).toBeTruthy()
+  })
+
   it('un conflitto del server mostra la frase con «Vai lì» e rilegge il giorno', async () => {
     const r = richieste()
     const salva = vi.fn(async (): Promise<Risposta> => ({ tipo: 'conflitto', frase: 'Vera ha un appuntamento alle 10:00 con Lucia', vaiA: 'B1' }))

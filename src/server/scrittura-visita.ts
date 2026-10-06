@@ -125,13 +125,15 @@ function fallita(sqlstate: string, m: Messaggio): Risposta {
   return { tipo: 'fallita', sqlstate, testo: m.testo, messaggio: m }
 }
 
+const MESSAGGIO_RIPROVA: Messaggio = {
+  testo: RIPROVA, spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false,
+}
+
 /** Un guasto prima della chiamata: niente è partito. */
 function primaDellaScrittura(e: unknown, id: string): Risposta {
   const code = sqlstateDi(e)
   console.error('invio: guasto prima della scrittura', { code: code ?? 'nessuno', id })
-  return fallita(code ?? '', {
-    testo: RIPROVA, spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false,
-  })
+  return fallita(code ?? '', MESSAGGIO_RIPROVA)
 }
 
 /** I passi 4 e 5. Il codice d'invio è in `argomenti`, deciso PRIMA del ciclo: è così che resta lo stesso. */
@@ -166,8 +168,18 @@ async function dopoUnErrore(
   io: string,
   id: string,
 ): Promise<Risposta> {
-  // Passo 7: «su 42501» (§4.3), lo stesso giudice degli esiti.
-  if (serveRicontrolloAccount({ sqlstate }, false) && (await account(client)) === 'chiuso') return USCITA
+  // Passo 7: «su 42501» (§4.3), lo stesso giudice degli esiti. Un ricontrollo
+  // in guasto non cambia il fatto certo — la scrittura è annullata —: vale la
+  // frase del 42501, che ricarica il giorno (revisione del Task 8, reperto 2).
+  if (serveRicontrolloAccount({ sqlstate }, false)) {
+    let stato: 'attivo' | 'chiuso' = 'attivo'
+    try {
+      stato = await account(client)
+    } catch {
+      console.error('invio: ricontrollo in guasto', { code: sqlstate, id })
+    }
+    if (stato === 'chiuso') return USCITA
+  }
 
   if (sqlstate === '23505' && scheda !== null) {
     if (vincolo === 'appointment_slot_unique') {
@@ -181,10 +193,15 @@ async function dopoUnErrore(
       }
       const di_nuovo = controlloPreventivo(scheda, giorno)
       if (di_nuovo?.tipo === 'conflitto') return di_nuovo
+      // La cella si è liberata prima della rilettura: la frase di
+      // `messaggioPerSqlstate` per questo vincolo è vuota, perché la dà il
+      // passo 3. Qui non c'è: «riprova», che è vero (revisione, reperto 3).
+      console.error('invio: annullato', { code: sqlstate, id })
+      return fallita(sqlstate, MESSAGGIO_RIPROVA)
     } else if (vincolo !== undefined && CHIAVI_PRIMARIE.has(vincolo)) {
       // Un invio doppio concorrente: il server NON ripete, rilegge e mostra
       // come le righe 2 o 3 di §4.4.
-      return riletta(client, scheda, 'esiste_gia')
+      return riletta(client, scheda, 'esiste_gia', id)
     }
   }
 
@@ -193,8 +210,17 @@ async function dopoUnErrore(
 }
 
 /** §4.4 righe 2 e 3 (e 4/5 se la visita è sparita prima della rilettura). */
-async function riletta(client: SupabaseClient, scheda: SchedaSerializzata, esito: Esito): Promise<Risposta> {
-  const stato = await leggiStato(client, scheda.visitaId)
+async function riletta(client: SupabaseClient, scheda: SchedaSerializzata, esito: Esito, id: string): Promise<Risposta> {
+  // La funzione ha già risposto: un guasto della rilettura non prova niente
+  // sulla visita, che c'è e forse è proprio questa. Mai «riprova» qui: è
+  // «Non so», e «Controlla» rileggerà (revisione del Task 8, reperto 1).
+  let stato: StatoVisita | null
+  try {
+    stato = await leggiStato(client, scheda.visitaId)
+  } catch (e) {
+    console.error('invio: rilettura fallita', { code: sqlstateDi(e) ?? 'nessuno', id })
+    return { tipo: 'non_so' }
+  }
   if (stato === null) return { tipo: 'esito', esito, messaggio: messaggioPerEsito('cancellata_altrove', false) }
   const nessuno = { spunta: false, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false }
   const uguale = ugualeAllaScheda({ ...scheda, avvisiConfermati: new Set(scheda.avvisiConfermati) }, stato)
@@ -216,9 +242,23 @@ async function dopoUnEsito(
   r: RispostaFunzione,
   haFattoUpdate: boolean,
   scheda: SchedaSerializzata | null,
+  id: string,
 ): Promise<Risposta> {
-  if (serveRicontrolloAccount(r.esito, haFattoUpdate) && (await account(client)) === 'chiuso') return USCITA
-  if (r.esito === 'esiste_gia' && scheda !== null) return riletta(client, scheda, 'esiste_gia')
+  if (serveRicontrolloAccount(r.esito, haFattoUpdate)) {
+    let stato: 'attivo' | 'chiuso'
+    try {
+      stato = await account(client)
+    } catch (e) {
+      // Un ricontrollo in guasto. Un `salvata` senza UPDATE non prova niente:
+      // «Non so». Ogni altro esito qui NON ha scritto, quindi «riprova» è
+      // vero e la scheda resta com'era (revisione del Task 8, reperto 2).
+      if (r.esito === 'salvata') throw e
+      console.error('invio: ricontrollo in guasto', { code: 'nessuno', id })
+      return fallita('', MESSAGGIO_RIPROVA)
+    }
+    if (stato === 'chiuso') return USCITA
+  }
+  if (r.esito === 'esiste_gia' && scheda !== null) return riletta(client, scheda, 'esiste_gia', id)
 
   const messaggio = messaggioPerEsito(r.esito, false)
   if (r.esito === 'modificata_altrove' && r.stato !== null) {
@@ -293,7 +333,7 @@ async function corpoSalva(
     scheda.modo === 'creazione' ||
     r.visita !== scheda.versioneVisita ||
     JSON.stringify(r.appuntamenti ?? null) !== JSON.stringify(proiettaAttesi(scheda.attesi))
-  return dopoUnEsito(client, r, haFattoUpdate, scheda)
+  return dopoUnEsito(client, r, haFattoUpdate, scheda, id)
 }
 
 async function corpoElimina(
@@ -330,7 +370,7 @@ async function corpoElimina(
     return dopoUnErrore(client, sqlstate, (e as GuastoScrittura).vincolo, null, io, id)
   }
   // `cancellata` ha sempre tolto una riga: la regola 11 l'ha contata.
-  return dopoUnEsito(client, r, true, null)
+  return dopoUnEsito(client, r, true, null, id)
 }
 
 function inRisposta(x: Risposta | Classe): Risposta {

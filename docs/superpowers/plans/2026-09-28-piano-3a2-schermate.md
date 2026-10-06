@@ -5033,3 +5033,11 @@ Collegamento: «Salva» senza chiamata 13 · «Togli» 2 · «Elimina» 1 · cod
 - Trovato in `next start`, corretto: `router.refresh()` subito dopo `history.back()` veniva coperto dal ripristino di Next al `popstate` (visita salvata, agenda vecchia): ora la rilettura parte dopo il `popstate`.
 - `esiste_gia` e l’invio doppio (23505 su chiave primaria) rileggono e mostrano le righe 2/3 di §4.4; con la visita sparita, la frase di `cancellata_altrove`. «Crea di nuovo» resta del Task 9.
 Annotati: con il ricalcolo del server, A2 (avvisi spariti se la rilettura fallisce) non lascia più salvare senza conferma; le prove `.tsx` non passano da `tsc` (`include` ha solo `tests/**/*.ts`).
+
+**Revisione del Task 8** (un revisore, 06/10/2026): nessun bloccante; sei reperti, corretti tutti su decisione dell’utente.
+- **1** (misurato): una rilettura fallita dopo `esiste_gia` saliva all’involucro e dava «riprova» su una visita che c’è. Ora è «Non so».
+- **2**: un ricontrollo dell’account in guasto dava «Non so» anche dopo un errore certo. Ora un esito che non ha scritto dà «riprova», il 42501 la sua frase; un `salvata` senza UPDATE resta «Non so».
+- **3**: un 23505 sulla cella senza più conflitti alla rilettura dava una riga vuota. Ora «riprova».
+- **4, 5, 6**, presidi mancanti, ora con prova: invio doppio (23505 su `visit_pkey`, con una transazione concorrente), «si ritenta solo su 40P01» al chiamante, `setLetta` dopo l’adozione.
+- Sonde, rosse misurate: chiave primaria spenta **0 → 1**, ritentativi senza SQLSTATE **0 → 1**, senza `setLetta` **0 → 1**; ritiro di ciascuna correzione → 1 (1, 2, la sua gemella, 3); ricontrollo del 42501 senza riparo **0 → 1** dopo una prova in più. **Gate:** 847 verdi su 60 file, `test:fuso` 377, `tsc` e `build` 0.
+Annotato: la guardia di «Togli» in creazione non ha vittime (il telefono non la raggiunge).
