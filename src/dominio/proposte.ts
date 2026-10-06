@@ -65,9 +65,7 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
   // Gli appuntamenti che si stanno spostando non occupano: §8.6 sposta una
   // visita intera, e senza l'esclusione le sue stesse celle bloccherebbero
   // ogni partenza dentro la propria durata.
-  const occupati = ingresso.occupancy.filter(
-    (b) => !ingresso.excludeAppointmentIds.includes(b.appointmentId),
-  )
+  const occupati = senzaEsclusi(ingresso.occupancy, ingresso.excludeAppointmentIds)
 
   // Le fasce si scorrono ORDINATE, così le partenze escono crescenti senza
   // riordinarle dopo: riordinarle nasconderebbe un chiamante che passa fasce
@@ -93,6 +91,15 @@ export function proposeStarts(ingresso: IngressoProposta): EsitoProposta {
   }
 
   return starts.length > 0 ? { starts, reason: null } : { starts: [], reason: 'full' }
+}
+
+/**
+ * L'esclusione di §7.4 e §8.6, scritta una volta: la usa anche la frase dei
+ * conflitti di spec §10.1 (`conflitti.ts`), che deve escludere gli stessi
+ * appuntamenti — nuovi, modificati e tolti — per non nominare sé stessa.
+ */
+export function senzaEsclusi(occupancy: readonly Blocco[], excludeAppointmentIds: readonly string[]): Blocco[] {
+  return occupancy.filter((b) => !excludeAppointmentIds.includes(b.appointmentId))
 }
 
 /**

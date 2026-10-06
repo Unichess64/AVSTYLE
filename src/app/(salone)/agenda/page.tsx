@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { AgendaColonne, colonneScorrono } from '../../../cliente/agenda-colonne'
 import { AgendaLista } from '../../../cliente/agenda-lista'
 import stileAgenda from '../../../cliente/agenda.module.css'
+import { SchedaDellAgenda } from '../../../cliente/apri-scheda'
 import { SCRIPT_PREFERENZE } from '../../../cliente/preferenze'
 import { InterruttoreVista, SelettoreOperatrice, VistaSettimana } from '../../../cliente/settimana'
 import { ScorrimentoGiorno, StrisciaGiorni, TornaAOggi } from '../../../cliente/striscia-giorni'
@@ -116,22 +117,28 @@ export default async function Agenda({
       ))}
       {vuoto && <p className={stile.vuoto}>Nessun appuntamento in questo giorno.</p>}
       {/* Tutte e due le viste del giorno, e il CSS ne mostra una (D2-1): cambiare
-          vista non rilegge niente e non lampeggia. */}
-      <div className={stile.soloColonne}>
-        <ScorrimentoGiorno data={data} attivo={!colonneScorrono(giorno.operatrici)}>
-          <AgendaColonne
-            giorno={giorno}
-            oggi={oggi}
-            lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
-          />
-        </ScorrimentoGiorno>
-      </div>
-      <div className={stile.soloLista}>
-        {/* Nella lista le colonne non scorrono di lato: il giorno si cambia sempre scorrendo. */}
-        <ScorrimentoGiorno data={data} attivo>
-          <AgendaLista appuntamenti={giorno.appuntamenti} operatrici={giorno.operatrici} />
-        </ScorrimentoGiorno>
-      </div>
+          vista non rilegge niente e non lampeggia. Un tocco su un blocco, una
+          riga o uno spazio libero apre la scheda (Task 7). */}
+      <SchedaDellAgenda
+        data={data}
+        occupati={giorno.appuntamenti.map((x) => ({ operatriceId: x.operatriceId, inizio: x.inizio, durata: x.durata }))}
+      >
+        <div className={stile.soloColonne}>
+          <ScorrimentoGiorno data={data} attivo={!colonneScorrono(giorno.operatrici)}>
+            <AgendaColonne
+              giorno={giorno}
+              oggi={oggi}
+              lineaDellOra={data === oggi ? Math.floor(confineDellOraAPerugia(adesso)) : null}
+            />
+          </ScorrimentoGiorno>
+        </div>
+        <div className={stile.soloLista}>
+          {/* Nella lista le colonne non scorrono di lato: il giorno si cambia sempre scorrendo. */}
+          <ScorrimentoGiorno data={data} attivo>
+            <AgendaLista appuntamenti={giorno.appuntamenti} operatrici={giorno.operatrici} />
+          </ScorrimentoGiorno>
+        </div>
+      </SchedaDellAgenda>
     </section>
   )
 }

@@ -35,7 +35,15 @@ export function AgendaLista({
         const { riempimento, bordo } = coloriDelPallino(o.colore)
         const ora = oraDaCella(a.inizio)
         return (
-          <li key={a.id} className={stile.riga} aria-label={`${ora}, ${a.clienteNome}, ${a.servizioNome}, con ${o.nome}`}>
+          <li
+            key={a.id}
+            className={stile.riga}
+            aria-label={`${ora}, ${a.clienteNome}, ${a.servizioNome}, con ${o.nome}`}
+            // Il tocco apre la scheda della visita (Task 7): lo legge `SchedaDellAgenda`.
+            data-visita={a.visitaId}
+            data-appuntamenti={a.id}
+            tabIndex={0}
+          >
             <svg className={stile.pallino} aria-hidden="true" viewBox="0 0 16 16">
               <circle cx="8" cy="8" r="6.5" fill={riempimento} stroke={bordo} strokeWidth="1.5" />
             </svg>

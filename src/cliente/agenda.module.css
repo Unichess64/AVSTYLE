@@ -96,9 +96,16 @@
   white-space: nowrap;
 }
 
-/* Fuori orario: attenuato sempre, a righe diagonali oggi e nei giorni futuri (§9.1). */
+/* Fuori orario: attenuato sempre, a righe diagonali oggi e nei giorni futuri (§9.1).
+ * Toccabile (spec §8.4): il tocco passa allo spazio della colonna, che sta sotto i blocchi. */
 .fuori {
   background: rgb(20 13 24 / 0.06);
+  pointer-events: none;
+}
+/* Lo spazio toccabile di una colonna: trasparente, sopra righe e fuori orario. */
+.spazio {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .tratteggio {
   background-image: repeating-linear-gradient(
@@ -111,6 +118,7 @@
 .blocco {
   position: relative;
   z-index: 1;
+  cursor: pointer;
   min-width: 0;
   overflow: hidden;
   display: flex;

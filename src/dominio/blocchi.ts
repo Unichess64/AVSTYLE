@@ -156,7 +156,7 @@ const QUARTO = 3
  * «Precedente» è uno già finito al punto del tocco: uno che comincia dopo non
  * c'entra. `colonna` sono gli appuntamenti di un'operatrice in quel giorno.
  */
-export function inizioDalTocco(cella: number, colonna: readonly AppuntamentoLetto[]): number {
+export function inizioDalTocco(cella: number, colonna: readonly Pick<AppuntamentoLetto, 'inizio' | 'durata'>[]): number {
   let inizio = Math.floor(cella / QUARTO) * QUARTO
   for (const a of colonna) {
     const fine = a.inizio + a.durata

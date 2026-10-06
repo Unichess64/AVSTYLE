@@ -9,8 +9,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  /* una riga è un bersaglio toccabile (§7): il Task 7 ci aprirà la scheda */
+  /* una riga è un bersaglio toccabile (§7): apre la scheda della visita */
   min-height: 52px;
+  cursor: pointer;
   padding: 6px 0;
   border-bottom: 1px solid rgb(20 13 24 / 0.12);
 }

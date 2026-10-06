@@ -4983,3 +4983,24 @@ riapre, disattivata riaperta, settimana non ricordata, una rossa ciascuna. Verif
 un «indietro» resta sul giorno, «Agenda» dalla barra riapre la settimana. **Gate:** 671 verdi su 48 file, `test:fuso` 247, `tsc`
 e `build` 0. Restano per il Task 12 il collegamento dei componenti (togliere le chiamate dà zero rosse) e le preferenze che
 sopravvivono a «Esci»; fuori task: «Esci» non sembra ricaricare la pagina (§4.9), da verificare.
+
+## Esecuzione del Task 7
+
+**6 ottobre 2026.** Dominio (`stato-visita`, `scheda`, `durate`, `avvisi`, `conflitti`, `apertura`) visto rosso prima del codice; la lettura
+provata dopo, presidiata dalle sonde P5. **Gate:** `db reset` 0; `vitest run` **760 su 55 file** (erano 671); `test:fuso` **320** (247);
+`tsc`, `build` 0. **`next start`**, Vera, 375 punti: spazio libero → «Nuova visita» all'orario di §5.1; blocco e riga → la loro visita;
+ricerca per nome e telefono solo in POST; «Nuova cliente» con informativa e doppioni; durate e accodamento; riga ambra e «Salva comunque»;
+disattivata → «non più attiva», «Salva» spento; «indietro», «Chiudi», «Vai lì» restano sul giorno; console senza violazioni della CSP.
+**Sonde** (rosse misurate): 1 → 2, 1b → 1 · 2 → 3 · 3 → 6 · 4 → 4 · 5, 6 → 2 · 7, 8, 9, 10, 10d → 1 · 10b → 2 · 10c → 5 · 11, 11b → 1 ·
+12, 12b, 12c → 1 · D2-2 (`operatriceId` azzerato) → 11, con le due bersaglio: il modello non vede l'elenco. Punto 4: senza `data-visita`
+su blocco o riga, senza spazio, senza `pushState`, «Chiudi» senza `back` → 1; senza `popstate` → 2; occupati ignorati **0 → 3** dopo aver
+corretto le prove, che toccavano dove quarto e fine coincidono. Punto 5: senza identità 1, guasto come «nessuna» 2, corpo nel log 1, rpc in
+GET 1, testo nell'indirizzo 1, filtro dopo `.rpc` 2, non JSON 1, doppione su due righe **0 → 1** con la prova sui due ordini di `union`.
+**Scelte.** (4) Stato del client e delega degli eventi su `data-visita`/`data-appuntamenti` e su uno spazio trasparente per colonna
+(`data-colonna`, `data-da`, `data-a`): colonne e lista senza hook, nessun parametro nuovo; all'apertura una voce di cronologia sullo stesso
+indirizzo, così «indietro» chiude la scheda, e «Chiudi» passa da `history.back()`. (5) Rotta `POST /api/scheda`, fuori dalla fila:
+`operatriceCorrente` (401), solo JSON (415), corpo controllato (400), guasto 503 con `{ code, id }` nel log. Nessun SQL nuovo.
+**Al Task 8:** `ClienteNuova` ha `meseDiNascita`/`giornoDiNascita`, `salva_visita` legge `mese`/`giorno` (`0016:194-201`): traduce lui;
+«Salva», «Togli», «Elimina visita» chiamano `AzioniScheda`, oggi vuote. **Divergenze:** in più `segueIlPrecedente` e `Scheda.partenza`
+(ignorati da `ugualeAllaScheda`); id della cliente nuova al tocco di «Nuova cliente»; «il secondo NON lo segue più» letto «se spostato a
+mano»; `senzaEsclusi` estratta da `proposeStarts`. Annotati: gli avvisi già presenti si riconfermano; «+ Aggiungi» propone la disattivata.

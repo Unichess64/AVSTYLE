@@ -59,6 +59,11 @@ function Blocco({
   return (
     <article
       aria-label={etichetta}
+      // Il tocco apre la scheda della visita (Task 7): lo legge `SchedaDellAgenda`.
+      data-visita={b.visitaId}
+      data-appuntamenti={b.appuntamenti.map((x) => x.id).join(' ')}
+      role="button"
+      tabIndex={0}
       className={[
         stile.blocco,
         testo === 'chiaro' ? stile.testoChiaro : stile.testoScuro,
@@ -169,6 +174,19 @@ export function AgendaColonne({
             />
           )),
         )}
+
+        {/* Lo spazio di ogni colonna, sotto i blocchi: il tocco su uno spazio
+            libero apre una scheda vuota all'orario di §5.1 (Task 7). */}
+        {giorno.operatrici.map((o, i) => (
+          <div
+            key={`s${o.id}`}
+            aria-hidden="true"
+            data-colonna={o.id}
+            data-da={da}
+            data-a={a}
+            className={`${stile.spazio} ${riga(da, da)} ${righe(a - da)} ${colonna(i + 2)}`}
+          />
+        ))}
 
         {blocchi.map((b) => {
           const i = giorno.operatrici.findIndex((o) => o.id === b.operatriceId)
