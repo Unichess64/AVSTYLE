@@ -15,6 +15,18 @@ jobs:
       - run: npx supabase start
       - run: npm test
       - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      # Le prove da capo a fondo (piano 3a-2 Task 12), DOPO `npm test` e mai insieme:
+      # un database solo. Il build lo rifà Playwright (`webServer`), con le stesse
+      # due chiavi pubbliche: in CI `.env.local` non c'è, e senza la CSP chiude il
+      # `ws://` della diretta. Sono le chiavi demo, deterministiche, del Supabase locale.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
 
 # CI runs in UTC and the developer's machine does not. The date-parser line in
 # tests/helpers/db.ts is what keeps the two agreeing; if a date assertion ever
