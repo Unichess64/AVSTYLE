@@ -81,20 +81,30 @@ export function SchedaDellAgenda({
   // voce, e una rilettura chiesta prima ci finisce sotto (misurato in
   // `next start`: visita salvata, agenda vecchia). La rilettura passa dal
   // coordinatore della diretta, come tutte (Task 11).
-  const daRileggere = useRef(false)
+  //
+  // E si rilegge a OGNI chiusura, anche senza salvare (revisione del Task 11,
+  // m1): l'albero che Next ripristina può essere un giorno letto prima
+  // dell'ultimo ✓ del trascinamento, e senza rilettura resterebbe fino al
+  // ripiego dei 60 s. Un «indietro» senza scheda aperta non rilegge niente.
+  const aperta = useRef(false)
   useEffect(() => {
+    let dopo: ReturnType<typeof setTimeout> | undefined
     const chiudi = () => {
       setApertura(null)
-      if (!daRileggere.current) return
-      daRileggere.current = false
-      setTimeout(() => ricariche.rileggi(), 0)
+      if (!aperta.current) return
+      aperta.current = false
+      dopo = setTimeout(() => ricariche.rileggi(), 0)
     }
     window.addEventListener('popstate', chiudi)
-    return () => window.removeEventListener('popstate', chiudi)
+    return () => {
+      window.removeEventListener('popstate', chiudi)
+      clearTimeout(dopo)
+    }
   }, [ricariche])
 
   const apri = useCallback((a: Apertura) => {
     window.history.pushState(VOCE, '')
+    aperta.current = true
     setApertura(a)
   }, [])
 
@@ -134,7 +144,6 @@ export function SchedaDellAgenda({
             // La scheda si chiude come con «Chiudi», e il giorno si rilegge
             // dal server: il blocco nuovo, spostato o tolto compare subito.
             setEsito(testo === '' ? null : testo)
-            daRileggere.current = true
             window.history.back()
           }}
           onVaiA={(appuntamentoId, giorno) => {
@@ -144,6 +153,7 @@ export function SchedaDellAgenda({
               // ritorno scarta la navigazione ancora in corso (misurato in
               // `next start`, revisione del Task 7, C3). «Indietro» poi torna
               // al giorno di partenza.
+              aperta.current = false
               setApertura(null)
               router.replace(`/agenda?giorno=${giorno}`)
               return

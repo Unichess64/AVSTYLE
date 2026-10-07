@@ -244,6 +244,21 @@ describe('SchedaDellAgenda: si apre dall agenda, e «indietro» la chiude', () =
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('revisione del Task 11, m1: chiusa la scheda anche senza salvare, il giorno si rilegge DOPO il popstate', async () => {
+    // Il `popstate` fa ridisegnare a Next l'albero in cache, che può essere un
+    // giorno letto prima dell'ultimo ✓ del trascinamento: la rilettura subito
+    // dopo lo toglie in un attimo, invece di lasciarlo fino al ripiego dei 60 s.
+    const r = richieste()
+    agenda(r)
+    await userEvent.click(screen.getByText('Maria Rossi'))
+    expect(await screen.findByRole('dialog', { name: 'Visita' })).toBeTruthy()
+    expect(router.refresh).not.toHaveBeenCalled()
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(1))
+  })
+
   it('uno spazio libero apre una scheda vuota all orario di §5.1', async () => {
     const r = richieste({ apri: vi.fn(async () => dati()) })
     agenda(r)
