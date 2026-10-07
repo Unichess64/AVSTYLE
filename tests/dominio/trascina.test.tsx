@@ -533,3 +533,56 @@ describe('la fila delle Server Actions (§5.1)', () => {
     expect(router.refresh).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('revisione del Task 10', () => {
+  it('B2: «L’app è stata aggiornata» riporta il blocco alla posizione letta, e la pagina si ricarica da sola', async () => {
+    // jsdom non naviga: `location.reload` lascia un «Not implemented: navigation» sulla console.
+    const errori = vi.spyOn(console, 'error').mockImplementation(() => {})
+    monta({ sposta: vi.fn(async () => Promise.reject(new Error('Server Action "7f00" was not found on the server.'))) })
+    await trascina(bloccoV(), 28)
+    expect(screen.getByRole('status').textContent).toBe('L’app è stata aggiornata: ricarica la pagina.')
+    // niente scostamento: vale la posizione disegnata dal server, cioè l'ultima letta
+    expect(riga(bloccoV())).toBe('')
+    expect(bloccoV().dataset.etichetta).toBeUndefined()
+    expect(JSON.stringify(errori.mock.calls.map((c) => String(c[0])))).not.toContain('navigation')
+    await avanza(3_000)
+    expect(JSON.stringify(errori.mock.calls.map((c) => String(c[0])))).toContain('navigation')
+  })
+
+  it('il pulsante «Annulla» sparisce appena parte un altro invio sulla stessa visita', async () => {
+    const sposta = vi.fn<AzioniTrascina['sposta']>().mockResolvedValueOnce(salvata('vv1', [A1, A2])).mockImplementation(mai)
+    monta({ sposta })
+    await trascina(bloccoV(), 28)
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeTruthy()
+    await trascina(bloccoV(), 14)
+    expect(sposta).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: 'Annulla' })).toBeNull()
+  })
+
+  it('la gemella: un invio su un ALTRA visita lascia «Annulla» dov è', async () => {
+    const sposta = vi.fn<AzioniTrascina['sposta']>().mockResolvedValueOnce(salvata('vv1', [A1, A2])).mockImplementation(mai)
+    monta({ sposta })
+    await trascina(bloccoV(), 28)
+    await trascina(bloccoW(), 14)
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeTruthy()
+  })
+
+  it('un giorno riletto arrivato mentre il blocco è in mano: al rilascio senza spostamento si rilegge, e decide la lettura', async () => {
+    const { rilettura } = monta({ sposta: vi.fn(async () => salvata('vv1', [A1, A2])) })
+    await trascina(bloccoV(), 28)
+    // il ✓ ha chiesto la sua rilettura; adesso il blocco è disegnato a 124
+    const prima = router.refresh.mock.calls.length
+    id += 1
+    giu(bloccoV())
+    await avanza(400)
+    // mentre lo tiene, arriva il giorno: una collega l'ha portato alle 11:00
+    rilettura(132)
+    await assesta()
+    su(bloccoV(), 300)
+    await assesta()
+    expect(router.refresh.mock.calls.length).toBe(prima + 1)
+    rilettura(132)
+    await assesta()
+    expect(riga(bloccoV())).toBe('')
+  })
+})

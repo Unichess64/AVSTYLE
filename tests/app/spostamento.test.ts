@@ -19,7 +19,7 @@ import type { StatoVisita } from '../../src/dominio/stato-visita'
 import { leggiStato } from '../../src/server/lettura-scheda'
 import { type RichiestaSpostamento, eliminaVisita, riportaVisita, salvaVisita, spostaVisita } from '../../src/server/scrittura-visita'
 import { ALESSANDRA, ANNALISA, VERA, VERA_AUTH, asOwner, resetData } from '../helpers/db'
-import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, SERVICE_MASSAGE, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
+import { CLIENT_LUCIA, CLIENT_MARIA, DAY_ONE, DAY_TWO, SERVICE_MASSAGE, SERVICE_REFILL, seedFixture } from '../helpers/fixtures'
 import { sessioneDi } from '../helpers/sessioni'
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
@@ -291,6 +291,40 @@ describe('lo spostamento (§5.1, Passo 4)', () => {
     expect(r).toMatchObject({ esito: 'salvata' })
     expect(spia).toEqual([0, 1])
     expect(await righeDiInvio(c)).toBe(1)
+  })
+})
+
+describe('revisione del Task 10, B1: la posizione si controlla a OGNI gesto, non solo al primo', () => {
+  it('un secondo gesto su un ALTRO blocco della visita, con le versioni adottate e l agenda vecchia, non toglie lo spostamento della collega', async () => {
+    await crea(V2, CLIENT_LUCIA, [servizio(B1, ANNALISA, SERVICE_REFILL, 120, 18), servizio(B2, ALESSANDRA, SERVICE_MASSAGE, 150, 10)])
+    // La collega porta il massaggio alle 14:10; l'agenda di Vera lo mostra ancora alle 12:30.
+    await asOwner((c) => c.query('update appointment set start_cell = 170 where id = $1', [B2]))
+    const primo = await spostaVisita(await vera(), { visitaId: V2, data: DAY_ONE, mossi: [{ id: B1, da: 120, a: 126 }], versioni: null }, codice())
+    expect(primo).toMatchObject({ esito: 'salvata' })
+    const c = codice()
+    const secondo = await spostaVisita(await vera(), { visitaId: V2, data: DAY_ONE, mossi: [{ id: B2, da: 150, a: 156 }], versioni: versioniDi(primo) }, c)
+    expect(secondo).toMatchObject({ tipo: 'esito', esito: 'modificata_altrove' })
+    expect(await righeDiInvio(c)).toBe(0)
+    expect(await posizioni(V2)).toEqual([[B1, 126], [B2, 170]])
+  })
+
+  it('la gemella: con l agenda allineata, lo stesso secondo gesto scrive', async () => {
+    await crea(V2, CLIENT_LUCIA, [servizio(B1, ANNALISA, SERVICE_REFILL, 120, 18), servizio(B2, ALESSANDRA, SERVICE_MASSAGE, 150, 10)])
+    const primo = await spostaVisita(await vera(), { visitaId: V2, data: DAY_ONE, mossi: [{ id: B1, da: 120, a: 126 }], versioni: null }, codice())
+    const secondo = await spostaVisita(await vera(), { visitaId: V2, data: DAY_ONE, mossi: [{ id: B2, da: 150, a: 156 }], versioni: versioniDi(primo) }, codice())
+    expect(secondo).toMatchObject({ esito: 'salvata' })
+    expect(await posizioni(V2)).toEqual([[B1, 126], [B2, 156]])
+  })
+
+  it('un POST con le versioni giuste ma un altro giorno non sposta la visita di giorno', async () => {
+    await creaV1()
+    const s = (await leggiStato(await vera(), V1))!
+    const versioni = { visita: s.visita, attesi: s.appuntamenti.map(({ id, versione }) => ({ id, versione })) }
+    const c = codice()
+    const r = await spostaVisita(await vera(), { ...spostaV1(120, 6, versioni), data: DAY_TWO }, c)
+    expect(r).toMatchObject({ tipo: 'esito', esito: 'modificata_altrove' })
+    expect(await righeDiInvio(c)).toBe(0)
+    expect((await leggiStato(await vera(), V1))!.data).toBe(DAY_ONE)
   })
 })
 

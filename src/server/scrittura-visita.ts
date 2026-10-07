@@ -84,7 +84,10 @@ export interface OpzioniScrittura {
 
 /**
  * La quinta decisione, opzione (b), presa dall'utente il 06/10/2026: nessun
- * ritentativo PARTE dopo 7 s dall'inizio della Server Action. Il telefono
+ * ritentativo PARTE dopo 7 s dall'inizio di `chiama()`, cioè della prima
+ * chiamata alla funzione: le letture dei passi 1-3 che la precedono (pochi
+ * decimi di secondo) non contano. Prima qui c'era scritto «dall'inizio della
+ * Server Action», che era inesatto (revisione del Task 10). Il telefono
  * smette di aspettare a 10 s (D3-9), e il server smette con lui: quattro
  * tentativi da 8 s costerebbero 32 s. §4.3 passo 5 vale «fino a 3, entro 7 s».
  */
@@ -411,8 +414,8 @@ export interface RichiestaSpostamento {
   readonly mossi: readonly Mosso[]
   /**
    * Le versioni ADOTTATE dopo l'ultimo ✓ di questa visita. `null` al primo
-   * gesto: le legge il server con `stato_visita` (sotto), dopo aver
-   * controllato che la visita letta sia dove l'agenda la mostrava.
+   * gesto: le legge il server con `stato_visita` (sotto). In tutti e due i
+   * casi il server controlla che la visita letta sia dove l'agenda la mostrava.
    */
   readonly versioni: { readonly visita: string; readonly attesi: readonly Atteso[] } | null
 }
@@ -494,10 +497,14 @@ async function corpoSposta(
       // Un appuntamento del gesto che la visita non ha più: è cambiata, e il
       // gesto non ha più senso. Niente si scrive.
       if (mossi.some((m) => !letti.has(m.id))) return statoDiverso(stato)
-      // Il primo gesto, con le versioni lette QUI: la visita dev'essere dove
-      // l'agenda la mostrava. Se no l'agenda era vecchia, e scrivere con
-      // versioni fresche cancellerebbe in silenzio lo spostamento di una collega.
-      if (versioni === null && (stato.data !== data || mossi.some((m) => letti.get(m.id)!.inizio !== m.da))) return statoDiverso(stato)
+      // A OGNI gesto, non solo al primo: la visita dev'essere dove l'agenda la
+      // mostrava, e nello stesso giorno. Se no l'agenda era vecchia, e scrivere
+      // cancellerebbe in silenzio lo spostamento di una collega. Le versioni
+      // adottate dopo un ✓ non bastano: il telefono le adotta insieme alle
+      // posizioni che MOSTRAVA, e per gli altri blocchi della visita quelle
+      // possono essere vecchie (revisione del Task 10, B1, misurato). E un POST
+      // non porta la visita in un altro giorno con versioni giuste.
+      if (stato.data !== data || mossi.some((m) => letti.get(m.id)!.inizio !== m.da)) return statoDiverso(stato)
       if (mossi.some((m) => m.a + letti.get(m.id)!.durata > CELLE_PER_GIORNO)) {
         return { tipo: 'non_valida', motivo: 'Un servizio finirebbe dopo mezzanotte.' }
       }

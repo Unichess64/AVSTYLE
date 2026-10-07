@@ -64,6 +64,8 @@ const TOLLERANZA_PX = 8
 const ALTEZZA_CELLA = 7
 /** «Spostata alle 16:15 · Annulla» per 6 s (§5.1). */
 const DURATA_MESSAGGIO_MS = 6_000
+/** Dopo «L'app è stata aggiornata», il tempo di leggerlo prima che la pagina si ricarichi. */
+const RICARICA_MS = 3_000
 /** §4.4, vita della scheda: un invio incerto vive al massimo 24 ore, come in `localStorage`. */
 const VITA_INVIO_MS = 24 * 60 * 60 * 1000
 
@@ -222,8 +224,13 @@ export function Trascina({
     }
     if (rilettura) return
     for (const [chiave, s] of scostamenti.current) {
-      // Il blocco che l'operatrice ha in mano resta dov'è: lo decide il rilascio.
-      if (s.finoAllaRilettura && !(gesto.current?.armato && gesto.current.chiave === chiave)) togliScostamento(chiave)
+      // Il blocco che l'operatrice ha in mano resta dov'è: lo decide il
+      // rilascio, che rilegge il giorno (revisione del Task 10).
+      if (gesto.current?.armato && gesto.current.chiave === chiave) {
+        rileggiDopo.current = true
+        continue
+      }
+      if (s.finoAllaRilettura) togliScostamento(chiave)
     }
     // Dipende dall'ARRIVO dei dati del server, non da chi li ha chiesti.
   }, [appuntamenti])
@@ -279,8 +286,13 @@ export function Trascina({
     fermaTimer(g.visitaId)
     invii.current.delete(g.visitaId)
     if (m.ricaricaLaPagina) {
-      scosta(chiave, { etichetta: null, finoAllaRilettura: true })
-      return setAvviso({ testo: m.testo, annulla: null })
+      // Niente è stato scritto: il blocco torna alla posizione disegnata dal
+      // server, che è l'ultima letta, e dopo il messaggio la pagina si
+      // ricarica da sola con l'app nuova (revisione del Task 10, B2).
+      scosta(chiave, { inizio: null, nascosto: false, etichetta: null, finoAllaRilettura: true })
+      setAvviso({ testo: m.testo, annulla: null })
+      timer.current.set(g.visitaId, setTimeout(() => window.location.reload(), RICARICA_MS))
+      return
     }
     // Dopo ogni ✓ si ADOTTANO le versioni (restituite, o rilette da
     // «Controlla»); dopo ogni altro esito si buttano, e il gesto dopo le fa
@@ -341,6 +353,8 @@ export function Trascina({
   const invia = async (tipo: TipoInvio, g: Gesto, chiave: string, versioni: RichiestaSpostamento['versioni']) => {
     const codice = crypto.randomUUID()
     const toccatoIl = adesso()
+    // Un altro invio sulla stessa visita: il suo «Annulla» non farebbe più niente, e sparisce.
+    setAvviso((a) => (a?.annulla?.gesto.visitaId === g.visitaId ? null : a))
     const gen = generazioni.current.invia(g.visitaId)
     const invio: InvioDelBlocco = { tipo, codice, gesto: g, chiave, toccatoIl }
     invii.current.set(g.visitaId, invio)
