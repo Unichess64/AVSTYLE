@@ -103,12 +103,19 @@ test('la fila: con il primo invio trattenuto, il secondo mostra «In attesa del 
   await creaVisita(due, g, [{ id: uuid('6a200000'), operatrice: ANNALISA, servizio: SERVICE_REFILL, inizio: 108, durata: 18 }], CLIENT_LUCIA)
   await apriAgenda(page, g)
   const trattenuta = await trattieniLaProssimaAzione(page)
+  // Le Server Actions che il browser fa partire: finché il primo è trattenuto, una sola.
+  let partite = 0
+  page.on('request', (r) => {
+    if (eAzione(r)) partite += 1
+  })
   await trascina(page, blocco(page, uno), 6)
   await trattenuta.trattenuta
   await trascina(page, blocco(page, due), 6)
   await expect(blocco(page, due)).toHaveAttribute('data-etichetta', 'In attesa…')
   await expect(page.getByRole('status').filter({ hasText: 'In attesa del salvataggio precedente' })).toBeVisible()
   // Il secondo non è partito: la fila di React lo tiene dietro il primo.
+  await page.waitForTimeout(1000)
+  expect(partite).toBe(1)
   expect(await inizio(due)).toBe(108)
 
   trattenuta.rilascia()

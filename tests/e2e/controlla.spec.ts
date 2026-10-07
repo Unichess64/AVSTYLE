@@ -105,14 +105,6 @@ test('C1: salvataggio TRATTENUTO nel browser e rilasciato dopo «Controlla» →
   // D3-9: «Non so» a 10 s dal tocco.
   await expect(s.getByRole('status').filter({ hasText: NON_SO })).toBeVisible({ timeout: 15_000 })
 
-  // Intanto la collega aggiunge un massaggio di Alessandra alla stessa visita.
-  expect(
-    await riscriviVisita(v, [
-      { id: av, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 18 },
-      { id: uuid('6b000000'), operatrice: ALESSANDRA, servizio: SERVICE_MASSAGE, inizio: 168, durata: 10 },
-    ]),
-  ).toBe('salvata')
-
   // La fila: «Controlla» passa da una rotta e risponde con l'invio ancora appeso.
   const risposta = page.waitForResponse((r) => r.url().endsWith('/api/controlla'))
   await s.getByRole('button', { name: 'Controlla' }).click()
@@ -123,14 +115,25 @@ test('C1: salvataggio TRATTENUTO nel browser e rilasciato dopo «Controlla» →
   await expect(s.getByRole('listitem')).toHaveCount(1)
   await expect(s.getByRole('listitem', { name: 'Refill gel alle 10:30' })).toBeVisible()
 
-  // Il salvataggio tardivo parte ora, e il server lo trova bruciato: non scrive.
+  // Il salvataggio tardivo parte ora, con versioni ANCORA GIUSTE: lo ferma solo il
+  // codice bruciato da «Controlla». (Con la collega che scrive prima, lo fermerebbe
+  // il controllo delle versioni, e la prova non vedrebbe un «Controlla» che brucia
+  // il codice sbagliato: misurato dalla revisione, verde con `randomUUID()`.)
   const tardiva = page.waitForResponse((r) => eAzione(r.request()))
   trattenuta.rilascia()
   await tardiva
   let letta = (await leggiVisita(v))!
-  expect(letta.appuntamenti.find((a) => a.id === av)!.inizio).toBe(120)
-  expect(letta.appuntamenti).toHaveLength(2)
+  expect(letta.appuntamenti).toHaveLength(1)
+  expect(letta.appuntamenti[0].inizio).toBe(120)
   await page.unroute('**/*')
+
+  // Poi la collega aggiunge un massaggio di Alessandra alla stessa visita.
+  expect(
+    await riscriviVisita(v, [
+      { id: av, operatrice: VERA, servizio: SERVICE_REFILL, inizio: 120, durata: 18 },
+      { id: uuid('6b000000'), operatrice: ALESSANDRA, servizio: SERVICE_MASSAGE, inizio: 168, durata: 10 },
+    ]),
+  ).toBe('salvata')
 
   // «Salva» riparte con le versioni di partenza: la collega ha cambiato la visita,
   // e il server lo dice invece di togliere in silenzio il suo massaggio.

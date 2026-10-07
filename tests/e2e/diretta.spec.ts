@@ -178,7 +178,9 @@ test('operatrice disattivata scrivendo sul database da proprietario → uscita f
   const scheda401 = page.waitForResponse((r) => r.url().endsWith('/api/scheda') && r.status() === 401)
   await toccaSpazio(page, ALESSANDRA, 132)
   await scheda401
-  await page.waitForURL('**/accesso')
+  // Entro 5 s: senza limite, il ripiego dei 60 s rimanderebbe all'accesso lo stesso
+  // e la prova passerebbe col tocco scollegato (misurato dalla revisione: verde in 1 min).
+  await page.waitForURL('**/accesso', { timeout: 5_000 })
   // E rientrare non si può, con la frase decisa il 05/10.
   await page.getByLabel('Email').fill('alessandra@example.test')
   await page.getByLabel('Password').fill(PASSWORD_PROVA)
@@ -199,6 +201,7 @@ test.describe('con la scheda di Vera', () => {
     await s.getByLabel('Aggiungi servizio').selectOption({ label: 'Refill gel' })
     // Nessun avviso mentre si compila: Maria quel giorno non ha altro.
     await expect(s.getByRole('button', { name: 'Salva', exact: true })).toBeVisible()
+    await expect(s.getByRole('status')).toHaveCount(0)
 
     // La collega prenota Maria lo stesso giorno, dopo che la scheda ha letto il giorno.
     await creaVisita(uuid('58000000'), g, [{ id: uuid('69000000'), operatrice: ALESSANDRA, servizio: SERVICE_MASSAGE, inizio: 120, durata: 10 }])
