@@ -63,7 +63,7 @@ export interface RicaricheDelTelefono {
   occupazione(occupato: () => boolean): () => void
   /** Chi era occupato avvisa che forse non lo è più: la ricarica messa da parte si applica. */
   forseLibero(): void
-  /** Un ✓ (o un esito letto dal server): le riletture in volo adesso sono state chieste prima. */
+  /** Un ✓ (o un esito letto dal server): un giorno che arriva prima della rilettura seguente porta le posizioni di prima. */
   spunta(): void
   /** Un giorno riletto è arrivato: `true` se si applica (§5.1). */
   arrivata(): boolean
@@ -154,36 +154,63 @@ const ANNUNCI = { event: 'INSERT', schema: 'public', table: 'annuncio' } as cons
 /** Il token rinnovato, chiesto alla libreria: un guasto qui lo ritenta il prossimo battito. */
 const rinnovaIlToken = (client: ClientDiretta) => client.realtime.setAuth().catch(() => {})
 
+/** Dopo un canale chiuso dal server, l'attesa prima di aprirne un altro. */
+const RIAPRI_MS = 5_000
+
 /**
  * Si iscrive agli annunci: chiama `rileggi` quando uno nomina un giorno
  * mostrato e quando il canale torna dopo una caduta (riconnessione). Restituisce
  * la chiusura del canale.
+ *
+ * Due cadute diverse. `CHANNEL_ERROR` e `TIMED_OUT` (socket caduto, Realtime
+ * fermo) li ritenta la libreria da sola, e qui si chiede solo il token
+ * rinnovato. `CLOSED` non chiesto è il server che chiude il canale — per
+ * esempio a token scaduto — e la libreria NON si reiscrive (revisione del
+ * Task 11, M2): qui si apre un canale nuovo dopo 5 s, col token rinnovato.
  */
 export function ascoltaIlGiorno(client: ClientDiretta, mostrati: () => readonly string[], rileggi: () => void): () => void {
   let chiuso = false
   let caduto = false
-  const canale = client.channel('agenda').on('postgres_changes', ANNUNCI, (m) => {
-    if (annuncioRiguarda(m.new?.giorni, mostrati())) rileggi()
-  })
-  // Il token prima dell'iscrizione: chi si iscrive con la sola chiave pubblica
-  // non riceve niente (la politica `annuncio_lettura`), e non lo sa.
-  void rinnovaIlToken(client).then(() => {
-    if (chiuso) return
-    canale.subscribe((stato) => {
-      if (stato === 'SUBSCRIBED') {
-        // Riconnessione: gli annunci mandati mentre il canale era giù sono persi.
-        if (caduto) rileggi()
-        caduto = false
-        return
-      }
-      caduto = true
-      // Un token scaduto chiude il canale: il prossimo tentativo parte con quello rinnovato.
-      if (stato === 'CHANNEL_ERROR') void rinnovaIlToken(client)
+  let canale: CanaleDiretta | null = null
+  let riapri: ReturnType<typeof setTimeout> | undefined
+
+  const apri = () => {
+    // Questo canale, e nessun altro: il CLOSED che segue il suo `removeChannel` non riapre niente.
+    let sostituito = false
+    const questo = client.channel('agenda').on('postgres_changes', ANNUNCI, (m) => {
+      if (annuncioRiguarda(m.new?.giorni, mostrati())) rileggi()
     })
-  })
+    canale = questo
+    // Il token prima dell'iscrizione: chi si iscrive con la sola chiave pubblica
+    // non riceve niente (la politica `annuncio_lettura`), e non lo sa.
+    void rinnovaIlToken(client).then(() => {
+      if (chiuso || sostituito) return
+      questo.subscribe((stato) => {
+        if (chiuso || sostituito) return
+        if (stato === 'SUBSCRIBED') {
+          // Riconnessione: gli annunci mandati mentre il canale era giù sono persi.
+          if (caduto) rileggi()
+          caduto = false
+          return
+        }
+        caduto = true
+        if (stato === 'CHANNEL_ERROR') void rinnovaIlToken(client)
+        if (stato === 'CLOSED') {
+          sostituito = true
+          riapri = setTimeout(() => {
+            void client.removeChannel(questo)
+            apri()
+          }, RIAPRI_MS)
+        }
+      })
+    })
+  }
+
+  apri()
   return () => {
     chiuso = true
-    void client.removeChannel(canale)
+    clearTimeout(riapri)
+    if (canale !== null) void client.removeChannel(canale)
   }
 }
 

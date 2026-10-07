@@ -90,27 +90,41 @@ describe('le ricariche messe da parte (§4.6, §5.1)', () => {
     expect(liberato(RICARICHE_INIZIALI, false).rileggi).toBe(false)
   })
 
-  it('una ricarica letta PRIMA del ✓ non si applica: si rilegge il giorno', () => {
-    // Chiesta prima del ✓, arriva dopo: porta le posizioni di prima.
-    let s: StatoRicariche = chiedi(RICARICHE_INIZIALI, false).stato
-    s = spunta(s)
+  // Le riletture di Next girano in FILA, e React disegna solo l'ultima in coda:
+  // N riletture accavallate danno UN arrivo (misurato dalla revisione del
+  // Task 11, B1; `app-router-instance.js`). Il modello non conta: ricorda
+  // solo se dopo l'ultimo ✓ è già partita una rilettura.
+
+  it('un giorno arrivato dopo il ✓ PRIMA che sia partita una rilettura non si applica: si rilegge il giorno (§5.1)', () => {
+    // ✓ con il telefono occupato: la rilettura del ✓ è messa da parte, e
+    // intanto arriva quella chiesta prima del gesto, con le posizioni di prima.
+    let s: StatoRicariche = spunta(RICARICHE_INIZIALI)
+    s = chiedi(s, true).stato
     const a = arrivata(s, false)
     expect(a.applica).toBe(false)
     expect(a.rileggi).toBe(true)
-    // la rilettura chiesta dopo il ✓ si applica
-    const b = arrivata(a.stato, false)
-    expect(b.applica).toBe(true)
-    expect(b.rileggi).toBe(false)
+    // quella chiesta dopo il ✓ si applica
+    expect(arrivata(a.stato, false).applica).toBe(true)
   })
 
-  it('…e se una rilettura chiesta DOPO il ✓ è già in volo, non se ne chiede un altra: si aspetta quella', () => {
-    let s: StatoRicariche = chiedi(RICARICHE_INIZIALI, false).stato
+  it('dopo il ✓ con una rilettura già partita, il giorno che arriva si applica: è l ultima della fila', () => {
+    let s: StatoRicariche = spunta(RICARICHE_INIZIALI)
+    s = chiedi(s, false).stato
+    const a = arrivata(s, false)
+    expect(a.applica).toBe(true)
+    expect(a.rileggi).toBe(false)
+  })
+
+  it('B1: molte riletture prima del ✓ e un solo arrivo non lasciano debiti — il giorno dopo il ✓ si applica', () => {
+    // Un salvataggio di una collega fa da 2 a 5 annunci: altrettante riletture, un arrivo.
+    let s: StatoRicariche = RICARICHE_INIZIALI
+    for (let i = 0; i < 5; i++) s = chiedi(s, false).stato
+    s = arrivata(s, false).stato
     s = spunta(s)
-    s = chiedi(s, false).stato // la rilettura che segue il ✓
-    const vecchia = arrivata(s, false)
-    expect(vecchia.applica).toBe(false)
-    expect(vecchia.rileggi).toBe(false)
-    expect(arrivata(vecchia.stato, false).applica).toBe(true)
+    s = chiedi(s, false).stato // la rilettura del ✓
+    expect(arrivata(s, false).applica).toBe(true)
+    // e il seguente pure
+    expect(arrivata(arrivata(s, false).stato, false).applica).toBe(true)
   })
 
   it('la gemella: senza un ✓ in mezzo, il giorno riletto si applica', () => {
@@ -118,19 +132,20 @@ describe('le ricariche messe da parte (§4.6, §5.1)', () => {
     expect(arrivata(s, false)).toEqual({ stato: RICARICHE_INIZIALI, applica: true, rileggi: false })
   })
 
-  it('un giorno arrivato senza averlo chiesto (si è cambiato giorno) si applica e non sporca il conto', () => {
+  it('un giorno arrivato senza averlo chiesto (si è cambiato giorno) si applica', () => {
     const a = arrivata(RICARICHE_INIZIALI, false)
     expect(a.applica).toBe(true)
     expect(a.stato).toEqual(RICARICHE_INIZIALI)
   })
 
-  it('la rilettura che segue un giorno scartato durante un gesto si mette da parte anche lei', () => {
-    let s: StatoRicariche = chiedi(RICARICHE_INIZIALI, false).stato
-    s = spunta(s)
+  it('la rilettura che segue un giorno scartato durante un gesto si mette da parte anche lei, e al rilascio si applica', () => {
+    const s = spunta(RICARICHE_INIZIALI)
     const a = arrivata(s, true)
     expect(a.applica).toBe(false)
     expect(a.rileggi).toBe(false)
-    expect(liberato(a.stato, false).rileggi).toBe(true)
+    const b = liberato(a.stato, false)
+    expect(b.rileggi).toBe(true)
+    expect(arrivata(b.stato, false).applica).toBe(true)
   })
 })
 

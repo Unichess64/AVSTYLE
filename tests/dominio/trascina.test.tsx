@@ -598,24 +598,51 @@ describe('revisione del Task 10', () => {
   })
 })
 
-describe('Task 11: un giorno riletto chiesto PRIMA del ✓ (§5.1)', () => {
-  it('arrivato dopo il ✓ non si applica: il blocco resta dove l ha messo il gesto, e decide la rilettura chiesta dopo', async () => {
+describe('Task 11: il giorno riletto dopo un ✓ (§5.1; revisione del Task 11, B1 e M1)', () => {
+  // Le riletture di Next girano in fila e React disegna solo l'ultima: N
+  // riletture accavallate danno UN arrivo. Qui un arrivo è un `rerender`.
+
+  it('B1: tre riletture con un solo arrivo, poi un ✓ — il giorno riletto dopo il ✓ decide la posizione, subito', async () => {
     const primo = differita<Risposta>()
     const { rilettura } = monta({ sposta: vi.fn<AzioniTrascina['sposta']>().mockImplementationOnce(() => primo.promessa).mockImplementation(mai) })
-    // un annuncio, prima del gesto: la rilettura parte e non è ancora arrivata
-    act(() => ricariche!.rileggi())
-    expect(router.refresh).toHaveBeenCalledTimes(1)
+    // il salvataggio di una collega: tre annunci, tre riletture, un arrivo
+    act(() => {
+      ricariche!.rileggi()
+      ricariche!.rileggi()
+      ricariche!.rileggi()
+    })
+    rilettura(120)
+    await assesta()
     await trascina(bloccoV(), 28)
     primo.risolvi(salvata('vv1', [A1, A2]))
     await assesta()
-    // il ✓ chiede la sua
-    expect(router.refresh).toHaveBeenCalledTimes(2)
     expect(riga(bloccoV())).toBe(rigaDi(124))
-    // arriva la PRIMA: letta prima del ✓, porta la visita alle 10:00
+    // il giorno riletto dopo il ✓: intanto una collega l'ha portata alle 11:40
+    rilettura(140)
+    await assesta()
+    expect(riga(bloccoV())).toBe('')
+  })
+
+  it('un ✓ arrivato col dito su un altro blocco: il giorno chiesto PRIMA, che arriva intanto, non riporta indietro il blocco; al rilascio si rilegge, e decide la lettura', async () => {
+    const primo = differita<Risposta>()
+    const { rilettura } = monta({ sposta: vi.fn<AzioniTrascina['sposta']>().mockImplementationOnce(() => primo.promessa).mockImplementation(mai) })
+    // una rilettura chiesta prima del gesto, ancora per strada
+    act(() => ricariche!.rileggi())
+    await trascina(bloccoV(), 28)
+    // il dito ora tiene W: la rilettura del ✓ resta da parte
+    id += 1
+    giu(bloccoW())
+    await avanza(400)
+    primo.risolvi(salvata('vv1', [A1, A2]))
+    await assesta()
+    const chieste = router.refresh.mock.calls.length
+    // arriva la rilettura chiesta prima del gesto: la visita alle 10:00, com'era
     rilettura(120)
     await assesta()
     expect(riga(bloccoV())).toBe(rigaDi(124))
-    // arriva quella del ✓: decide la lettura
+    su(bloccoW(), 300)
+    await assesta()
+    expect(router.refresh.mock.calls.length).toBe(chieste + 1)
     rilettura(124)
     await assesta()
     expect(riga(bloccoV())).toBe('')

@@ -159,6 +159,44 @@ describe('il canale (D3-12)', () => {
   })
 })
 
+describe('il canale chiuso dal server (revisione del Task 11, M2)', () => {
+  it('un CLOSED che il telefono non ha chiesto (token scaduto): dopo 5 s un canale nuovo, col token rinnovato, e alla sua iscrizione si rilegge', async () => {
+    const { client, stato } = monta()
+    await avanza(0)
+    stato('SUBSCRIBED')
+    const vecchio = client.channel.mock.results[0].value
+    stato('CLOSED')
+    await avanza(4_900)
+    expect(client.channel).toHaveBeenCalledTimes(1)
+    const tokenPrima = client.realtime.setAuth.mock.calls.length
+    await avanza(100)
+    expect(client.removeChannel).toHaveBeenCalledWith(vecchio)
+    expect(client.channel).toHaveBeenCalledTimes(2)
+    expect(client.realtime.setAuth.mock.calls.length).toBe(tokenPrima + 1)
+    expect(router.refresh).not.toHaveBeenCalled()
+    stato('SUBSCRIBED')
+    expect(router.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('la gemella: un CHANNEL_ERROR lo ritenta la libreria da sola, e non si apre un altro canale', async () => {
+    const { client, stato } = monta()
+    await avanza(0)
+    stato('SUBSCRIBED')
+    stato('CHANNEL_ERROR')
+    await avanza(10_000)
+    expect(client.channel).toHaveBeenCalledTimes(1)
+  })
+
+  it('smontata durante l attesa, non riapre niente', async () => {
+    const { client, stato, unmount } = monta()
+    await avanza(0)
+    stato('CLOSED')
+    unmount()
+    await avanza(10_000)
+    expect(client.channel).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('i quattro ripieghi (§4.6)', () => {
   it('riconnessione: il canale tornato dopo una caduta rilegge; la prima iscrizione no', async () => {
     const { stato } = monta()
@@ -172,9 +210,7 @@ describe('i quattro ripieghi (§4.6)', () => {
     stato('TIMED_OUT')
     stato('SUBSCRIBED')
     expect(router.refresh).toHaveBeenCalledTimes(2)
-    stato('CLOSED')
-    stato('SUBSCRIBED')
-    expect(router.refresh).toHaveBeenCalledTimes(3)
+    // CLOSED non lo ritenta la libreria: lo presidia «il canale chiuso dal server» (M2).
   })
 
   it('ritorno in primo piano: rilegge e rinnova il token; nascondersi no', async () => {

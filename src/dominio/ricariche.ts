@@ -29,20 +29,22 @@ export function annuncioRiguarda(giorni: unknown, mostrati: readonly string[]): 
 }
 
 /**
- * Le riletture del giorno, contate. Il telefono non sa QUALE rilettura porta
- * un giorno che arriva, ma le riletture di Next arrivano nell'ordine in cui
- * sono state chieste: basta contarle.
+ * Le riletture del giorno. Non si CONTANO: le riletture di Next girano in
+ * fila, ciascuna chiede il giorno quando parte, e React disegna soltanto
+ * l'ultima in coda — N riletture accavallate danno UN arrivo (revisione del
+ * Task 11, B1: un conto che presupponeva un arrivo per rilettura accumulava
+ * debiti a ogni salvataggio di una collega, e dopo un ✓ inchiodava il blocco
+ * per minuti). Basta sapere se dopo l'ultimo ✓ è già partita una rilettura:
+ * se sì, il giorno che arriva la contiene.
  */
 export interface StatoRicariche {
-  /** Riletture chieste e non ancora arrivate. */
-  readonly inVolo: number
-  /** Fra quelle in volo, le più vecchie: chieste PRIMA dell'ultimo ✓. */
-  readonly vecchie: number
+  /** Dopo l'ultimo ✓: niente da aspettare, una rilettura ancora da chiedere, o già chiesta. */
+  readonly dopoLaSpunta: 'nessuna' | 'da_chiedere' | 'chiesta'
   /** Una ricarica chiesta mentre il telefono era occupato. */
   readonly messaDaParte: boolean
 }
 
-export const RICARICHE_INIZIALI: StatoRicariche = { inVolo: 0, vecchie: 0, messaDaParte: false }
+export const RICARICHE_INIZIALI: StatoRicariche = { dopoLaSpunta: 'nessuna', messaDaParte: false }
 
 export interface Passo {
   readonly stato: StatoRicariche
@@ -53,7 +55,8 @@ export interface Passo {
 /** Una ricarica chiesta (annuncio, ripiego, esito): adesso, o messa da parte se il telefono è occupato. */
 export function chiedi(s: StatoRicariche, occupato: boolean): Passo {
   if (occupato) return { stato: { ...s, messaDaParte: true }, rileggi: false }
-  return { stato: { ...s, inVolo: s.inVolo + 1, messaDaParte: false }, rileggi: true }
+  const dopoLaSpunta = s.dopoLaSpunta === 'da_chiedere' ? 'chiesta' : s.dopoLaSpunta
+  return { stato: { dopoLaSpunta, messaDaParte: false }, rileggi: true }
 }
 
 /** Il gesto o il salvataggio è finito: la ricarica messa da parte si applica, se il telefono è libero davvero. */
@@ -63,27 +66,21 @@ export function liberato(s: StatoRicariche, occupato: boolean): Passo {
 }
 
 /**
- * Un ✓, o un esito che il server ha letto DOPO: le riletture in volo adesso
- * sono state chieste prima, e porteranno le posizioni di prima.
+ * Un ✓, o un esito che il server ha letto ADESSO: un giorno riletto che
+ * arriva prima che parta una rilettura nuova porta le posizioni di prima.
  */
 export function spunta(s: StatoRicariche): StatoRicariche {
-  return { ...s, vecchie: s.inVolo }
+  return { ...s, dopoLaSpunta: 'da_chiedere' }
 }
 
 /**
- * Un giorno riletto è arrivato. Si applica, tranne se è stato chiesto prima
- * dell'ultimo ✓ (§5.1): allora non si applica, e si rilegge — a meno che una
- * rilettura chiesta dopo il ✓ sia già in volo, e allora si aspetta quella.
- *
- * Un giorno arrivato senza averlo chiesto (il cambio di giorno) si applica:
- * il conto non scende sotto zero.
+ * Un giorno riletto è arrivato. Si applica, tranne se dopo l'ultimo ✓ non è
+ * ancora partita nessuna rilettura (§5.1): allora è stato chiesto prima, non
+ * si applica, e si rilegge — adesso, o finito il gesto.
  */
 export function arrivata(s: StatoRicariche, occupato: boolean): Passo & { readonly applica: boolean } {
-  const inVolo = Math.max(0, s.inVolo - 1)
-  if (s.vecchie === 0) return { stato: { ...s, inVolo }, rileggi: false, applica: true }
-  const dopo = { ...s, inVolo, vecchie: s.vecchie - 1 }
-  if (dopo.inVolo > dopo.vecchie) return { stato: dopo, rileggi: false, applica: false }
-  return { ...chiedi(dopo, occupato), applica: false }
+  if (s.dopoLaSpunta === 'da_chiedere') return { ...chiedi(s, occupato), applica: false }
+  return { stato: { ...s, dopoLaSpunta: 'nessuna' }, rileggi: false, applica: true }
 }
 
 /** Ciò che il telefono mostra, per decidere che cosa diventa dopo la mezzanotte. */
