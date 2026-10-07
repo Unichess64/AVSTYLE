@@ -27,7 +27,7 @@
 // avvisi, conflitti): qui si eseguono soltanto.
 //
 // ⚠︎ NIENTE attributi `style`: la CSP di produzione li blocca.
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import type { Apertura } from '../dominio/apertura'
 import type { Atteso } from '../dominio/attesi'
 import { type Avviso, calcolaAvvisi, confermaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
@@ -67,6 +67,7 @@ import { dataReale } from '../dominio/validazione'
 import type { DatiGiorno, RispostaApri } from '../server/lettura-scheda'
 import type { Risposta } from '../server/scrittura-visita'
 import { CercaCliente } from './cerca-cliente'
+import { Ricariche } from './diretta'
 import { type RichiesteScheda, UscitaForzata, richiesteVere } from './richieste-scheda'
 import stile from './scheda-visita.module.css'
 
@@ -247,6 +248,11 @@ export function SchedaCompilata({
   // aggiornata». Serve a sapere se «Togli» porta altre modifiche (06/10).
   const [letta, setLetta] = useState(iniziale)
   const [inCorso, setInCorso] = useState(false)
+  // §4.6: durante un salvataggio le ricariche dell'agenda si mettono da parte.
+  // Il coordinatore della diretta lo chiede alla scheda finché l'invio è in
+  // corso (dal tocco alla risposta, o ai 10 s del «Non so»), e alla fine riparte.
+  const ricariche = useContext(Ricariche)
+  useEffect(() => (inCorso && ricariche !== null ? ricariche.occupazione(() => true) : undefined), [inCorso, ricariche])
   // §4.4: dopo «Non so» «Salva» è spento e resta il solo «Controlla».
   const [incerto, setIncerto] = useState(false)
   const [inControllo, setInControllo] = useState(false)

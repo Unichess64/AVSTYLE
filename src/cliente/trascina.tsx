@@ -25,8 +25,12 @@
 //
 // ⚠︎ La decisione di che cosa mostrare non sta qui: è di
 // `messaggioDiSpostamento` e `messaggioDiAnnulla`. Qui si esegue soltanto.
-import { useRouter } from 'next/navigation'
-import { useContext, useEffect, useLayoutEffect, useRef, useState, useTransition } from 'react'
+//
+// Le riletture del giorno passano dal coordinatore della diretta (Task 11),
+// che le mette da parte finché questo componente è OCCUPATO: un gesto armato,
+// o un blocco con «Salvo…» o «In attesa…». Un blocco col «?» non occupa
+// niente: solo lui resta in attesa (§5.1).
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gestoDiAnnulla, messaggioDiAnnulla } from '../dominio/annulla'
 import type { Atteso } from '../dominio/attesi'
 import { type BloccoAgenda, componiBlocchi } from '../dominio/blocchi'
@@ -47,6 +51,7 @@ import {
 } from '../dominio/trascinamento'
 import type { RichiestaSpostamento, Risposta } from '../server/scrittura-visita'
 import { ApriScheda } from './apri-scheda'
+import { useRicariche } from './diretta'
 import stile from './agenda.module.css'
 import { type RichiesteScheda, UscitaForzata, richiesteVere } from './richieste-scheda'
 
@@ -158,9 +163,8 @@ export function Trascina({
   adesso?: () => number
   children: React.ReactNode
 }) {
-  const router = useRouter()
   const apri = useContext(ApriScheda)
-  const [rilettura, rileggiInTransizione] = useTransition()
+  const ricariche = useRicariche()
   const contenitore = useRef<HTMLDivElement>(null)
   const gesto = useRef<GestoInCorso | null>(null)
   /** Il `click` che segue un gesto non apre la scheda. */
@@ -172,8 +176,6 @@ export function Trascina({
   const adottate = useRef(new Map<string, Adottate>())
   /** Gli invii di questa agenda ancora senza risposta: la fila delle Server Actions. */
   const inVolo = useRef(new Set<Promise<unknown>>())
-  /** Una rilettura chiesta durante il gesto aspetta che il gesto finisca (§5.1). */
-  const rileggiDopo = useRef(false)
   const [avviso, setAvviso] = useState<Avviso | null>(null)
 
   // -------------------------------------------------------------------------
@@ -213,35 +215,41 @@ export function Trascina({
     for (const chiave of scostamenti.current.keys()) disegna(chiave)
   })
 
-  // Il giorno RILETTO è arrivato (nuovi appuntamenti dal server, e nessuna
-  // rilettura ancora in corso): da qui decide la lettura, e gli scostamenti
-  // che la aspettavano si tolgono.
+  // Il giorno RILETTO è arrivato (nuovi appuntamenti dal server): da qui
+  // decide la lettura, e gli scostamenti che la aspettavano si tolgono — tranne
+  // se il coordinatore dice che è stato chiesto PRIMA dell'ultimo ✓ (§5.1):
+  // porta le posizioni di prima, e quella chiesta dopo è per strada.
   const primo = useRef(true)
   useEffect(() => {
     if (primo.current) {
       primo.current = false
       return
     }
-    if (rilettura) return
+    const applica = ricariche.arrivata()
     for (const [chiave, s] of scostamenti.current) {
       // Il blocco che l'operatrice ha in mano resta dov'è: lo decide il
       // rilascio, che rilegge il giorno (revisione del Task 10).
       if (gesto.current?.armato && gesto.current.chiave === chiave) {
-        rileggiDopo.current = true
+        ricariche.rileggi()
         continue
       }
-      if (s.finoAllaRilettura) togliScostamento(chiave)
+      if (applica && s.finoAllaRilettura) togliScostamento(chiave)
     }
     // Dipende dall'ARRIVO dei dati del server, non da chi li ha chiesti.
   }, [appuntamenti])
 
-  const rileggi = () => {
-    if (gesto.current?.armato) {
-      rileggiDopo.current = true
-      return
-    }
-    rileggiInTransizione(() => router.refresh())
-  }
+  const rileggi = () => ricariche.rileggi()
+
+  // Il coordinatore chiede QUI se il telefono è occupato: lo stato è questo, non una copia.
+  useEffect(
+    () =>
+      ricariche.occupazione(
+        () =>
+          gesto.current?.armato === true ||
+          [...scostamenti.current.values()].some((s) => s.etichetta === SALVO || s.etichetta === IN_FILA),
+      ),
+    [ricariche],
+  )
 
   useEffect(() => {
     if (avviso === null) return
@@ -281,6 +289,8 @@ export function Trascina({
     if (m.esciDallApp) return esci()
     if (m.controlla) {
       scosta(chiave, { etichetta: '?' })
+      // Col «?» solo questo blocco resta in attesa: le ricariche ripartono.
+      ricariche.forseLibero()
       return void controlla(g.visitaId, true, 0)
     }
     fermaTimer(g.visitaId)
@@ -310,11 +320,16 @@ export function Trascina({
       etichetta: null,
       finoAllaRilettura: true,
     })
+    // Questa posizione l'ha decisa il server ADESSO: un giorno riletto chiesto
+    // prima porta quella di prima, e non deve toglierla (§5.1).
+    ricariche.spunta()
     if (m.apreLaScheda) {
       apri({ tipo: 'visita', visitaId: g.visitaId, data: g.data, sposta: g.mossi.map((x) => ({ id: x.id, inizio: x.a })) })
     }
     if (m.testo !== '') setAvviso({ testo: m.testo, annulla: m.offreAnnulla ? { gesto: g, chiave } : null })
     if (m.ricaricaIlGiorno) rileggi()
+    // Il blocco non dice più «Salvo…»: una ricarica messa da parte può partire.
+    ricariche.forseLibero()
   }
 
   /** «Controlla» sul codice dell'invio del blocco: fuori dalla fila, e fa avanzare la sua generazione. */
@@ -327,6 +342,7 @@ export function Trascina({
       togliInvio(depositoDelTelefono(), invio.codice)
       invii.current.delete(visitaId)
       scosta(invio.chiave, { etichetta: null, inizio: null, finoAllaRilettura: true })
+      ricariche.spunta()
       return rileggi()
     }
     const gen = generazioni.current.controlla(visitaId)
@@ -382,6 +398,7 @@ export function Trascina({
         if (!generazioni.current.corrente(g.visitaId, gen)) return
         generazioni.current.scaduto(g.visitaId)
         scosta(chiave, { etichetta: '?' })
+        ricariche.forseLibero()
         void controlla(g.visitaId, true, 0)
       }, msAllaScadenza(toccatoIl, adesso())),
     )
@@ -418,13 +435,15 @@ export function Trascina({
   // -------------------------------------------------------------------------
   // Il gesto.
 
-  const lascia = (g: GestoInCorso) => {
+  /**
+   * Il gesto è finito. `avvisa`: la ricarica messa da parte durante il gesto
+   * può partire. Non quando il rilascio manda un invio: allora la tiene da
+   * parte «Salvo…», e parte alla risposta.
+   */
+  const lascia = (g: GestoInCorso, avvisa = true) => {
     clearTimeout(g.timer)
     gesto.current = null
-    if (rileggiDopo.current) {
-      rileggiDopo.current = false
-      rileggiInTransizione(() => router.refresh())
-    }
+    if (avvisa) ricariche.forseLibero()
   }
 
   /** Il blocco torna dove l'agenda lo mostrava prima della pressione lunga. */
@@ -432,14 +451,16 @@ export function Trascina({
     scosta(g.chiave, { trascinato: false, inizio: g.base !== null && g.base.blocco.inizio !== bloccoDai(appuntamenti, g.chiave)?.inizio ? g.base.blocco.inizio : null })
 
   const finisci = (g: GestoInCorso) => {
-    lascia(g)
-    if (g.scarto === 0 || g.base === null) return rimetti(g)
-    let mosso: Gesto
-    try {
-      mosso = gestoDalBlocco(g.base.blocco, g.base.visti, data, g.scarto)
-    } catch {
-      return rimetti(g)
+    let mosso: Gesto | null = null
+    if (g.scarto !== 0 && g.base !== null) {
+      try {
+        mosso = gestoDalBlocco(g.base.blocco, g.base.visti, data, g.scarto)
+      } catch {
+        mosso = null
+      }
     }
+    lascia(g, mosso === null)
+    if (mosso === null) return rimetti(g)
     scosta(g.chiave, { trascinato: false })
     void invia('sposta', mosso, g.chiave, versioniPer(mosso))
   }

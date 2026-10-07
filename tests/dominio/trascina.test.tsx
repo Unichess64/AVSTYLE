@@ -20,6 +20,8 @@ const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { ApriScheda } from '../../src/cliente/apri-scheda'
+import { useContext } from 'react'
+import { Ricariche, RicaricheDelGiorno, type RicaricheDelTelefono } from '../../src/cliente/diretta'
 import type { RichiesteScheda } from '../../src/cliente/richieste-scheda'
 import { type AzioniTrascina, Trascina } from '../../src/cliente/trascina'
 import type { RispostaDellaRotta } from '../../src/dominio/controlla'
@@ -98,6 +100,13 @@ interface Montata {
   rilettura: (inizioV?: number, inizioW?: number) => void
 }
 
+/** Il coordinatore delle ricariche, per chiedere una rilettura come farebbe un annuncio. */
+let ricariche: RicaricheDelTelefono | null = null
+function Sonda() {
+  ricariche = useContext(Ricariche)
+  return null
+}
+
 function monta(azioni: Partial<AzioniTrascina> = {}, controlla: RichiesteScheda['controlla'] = vi.fn(mai)): Montata & { azioni: AzioniTrascina } {
   const tutte: AzioniTrascina = { sposta: vi.fn(mai), annulla: vi.fn(mai), ...azioni }
   const apri = vi.fn()
@@ -105,13 +114,15 @@ function monta(azioni: Partial<AzioniTrascina> = {}, controlla: RichiesteScheda[
   const albero = (g: Giorno) => (
     <ApriScheda.Provider value={apri}>
       <div onPointerUp={sopra.pointerUp} onClick={sopra.click}>
+        <Sonda />
         <Trascina data={DATA} appuntamenti={delGesto(g)} finestra={g.finestra} azioni={tutte} io={VERA} richieste={{ controlla }} adesso={() => Date.now()}>
           <AgendaColonne giorno={g} oggi={DATA} lineaDellOra={null} />
         </Trascina>
       </div>
     </ApriScheda.Provider>
   )
-  const { rerender } = render(albero(giorno()))
+  // Dentro il coordinatore delle ricariche, come nella pagina (Task 11).
+  const { rerender } = render(albero(giorno()), { wrapper: RicaricheDelGiorno })
   return { apri, sopra, azioni: tutte, rilettura: (v = 120, w = 150) => rerender(albero(giorno(v, w))) }
 }
 
@@ -582,6 +593,30 @@ describe('revisione del Task 10', () => {
     await assesta()
     expect(router.refresh.mock.calls.length).toBe(prima + 1)
     rilettura(132)
+    await assesta()
+    expect(riga(bloccoV())).toBe('')
+  })
+})
+
+describe('Task 11: un giorno riletto chiesto PRIMA del ✓ (§5.1)', () => {
+  it('arrivato dopo il ✓ non si applica: il blocco resta dove l ha messo il gesto, e decide la rilettura chiesta dopo', async () => {
+    const primo = differita<Risposta>()
+    const { rilettura } = monta({ sposta: vi.fn<AzioniTrascina['sposta']>().mockImplementationOnce(() => primo.promessa).mockImplementation(mai) })
+    // un annuncio, prima del gesto: la rilettura parte e non è ancora arrivata
+    act(() => ricariche!.rileggi())
+    expect(router.refresh).toHaveBeenCalledTimes(1)
+    await trascina(bloccoV(), 28)
+    primo.risolvi(salvata('vv1', [A1, A2]))
+    await assesta()
+    // il ✓ chiede la sua
+    expect(router.refresh).toHaveBeenCalledTimes(2)
+    expect(riga(bloccoV())).toBe(rigaDi(124))
+    // arriva la PRIMA: letta prima del ✓, porta la visita alle 10:00
+    rilettura(120)
+    await assesta()
+    expect(riga(bloccoV())).toBe(rigaDi(124))
+    // arriva quella del ✓: decide la lettura
+    rilettura(124)
     await assesta()
     expect(riga(bloccoV())).toBe('')
   })

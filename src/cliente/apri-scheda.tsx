@@ -16,6 +16,7 @@
 import { useRouter } from 'next/navigation'
 import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import { type Apertura, type Tocco, aperturaDalTocco } from '../dominio/apertura'
+import { useRicariche } from './diretta'
 import type { RichiesteScheda } from './richieste-scheda'
 import { type AzioniScheda, SchedaVisita } from './scheda-visita'
 import stile from './scheda-visita.module.css'
@@ -64,6 +65,7 @@ export function SchedaDellAgenda({
   io: string
 }) {
   const router = useRouter()
+  const ricariche = useRicariche()
   const [apertura, setApertura] = useState<Apertura | null>(null)
   // L'esito di un invio che ha chiuso la scheda («✓ Salvata», «Era già stata cancellata»…).
   const [esito, setEsito] = useState<string | null>(null)
@@ -77,18 +79,19 @@ export function SchedaDellAgenda({
   // Il giorno si rilegge DOPO il `popstate` che chiude la scheda, non subito:
   // al `popstate` il router di Next ripristina l'albero in cache di quella
   // voce, e una rilettura chiesta prima ci finisce sotto (misurato in
-  // `next start`: visita salvata, agenda vecchia).
+  // `next start`: visita salvata, agenda vecchia). La rilettura passa dal
+  // coordinatore della diretta, come tutte (Task 11).
   const daRileggere = useRef(false)
   useEffect(() => {
     const chiudi = () => {
       setApertura(null)
       if (!daRileggere.current) return
       daRileggere.current = false
-      setTimeout(() => router.refresh(), 0)
+      setTimeout(() => ricariche.rileggi(), 0)
     }
     window.addEventListener('popstate', chiudi)
     return () => window.removeEventListener('popstate', chiudi)
-  }, [router])
+  }, [ricariche])
 
   const apri = useCallback((a: Apertura) => {
     window.history.pushState(VOCE, '')

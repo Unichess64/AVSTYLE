@@ -7,7 +7,7 @@
 // «Nuova cliente» con l'informativa e i doppioni, «+ Aggiungi servizio», la
 // riga ambra e «Salva comunque», e l'apertura dall'agenda con «indietro».
 // Niente Supabase: le richieste sono finte, e la prova gira anche in test:fuso.
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render as montaNudo, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -18,6 +18,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 import { AgendaColonne } from '../../src/cliente/agenda-colonne'
 import { AgendaLista } from '../../src/cliente/agenda-lista'
 import { ApriScheda, SchedaDellAgenda } from '../../src/cliente/apri-scheda'
+import { Ricariche, RicaricheDelGiorno, type RicaricheDelTelefono } from '../../src/cliente/diretta'
 import { useContext } from 'react'
 import type { Apertura } from '../../src/dominio/apertura'
 import { type RichiesteScheda, UscitaForzata } from '../../src/cliente/richieste-scheda'
@@ -28,6 +29,13 @@ import type { StatoVisita } from '../../src/dominio/stato-visita'
 import type { Giorno } from '../../src/server/lettura-giorno'
 import type { RispostaApri } from '../../src/server/lettura-scheda'
 import type { Risposta } from '../../src/server/scrittura-visita'
+
+/**
+ * L'agenda vive dentro il coordinatore delle ricariche (Task 11): fuori,
+ * `SchedaDellAgenda` e `Trascina` non si montano. Le prove montano tutto lì
+ * dentro, come la pagina.
+ */
+const render = (ui: React.ReactElement) => montaNudo(ui, { wrapper: RicaricheDelGiorno })
 
 const VERA = '10000000-0000-4000-8000-000000000001'
 const ANNALISA = '10000000-0000-4000-8000-000000000002'
@@ -1008,5 +1016,46 @@ describe('la scheda aperta da un gesto fermato dal server (Task 10, §5.1)', () 
     expect(await screen.findByRole('listitem', { name: /alle 12:30$/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Salva comunque/ })).toBeNull()
     expect(screen.getByRole('button', { name: /^Salva$/ })).toBeTruthy()
+  })
+})
+
+describe('Task 11: la scheda con un invio in corso tiene da parte le ricariche (§4.6)', () => {
+  it('una ricarica chiesta mentre «Salva» aspetta si applica alla risposta; prima, subito', async () => {
+    let ricariche: RicaricheDelTelefono | null = null
+    function Sonda() {
+      ricariche = useContext(Ricariche)
+      return null
+    }
+    let risolvi!: (r: Risposta) => void
+    const salva = vi.fn(() => new Promise<Risposta>((r) => {
+      risolvi = r
+    }))
+    const STATO_V: StatoVisita = { ...STATO, appuntamenti: [{ ...STATO.appuntamenti[1] }] }
+    const r = richieste({ apri: vi.fn(async () => dati({ stato: STATO_V })) })
+    vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    render(
+      <>
+        <Sonda />
+        <SchedaDellAgenda data={DATA} occupati={[]} richieste={r} azioni={azioniFinte({ salva })}>
+          <div data-visita={VISITA} data-appuntamenti={A2} tabIndex={0}>blocco</div>
+        </SchedaDellAgenda>
+      </>,
+    )
+    await userEvent.click(screen.getByText('blocco'))
+    const pulsante = await screen.findByRole('button', { name: 'Salva' })
+    // compagna positiva: con la scheda aperta ma ferma, la ricarica parte subito
+    act(() => ricariche!.rileggi())
+    expect(router.refresh).toHaveBeenCalledTimes(1)
+    await userEvent.click(pulsante)
+    expect(salva).toHaveBeenCalledTimes(1)
+    act(() => ricariche!.rileggi())
+    expect(router.refresh).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      risolvi({
+        tipo: 'esito', esito: 'salvata', visita: 'v', appuntamenti: [],
+        messaggio: { testo: '✓ Salvata', spunta: true, schedaAdottaStato: false, ricaricaIlGiorno: false, ricaricaLaScheda: false, uscitaForzata: false },
+      })
+    })
+    await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(2))
   })
 })
