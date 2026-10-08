@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { Clienti } from '../../../cliente/clienti'
 import stile from '../../../cliente/catalogo.module.css'
 import { oggiAPerugia } from '../../../dominio/perugia'
-import { aggiornaCliente } from '../../../server/azioni-clienti'
+import { aggiornaCliente, creaCliente } from '../../../server/azioni-clienti'
 import { NonAutenticata, NonOperatrice, type Operatrice, clientServer, operatriceCorrente } from '../../../server/supabase'
 
 export default async function PaginaClienti() {
@@ -18,7 +18,7 @@ export default async function PaginaClienti() {
   return (
     <section className={stile.pagina}>
       <h1 className={stile.titolo}>Clienti</h1>
-      <Clienti oggi={oggiAPerugia()} aggiorna={aggiornaCliente} />
+      <Clienti oggi={oggiAPerugia()} aggiorna={aggiornaCliente} crea={creaCliente} />
     </section>
   )
 }

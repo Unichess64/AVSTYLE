@@ -77,3 +77,14 @@
   font: inherit;
   text-align: left;
 }
+
+.avvisoAmbra {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--inchiostro);
+  background: #FFF4D6;
+  font-weight: 600;
+}
+.avvisoAmbra p {
+  margin: 0 0 6px;
+}

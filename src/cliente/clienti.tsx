@@ -4,8 +4,9 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useTransition } from 'react'
 import { dataBreve } from '../dominio/avvisi'
+import { telefonoDalModulo } from '../dominio/scheda'
 import { oraDaCella } from '../dominio/tempo'
-import type { ClienteTrovata, SchedaCliente } from '../server/lettura-scheda'
+import type { ClienteTrovata, Doppione, SchedaCliente } from '../server/lettura-scheda'
 import type { EsitoScrittura } from '../server/scrittura-semplice'
 import stile from './catalogo.module.css'
 
@@ -24,9 +25,11 @@ async function chiedi<T>(corpo: unknown): Promise<T | 'uscita'> {
 export function Clienti({
   oggi,
   aggiorna,
+  crea,
 }: {
   oggi: string
   aggiorna: (id: string, nome: string, telefono: string) => Promise<EsitoScrittura>
+  crea: (nome: string, telefono: string) => Promise<EsitoScrittura & { id?: string }>
 }) {
   const router = useRouter()
   const [testo, setTesto] = useState('')
@@ -35,6 +38,36 @@ export function Clienti({
   const [modifica, setModifica] = useState<{ nome: string; telefono: string } | null>(null)
   const [errore, setErrore] = useState<string | null>(null)
   const [inviando, avvia] = useTransition()
+  const [nuova, setNuova] = useState<{ nome: string; telefono: string } | null>(null)
+  /** I possibili doppioni trovati prima di creare: `null` = non ancora cercati. */
+  const [doppioni, setDoppioni] = useState<Doppione[] | null>(null)
+
+  function creaNuova(anche: boolean) {
+    if (nuova === null) return
+    setErrore(null)
+    const tel = telefonoDalModulo(nuova.telefono)
+    if (nuova.nome.trim() === '') return setErrore('Scrivi nome e cognome')
+    if (tel.errato) return setErrore('Il numero di telefono non è valido')
+    avvia(async () => {
+      if (!anche) {
+        // Come la scheda visita: prima si guarda se c'è già, per nome o telefono.
+        try {
+          const trovati = await chiedi<Doppione[]>({ tipo: 'doppioni', nome: nuova.nome, telefono: tel.e164 })
+          if (trovati === 'uscita') return router.replace('/accesso')
+          if (trovati.length > 0) return setDoppioni(trovati)
+        } catch {
+          return setErrore('Non riesco a controllare i doppioni: controlla la connessione.')
+        }
+      }
+      const esito = await crea(nuova.nome, nuova.telefono)
+      if (esito.ok && esito.id !== undefined) {
+        setNuova(null)
+        setDoppioni(null)
+        await apri(esito.id)
+      } else if (!esito.ok && esito.uscita) router.replace('/accesso')
+      else if (!esito.ok) setErrore(esito.testo)
+    })
+  }
 
   // La ricerca parte 300 ms dopo l'ultima lettera.
   useEffect(() => {
@@ -148,8 +181,58 @@ export function Clienti({
     )
   }
 
+  if (nuova !== null) {
+    return (
+      <div className={stile.sezioni}>
+        {errore !== null && <p className={stile.errore} role="alert">{errore}</p>}
+        <fieldset className={stile.editor} disabled={inviando}>
+          <legend className={stile.sottotitolo}>Nuova cliente</legend>
+          <label className={stile.campoLargo}>
+            nome e cognome
+            <input value={nuova.nome} maxLength={120} autoComplete="off"
+              onChange={(e) => { setNuova({ ...nuova, nome: e.target.value }); setDoppioni(null) }} />
+          </label>
+          <label className={stile.campoLargo}>
+            telefono (facoltativo)
+            <input type="tel" inputMode="tel" value={nuova.telefono} autoComplete="off"
+              onChange={(e) => { setNuova({ ...nuova, telefono: e.target.value }); setDoppioni(null) }} />
+          </label>
+          {doppioni !== null && (
+            <div className={stile.avvisoAmbra} role="status">
+              <p>Forse è già in elenco:</p>
+              <ul className={stile.elenco}>
+                {doppioni.map((d) => (
+                  <li key={d.id}>
+                    <button type="button" className={stile.voceCliente} onClick={() => { setNuova(null); setDoppioni(null); void apri(d.id) }}>
+                      <span className={stile.nome}>{d.nome}</span>
+                      <span className={stile.nota}>{d.telefono ?? 'nessun telefono'}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className={stile.azioni}>
+            <button type="button" className={stile.secondario} onClick={() => { setNuova(null); setDoppioni(null); setErrore(null) }}>
+              Annulla
+            </button>
+            <button type="button" className={stile.primario} onClick={() => creaNuova(doppioni !== null)}>
+              {inviando ? 'Salvo…' : doppioni !== null ? 'Crea comunque' : 'Crea'}
+            </button>
+          </div>
+        </fieldset>
+      </div>
+    )
+  }
+
   return (
     <div className={stile.sezioni}>
+      <div className={stile.azioni}>
+        <button type="button" className={stile.primario}
+          onClick={() => { setErrore(null); setNuova({ nome: testo.trim(), telefono: '' }) }}>
+          Nuova cliente
+        </button>
+      </div>
       <label className={stile.campoLargo}>
         cerca per nome o telefono
         <input type="search" value={testo} onChange={(e) => setTesto(e.target.value)} autoComplete="off" />
@@ -166,7 +249,6 @@ export function Clienti({
           </li>
         ))}
       </ul>
-      <p className={stile.nota}>Le clienti nuove si creano dalla scheda di un appuntamento, in agenda.</p>
     </div>
   )
 }
