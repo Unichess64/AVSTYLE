@@ -50,7 +50,7 @@ export function Operatrici({
   const [inviando, avvia] = useTransition()
   const [aperta, setAperta] = useState<string | null>(null)
   const [nome, setNome] = useState('')
-  const usati = new Set(operatrici.filter((o) => o.attiva).map((o) => o.colore.toUpperCase()))
+  const usati = new Set(operatrici.filter((o) => o.attiva && !o.assistenza).map((o) => o.colore.toUpperCase()))
   const [coloreNuova, setColoreNuova] = useState(TAVOLOZZA.find((t) => !usati.has(t.colore))?.colore ?? TAVOLOZZA[0]!.colore)
 
   function esegui(
@@ -86,6 +86,7 @@ export function Operatrici({
               <span className={stile.nome}>
                 {o.nome}
                 {o.io && ' (tu)'}
+                {o.assistenza && ' — non compare in agenda'}
                 {!o.attiva && ' — disattivata'}
               </span>
               <button type="button" className={stile.secondario} disabled={inviando || i === 0}

@@ -48,6 +48,7 @@ interface RigaOperatrice {
   name: string
   color: string
   is_active: boolean
+  in_agenda: boolean
 }
 
 // La forma delle risorse annidate come PostgREST le restituisce: a-uno, quindi
@@ -72,12 +73,13 @@ interface RigaAppuntamento {
  */
 export async function leggiGiorno(client: SupabaseClient, data: string, io: string): Promise<Giorno> {
   const [operatori, impostazioni] = await Promise.all([
-    client.from('operator').select('id, name, color, is_active').order('sort_order').order('name'),
+    client.from('operator').select('id, name, color, is_active, in_agenda').order('sort_order').order('name'),
     client.from('salon_settings').select('day_start_boundary, day_end_boundary').single(),
   ])
   if (operatori.error !== null) throw new Error(`lettura di operator fallita: ${operatori.error.code}`)
   if (impostazioni.error !== null) throw new Error(`lettura di salon_settings fallita: ${impostazioni.error.code}`)
-  const tutte = operatori.data as RigaOperatrice[]
+  // L'assistenza (0023) entra nell'app ma non è una colonna dell'agenda.
+  const tutte = (operatori.data as RigaOperatrice[]).filter((o) => o.in_agenda)
 
   // Tutte, disattivate comprese: la funzione stessa toglie loro disponibilità
   // ed eccezioni e lascia l'occupazione.

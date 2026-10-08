@@ -67,6 +67,7 @@ export async function leggiOperatriciAttive(client: SupabaseClient): Promise<Ope
     .from('operator')
     .select('id, name, color')
     .eq('is_active', true)
+    .eq('in_agenda', true)   // l'assistenza (0023) non si sceglie mai: né in agenda, né per un servizio
     .order('sort_order')
     .order('name')
   if (r.error !== null) throw new Error(`lettura di operator fallita: ${r.error.code}`)
