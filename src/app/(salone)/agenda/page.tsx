@@ -15,6 +15,8 @@ import { giorniDellaSettimana, lunediDi, operatriceDallIndirizzo } from '../../.
 import { oraDaConfine, pezziData } from '../../../dominio/tempo'
 import { dataDallIndirizzo } from '../../../dominio/validazione'
 import { annullaSpostamento, elimina, salva, sposta, togli } from '../../../server/azioni-visita'
+import { dataBreve } from '../../../dominio/avvisi'
+import { leggiDoppi } from '../../../server/lettura-doppi'
 import { leggiGiorno } from '../../../server/lettura-giorno'
 import { leggiOperatriciAttive, leggiSettimana } from '../../../server/lettura-settimana'
 import {
@@ -101,7 +103,7 @@ export default async function Agenda({
     )
   }
 
-  const giorno = await leggiGiorno(client, data, io.operatorId)
+  const [giorno, doppi] = await Promise.all([leggiGiorno(client, data, io.operatorId), leggiDoppi(client, oggi)])
   const vuoto = giorno.appuntamenti.length === 0
 
   return (
@@ -117,6 +119,16 @@ export default async function Agenda({
         {selettore}
       </div>
       <StrisciaGiorni data={data} oggi={oggi} />
+      {doppi.length > 0 && (
+        <div className={stile.controlla} role="note">
+          {doppi.map((d) => (
+            <p key={`${d.clienteNome}${d.servizioNome}${d.date[0]}`}>
+              Questa settimana {d.clienteNome} ha prenotato {d.servizioNome} {d.date.length} volte (
+              {d.date.map(dataBreve).join(', ')}): controlla!
+            </p>
+          ))}
+        </div>
+      )}
       {giorno.chiusure.map((c) => (
         <p key={`${c.da}${c.motivo}`} className={stileAgenda.chiusura} role="note">
           {c.da === null || c.a === null

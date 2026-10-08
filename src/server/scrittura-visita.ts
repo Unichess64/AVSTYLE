@@ -37,7 +37,7 @@ import type { Mosso } from '../dominio/trascinamento'
 import { CELLE_PER_GIORNO } from '../dominio/tempo'
 import { chiaviDegliAvvisi, controlloPreventivo, validaEliminazione, validaScheda, validaSpostamento } from './controllo-preventivo'
 import { avvolgi, sqlstateDi } from './involucro'
-import { leggiDatiGiorno, leggiStato } from './lettura-scheda'
+import { leggiDatiGiorno, leggiStato, leggiVicini } from './lettura-scheda'
 import { NonAutenticata, NonOperatrice, operatriceCorrente } from './supabase'
 
 export type Risposta =
@@ -320,12 +320,16 @@ async function corpoSalva(
 
   // 3
   let giorno
+  let vicini
   try {
-    giorno = await leggiDatiGiorno(client, scheda.data, io)
+    ;[giorno, vicini] = await Promise.all([
+      leggiDatiGiorno(client, scheda.data, io),
+      scheda.cliente === null ? Promise.resolve([]) : leggiVicini(client, scheda.cliente.id, scheda.data),
+    ])
   } catch (e) {
     return primaDellaScrittura(e, id)
   }
-  const fermo = controlloPreventivo(scheda, giorno)
+  const fermo = controlloPreventivo(scheda, giorno, vicini)
   if (fermo !== null) return fermo
 
   // 4 e 5. C3: `p_attesi` si PROIETTA e si ORDINA a ogni chiamata, qualunque

@@ -6,6 +6,7 @@
 //
 // E «Controlla» (Task 9), in POST verso `/api/controlla`: anche lui fuori
 // dalla fila, perché deve rispondere mentre l'invio che diagnostica è appeso.
+import type { Vicino } from '../dominio/avvisi'
 import { type RispostaDellaRotta, leggiRispostaControlla } from '../dominio/controlla'
 import type {
   ClienteTrovata,
@@ -23,6 +24,8 @@ export interface RichiesteScheda {
   giorno(data: string): Promise<DatiGiorno>
   cerca(testo: string): Promise<ClienteTrovata[]>
   doppioni(nome: string, telefono: string | null): Promise<Doppione[]>
+  /** Gli appuntamenti della cliente entro una settimana dalla data (avviso «stesso servizio»). */
+  vicini?(clienteId: string, data: string): Promise<Vicino[]>
   /** «Controlla»: la riga di §4.4, oppure «Non so». Solleva `UscitaForzata` su 401. */
   controlla(codice: string, visitaId: string): Promise<RispostaDellaRotta>
 }
@@ -72,5 +75,6 @@ export const richiesteVere: RichiesteScheda = {
   giorno: (data) => chiedi({ tipo: 'giorno', data }),
   cerca: (testo) => chiedi({ tipo: 'cerca', testo }),
   doppioni: (nome, telefono) => chiedi({ tipo: 'doppioni', nome, telefono }),
+  vicini: (clienteId, data) => chiedi({ tipo: 'vicini', clienteId, data }),
   controlla: (codice, visitaId) => controllaInvio(codice, visitaId),
 }

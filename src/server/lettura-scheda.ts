@@ -15,10 +15,12 @@
 //
 // Un errore di PostgREST SOLLEVA: un guasto non è «nessuna cliente».
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Vicino } from '../dominio/avvisi'
 import type { AppuntamentoLetto } from '../dominio/blocchi'
 import type { Catalogo, ServizioDelCatalogo } from '../dominio/durate'
 import type { GiornoRisolto } from '../dominio/finestra'
 import { type StatoVisita, leggiStatoVisita } from '../dominio/stato-visita'
+import { sommaGiorni } from '../dominio/tempo'
 import { dataReale } from '../dominio/validazione'
 import { leggiGiorno } from './lettura-giorno'
 import { type OperatriceAttiva, leggiOperatriciAttive } from './lettura-settimana'
@@ -65,6 +67,7 @@ export type RichiestaScheda =
   | { readonly tipo: 'giorno'; readonly data: string }
   | { readonly tipo: 'cerca'; readonly testo: string }
   | { readonly tipo: 'doppioni'; readonly nome: string; readonly telefono: string | null }
+  | { readonly tipo: 'vicini'; readonly clienteId: string; readonly data: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Un nome o un testo cercato non sono più lunghi di così: oltre è un corpo storto. */
@@ -94,6 +97,10 @@ export function leggiRichiesta(corpo: unknown): RichiestaScheda | null {
     case 'giorno': {
       const d = data(c.data)
       return d === null ? null : { tipo: 'giorno', data: d }
+    }
+    case 'vicini': {
+      const d = data(c.data)
+      return d === null || typeof c.clienteId !== 'string' || !UUID.test(c.clienteId) ? null : { tipo: 'vicini', clienteId: c.clienteId, data: d }
     }
     case 'cerca':
       return corto(c.testo) ? { tipo: 'cerca', testo: c.testo } : null
@@ -216,7 +223,29 @@ export async function rispondi(client: SupabaseClient, r: RichiestaScheda, io: s
       return cercaClienti(client, r.testo)
     case 'doppioni':
       return doppioniCliente(client, r.nome, r.telefono)
+    case 'vicini':
+      return leggiVicini(client, r.clienteId, r.data)
   }
+}
+
+/**
+ * Gli appuntamenti della cliente nella settimana prima e in quella dopo `data`.
+ * Il filtro è sull'id della cliente, che non è un dato personale: nessun nome
+ * viaggia nell'indirizzo (§4.8).
+ */
+export async function leggiVicini(client: SupabaseClient, clienteId: string, giorno: string): Promise<Vicino[]> {
+  const r = await client
+    .from('appointment')
+    .select('appointment_date, service_id, visit_id, visit:visit!appointment_visit_date_fk!inner ( client_id )')
+    .eq('visit.client_id', clienteId)
+    .gte('appointment_date', sommaGiorni(giorno, -7))
+    .lte('appointment_date', sommaGiorni(giorno, 7))
+  if (r.error !== null) throw new GuastoLettura(r.error.code, 'appointment')
+  return (r.data as { appointment_date: string; service_id: string; visit_id: string }[]).map((a) => ({
+    data: a.appointment_date,
+    servizioId: a.service_id,
+    visitaId: a.visit_id,
+  }))
 }
 
 /** Il codice di un guasto, e solo quello: mai `details`, `hint` né il messaggio (§4.9). */

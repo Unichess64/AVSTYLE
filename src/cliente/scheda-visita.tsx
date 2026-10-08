@@ -30,7 +30,7 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import type { Apertura } from '../dominio/apertura'
 import type { Atteso } from '../dominio/attesi'
-import { type Avviso, calcolaAvvisi, confermaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
+import { type Avviso, type Vicino, calcolaAvvisi, confermaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
 import { fraseDeiConflitti, idInScrittura, trovaConflitti } from '../dominio/conflitti'
 import { type Decisione, type Invio, NON_RISULTA, NON_SO, schedaPerCreaDiNuovo } from '../dominio/controlla'
 import {
@@ -306,6 +306,24 @@ export function SchedaCompilata({
     // Decide la data della scheda: `giorno` cambia proprio per effetto di questa lettura.
   }, [scheda.data])
 
+  // Gli appuntamenti della stessa cliente entro una settimana: l'avviso
+  // «stesso servizio» (richiesta del salone, 08/10). Una cliente nuova non ne ha.
+  const idClienteScelta = scheda.cliente?.tipo === 'esistente' ? scheda.cliente.id : null
+  const [vicini, setVicini] = useState<{ chiave: string; elenco: Vicino[] } | null>(null)
+  useEffect(() => {
+    if (idClienteScelta === null || richieste.vicini === undefined) return
+    let viva = true
+    const chiave = `${idClienteScelta}|${scheda.data}`
+    richieste.vicini(idClienteScelta, scheda.data).then(
+      (elenco) => viva && setVicini({ chiave, elenco }),
+      () => {},   // un guasto qui toglie solo un avviso: il server lo ricalcola al salvataggio
+    )
+    return () => {
+      viva = false
+    }
+  }, [idClienteScelta, scheda.data])
+  const viciniPronti = vicini !== null && vicini.chiave === `${idClienteScelta}|${scheda.data}` ? vicini.elenco : undefined
+
   const giornoPronto = giorno.data === scheda.data
   const nomiOperatrici = new Map<string, string>([
     ...dati.giorno.operatrici.map((o): [string, string] => [o.id, o.nome]),
@@ -325,6 +343,7 @@ export function SchedaCompilata({
         giorno: { risolti: new Map(Object.entries(giorno.risolti)), appuntamenti: giorno.appuntamenti },
         nomiOperatrici,
         nomiServizi,
+        vicini: viciniPronti,
       })
     : []
   const conflitto = giornoPronto

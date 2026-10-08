@@ -44,3 +44,19 @@
 :global(html[data-vista='lista']) .soloLista {
   display: block;
 }
+
+/* I doppi da controllare (richiesta del salone, 08/10): ambra come gli avvisi della scheda. */
+.controlla {
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--inchiostro);
+  background: #FFF4D6;
+  font-weight: 600;
+}
+.controlla p {
+  margin: 0;
+}
+.controlla p + p {
+  margin-top: 6px;
+}

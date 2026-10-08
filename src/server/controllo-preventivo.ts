@@ -12,7 +12,7 @@
 // Passo 3 — conflitti e avvisi, con le STESSE funzioni della scheda: escludendo
 // tutti gli id in scrittura (nuovi, modificati e tolti, spec §10.1), e con gli
 // avvisi ricalcolati contro le chiavi confermate (D3-19).
-import { calcolaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
+import { type Vicino, calcolaAvvisi, fermaIlSalvataggio } from '../dominio/avvisi'
 import { fraseDeiConflitti, idInScrittura, trovaConflitti } from '../dominio/conflitti'
 import { type SchedaSerializzata, compleannoPossibile } from '../dominio/scheda'
 import { CELLE_PER_GIORNO } from '../dominio/tempo'
@@ -106,8 +106,9 @@ export type Preventivo =
   | { readonly tipo: 'da_confermare'; readonly chiavi: readonly string[] }
 
 // Le chiavi non dipendono dai nomi: il motivo lo scrive il telefono.
-function avvisiDi(s: SchedaSerializzata, giorno: DatiGiorno, nomi: ReadonlyMap<string, string>) {
+function avvisiDi(s: SchedaSerializzata, giorno: DatiGiorno, nomi: ReadonlyMap<string, string>, vicini?: readonly Vicino[]) {
   return calcolaAvvisi({
+    vicini,
     visitaId: s.visitaId,
     data: s.data,
     cliente: s.cliente === null ? null : { id: s.cliente.id, nome: '' },
@@ -155,14 +156,14 @@ export function validaSpostamento(r: RichiestaSpostamento, codice: string, versi
  * Il passo 3 sul giorno letto: prima i conflitti, che fermano sempre, poi gli
  * avvisi, che fermano solo con una chiave non confermata. `null` = si scrive.
  */
-export function controlloPreventivo(s: SchedaSerializzata, giorno: DatiGiorno): Preventivo | null {
+export function controlloPreventivo(s: SchedaSerializzata, giorno: DatiGiorno, vicini?: readonly Vicino[]): Preventivo | null {
   const nomi = new Map(giorno.operatrici.map((o) => [o.id, o.nome]))
   const conflitti = fraseDeiConflitti(
     trovaConflitti(s.servizi, giorno.appuntamenti, idInScrittura(s.servizi, s.attesi.map((a) => a.id)), nomi),
   )
   if (conflitti !== null) return { tipo: 'conflitto', frase: conflitti.frase, vaiA: conflitti.vaiA }
 
-  const avvisi = avvisiDi(s, giorno, nomi)
+  const avvisi = avvisiDi(s, giorno, nomi, vicini)
   const confermati = new Set(s.avvisiConfermati)
   if (!fermaIlSalvataggio(avvisi, confermati)) return null
   return { tipo: 'da_confermare', chiavi: avvisi.map((a) => a.chiave).filter((k) => !confermati.has(k)) }

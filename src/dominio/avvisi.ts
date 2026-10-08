@@ -14,7 +14,7 @@
 import type { AppuntamentoLetto } from './blocchi'
 import type { GiornoRisolto } from './finestra'
 import type { ServizioInScheda } from './scheda'
-import { oraDaCella, staNellaFascia } from './tempo'
+import { oraDaCella, pezziData, staNellaFascia } from './tempo'
 
 export interface Avviso {
   readonly chiave: string
@@ -34,6 +34,28 @@ export interface IngressoAvvisi {
   }
   readonly nomiOperatrici: ReadonlyMap<string, string>
   readonly nomiServizi: ReadonlyMap<string, string>
+  /** Gli appuntamenti della stessa cliente nella settimana prima e in quella dopo. */
+  readonly vicini?: readonly Vicino[]
+}
+
+/** Un appuntamento della stessa cliente in un altro giorno, letto da `leggiVicini`. */
+export interface Vicino {
+  readonly data: string
+  readonly servizioId: string
+  readonly visitaId: string
+}
+
+/** Quanti giorni da `a` a `b`, in giorni di calendario (UTC: nessun fuso li sposta). */
+export function giorniFra(a: string, b: string): number {
+  const [aa, am, ag] = pezziData(a)
+  const [ba, bm, bg] = pezziData(b)
+  return Math.round((Date.UTC(ba, bm - 1, bg) - Date.UTC(aa, am - 1, ag)) / 86_400_000)
+}
+
+const DATA_BREVE = new Intl.DateTimeFormat('it-IT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' })
+export function dataBreve(data: string): string {
+  const [a, m, g] = pezziData(data)
+  return DATA_BREVE.format(new Date(Date.UTC(a, m - 1, g)))
 }
 
 function fuoriOrario(i: IngressoAvvisi): Avviso[] {
@@ -87,8 +109,32 @@ function sovrapposte(i: IngressoAvvisi): Avviso[] {
   return avvisi
 }
 
+/**
+ * Lo stesso servizio per la stessa cliente entro una settimana, in un altro
+ * giorno: chi non conosce ancora i turni prenota due posti e ne terrà uno
+ * (richiesta del salone, 08/10). Servizi diversi non fanno nascere niente; lo
+ * stesso giorno lo dice già «già prenotata». Una chiave per cliente, servizio e data.
+ */
+function stessoServizio(i: IngressoAvvisi): Avviso[] {
+  if (i.cliente === null || i.vicini === undefined) return []
+  const cliente = i.cliente
+  const servizi = [...new Set(i.servizi.map((s) => s.servizioId))]
+  return servizi.flatMap((sid) => {
+    const altri = i.vicini!
+      .filter((v) => v.servizioId === sid && v.visitaId !== i.visitaId && v.data !== i.data && Math.abs(giorniFra(i.data, v.data)) <= 7)
+      .map((v) => v.data)
+    const date = [...new Set(altri)].sort()
+    if (date.length === 0) return []
+    const nome = i.nomiServizi.get(sid) ?? 'lo stesso servizio'
+    return [{
+      chiave: `stesso-servizio:${cliente.id}:${sid}:${i.data}`,
+      motivo: `${cliente.nome} ha già ${nome} ${date.map(dataBreve).join(' e ')}: vuoi procedere comunque?`,
+    }]
+  })
+}
+
 export function calcolaAvvisi(i: IngressoAvvisi): Avviso[] {
-  return [...fuoriOrario(i), ...giaPrenotata(i), ...sovrapposte(i)]
+  return [...fuoriOrario(i), ...giaPrenotata(i), ...sovrapposte(i), ...stessoServizio(i)]
 }
 
 /** D3-19: basta UNA chiave non confermata per fermare il salvataggio. */
