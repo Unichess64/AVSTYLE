@@ -2,6 +2,10 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Catalogo } from '../../../cliente/catalogo'
+import { Chiusure } from '../../../cliente/periodi'
+import { oggiAPerugia } from '../../../dominio/perugia'
+import { anteprimaChiusura, cancellaChiusura, salvaChiusura } from '../../../server/azioni-periodi'
+import { leggiChiusure } from '../../../server/lettura-periodi'
 import stile from '../../../cliente/catalogo.module.css'
 import {
   aggiungiCategoria,
@@ -25,7 +29,8 @@ export default async function Impostazioni() {
   }
   if (io === null) redirect('/accesso')
 
-  const [dati, operatrici] = await Promise.all([leggiImpostazioni(client), leggiOperatriciAttive(client)])
+  const oggi = oggiAPerugia()
+  const [dati, operatrici, chiusure] = await Promise.all([leggiImpostazioni(client), leggiOperatriciAttive(client), leggiChiusure(client, oggi)])
 
   return (
     <section className={stile.pagina}>
@@ -36,6 +41,9 @@ export default async function Impostazioni() {
         operatrici={operatrici.map((o) => ({ id: o.id, nome: o.nome }))}
         azioni={{ salvaOrarioSalone, aggiungiCategoria, cancellaCategoria, salvaServizio, attivaServizio, impostaEsecuzione }}
       />
+      <div className={stile.spazio}>
+        <Chiusure oggi={oggi} chiusure={chiusure} azioni={{ anteprima: anteprimaChiusura, salva: salvaChiusura, cancella: cancellaChiusura }} />
+      </div>
     </section>
   )
 }

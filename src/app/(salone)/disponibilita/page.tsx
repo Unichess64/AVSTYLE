@@ -1,10 +1,14 @@
 // src/app/(salone)/disponibilita/page.tsx — la settimana tipo di ciascuna operatrice.
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { Assenze } from '../../../cliente/periodi'
 import { SettimanaTipo } from '../../../cliente/settimana-tipo'
 import stile from '../../../cliente/settimana-tipo.module.css'
 import { operatriceDallIndirizzo } from '../../../dominio/settimana'
+import { oggiAPerugia } from '../../../dominio/perugia'
 import { salvaGiornoSettimana } from '../../../server/azioni-disponibilita'
+import { anteprimaAssenza, cancellaAssenza, salvaAssenza } from '../../../server/azioni-periodi'
+import { leggiAssenze } from '../../../server/lettura-periodi'
 import { leggiSettimanaTipo } from '../../../server/lettura-disponibilita'
 import { leggiOperatriciAttive } from '../../../server/lettura-settimana'
 import { NonAutenticata, NonOperatrice, type Operatrice, clientServer, operatriceCorrente } from '../../../server/supabase'
@@ -47,12 +51,25 @@ export default async function Disponibilita({
       {scelta === null ? (
         <p className={stile.vuoto}>Nessuna operatrice attiva.</p>
       ) : (
-        <SettimanaTipo
-          key={scelta}
-          operatriceId={scelta}
-          iniziale={await leggiSettimanaTipo(client, scelta)}
-          salva={salvaGiornoSettimana}
-        />
+        <>
+          <h2 className={stile.sottotitolo}>Settimana tipo</h2>
+          <SettimanaTipo
+            key={scelta}
+            operatriceId={scelta}
+            iniziale={await leggiSettimanaTipo(client, scelta)}
+            salva={salvaGiornoSettimana}
+          />
+          <div className={stile.assenze}>
+            <Assenze
+              key={`assenze-${scelta}`}
+              operatriceId={scelta}
+              nome={attive.find((o) => o.id === scelta)?.nome ?? ''}
+              oggi={oggiAPerugia()}
+              assenze={await leggiAssenze(client, scelta, oggiAPerugia())}
+              azioni={{ anteprima: anteprimaAssenza, salva: salvaAssenza, cancella: cancellaAssenza }}
+            />
+          </div>
+        </>
       )}
     </section>
   )
