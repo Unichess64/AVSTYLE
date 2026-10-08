@@ -40,7 +40,10 @@ export async function middleware(richiesta: NextRequest) {
 
   // Uguaglianza sul segmento, non prefisso: `/accessorio` non è pubblica.
   const percorso = richiesta.nextUrl.pathname
-  const pubblica = percorso === '/accesso' || percorso.startsWith('/accesso/')
+  // Il manifesto si legge SENZA sessione (il browser lo scarica senza cookie):
+  // dietro l'accesso Android non vedrebbe mai nome e icona dell'app. Non
+  // contiene dati, solo nome, colori e il percorso delle icone.
+  const pubblica = percorso === '/accesso' || percorso.startsWith('/accesso/') || percorso === '/manifest.webmanifest'
 
   if (!pubblica) {
     const esito = await chiIsiede(client)
