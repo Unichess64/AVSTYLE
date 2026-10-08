@@ -1,0 +1,135 @@
+/* src/cliente/settimana-tipo.module.css — Disponibilità: la settimana tipo. */
+
+.pagina {
+  padding: 20px 16px 32px;
+}
+.titolo {
+  font-family: var(--carattere-titolo), serif;
+  font-weight: 600;
+  font-size: 1.75rem;
+  margin: 0 0 12px;
+}
+.operatrici {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.operatrice {
+  min-height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  border: 2px solid var(--inchiostro);
+  border-radius: 22px;
+  color: var(--inchiostro);
+  text-decoration: none;
+  font-weight: 600;
+  background: var(--bianco);
+}
+.operatrice[aria-current='page'] {
+  background: var(--inchiostro);
+  color: var(--bianco);
+}
+.vuoto {
+  font-size: 1.0625rem;
+}
+.giorni {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.giorno {
+  background: var(--bianco);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.riga {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+.nome {
+  font-weight: 700;
+  width: 92px;
+  flex-shrink: 0;
+}
+.fasce {
+  flex: 1;
+  min-width: 0;
+}
+.riposo {
+  flex: 1;
+  min-width: 0;
+  font-style: italic;
+  margin: 0;
+}
+.modifica,
+.secondario,
+.primario,
+.togli {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  border: 2px solid var(--inchiostro);
+  background: var(--bianco);
+  color: var(--inchiostro);
+}
+.primario {
+  background: var(--rosa-profondo);
+  border-color: var(--rosa-profondo);
+  color: var(--bianco);
+}
+.editor {
+  border: 0;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.legenda {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.fascia {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.campo {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9375rem;
+  gap: 2px;
+}
+.campo select {
+  min-height: 44px;
+  font: inherit;
+  padding: 0 8px;
+  border: 2px solid var(--inchiostro);
+  border-radius: 10px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+}
+.azioni {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.errore {
+  margin: 0;
+  color: var(--rosa-profondo);
+  font-weight: 700;
+}

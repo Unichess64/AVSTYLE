@@ -46,7 +46,7 @@ const COLONNE_AMMESSE_SU_CLIENT = new Set(['id'])
 // ⚠︎ I PERMESSI SULL'INDIRIZZO DELLA PAGINA: i soli parametri ammessi. La data
 // sì (Vincoli globali), e l'operatrice della settimana (Task 6), che è un
 // `operator.id` e non un dato di una cliente. Nient'altro.
-const PARAMETRI_AMMESSI = new Set(['giorno', 'settimana'])
+const PARAMETRI_AMMESSI = new Set(['giorno', 'settimana', 'operatrice'])
 
 interface Chiamata {
   readonly metodo: string
