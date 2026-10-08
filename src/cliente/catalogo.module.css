@@ -54,3 +54,12 @@
 .chip { border-radius: 22px; }
 .chip[aria-pressed='true'] { background: var(--inchiostro); color: var(--bianco); }
 .errore { margin: 0; color: var(--rosa-profondo); font-weight: 700; }
+.avviso { margin: 0; font-weight: 700; }
+.indietro {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--inchiostro);
+  font-weight: 600;
+}
+.chip svg { vertical-align: middle; }

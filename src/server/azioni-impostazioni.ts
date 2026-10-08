@@ -1,38 +1,9 @@
 'use server'
 // src/server/azioni-impostazioni.ts — le scritture di Impostazioni: orario, categorie, servizi.
 // Ogni scrittura è UNA istruzione, quindi una transazione: niente stati a metà.
-import { NonAutenticata, NonOperatrice, clientServer, operatriceCorrente } from './supabase'
+import { type EsitoScrittura, scrivi } from './scrittura-semplice'
 
-export type EsitoImpostazioni =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly testo: string; readonly uscita?: boolean }
-
-const RIPROVA = 'Non sono riuscita a salvare, riprova'
-const USCITA: EsitoImpostazioni = { ok: false, testo: 'La sessione è chiusa: rientra.', uscita: true }
-
-type Client = Awaited<ReturnType<typeof clientServer>>
-type Risposta = { error: { code?: string; message: string } | null }
-
-/** Identità, scrittura, traduzione dell'errore. `frasi` dà la frase per codice o per vincolo. */
-async function scrivi(
-  scrittura: (c: Client) => PromiseLike<Risposta>,
-  frasi: Record<string, string> = {},
-): Promise<EsitoImpostazioni> {
-  const client = await clientServer()
-  try {
-    await operatriceCorrente(client)
-  } catch (e) {
-    if (e instanceof NonAutenticata || e instanceof NonOperatrice) return USCITA
-    throw e
-  }
-  const r = await scrittura(client)
-  if (r.error === null) return { ok: true }
-  const codice = r.error.code ?? 'nessuno'
-  console.error('impostazioni: scrittura fallita', { code: codice, id: crypto.randomUUID() })
-  if (codice === '42501') return USCITA
-  const vincolo = /constraint "([^"]+)"/.exec(r.error.message)?.[1]
-  return { ok: false, testo: (vincolo !== undefined ? frasi[vincolo] : undefined) ?? frasi[codice] ?? RIPROVA }
-}
+export type EsitoImpostazioni = EsitoScrittura
 
 const nomeValido = (n: unknown): n is string => typeof n === 'string' && n.trim().length > 0 && n.trim().length <= 80
 const celle = (n: unknown, min: number, max: number): n is number => Number.isInteger(n) && (n as number) >= min && (n as number) <= max

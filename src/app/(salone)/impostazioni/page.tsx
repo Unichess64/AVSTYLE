@@ -1,4 +1,5 @@
 // src/app/(salone)/impostazioni/page.tsx — orario del salone, categorie, servizi e chi li esegue.
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Catalogo } from '../../../cliente/catalogo'
 import stile from '../../../cliente/catalogo.module.css'
@@ -29,6 +30,7 @@ export default async function Impostazioni() {
   return (
     <section className={stile.pagina}>
       <h1 className={stile.titolo}>Impostazioni</h1>
+      <Link href="/impostazioni/operatrici" className={stile.indietro}>Operatrici, colori e account →</Link>
       <Catalogo
         dati={dati}
         operatrici={operatrici.map((o) => ({ id: o.id, nome: o.nome }))}
