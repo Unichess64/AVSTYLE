@@ -1,0 +1,56 @@
+/* src/cliente/catalogo.module.css — Impostazioni: orario, categorie, servizi. */
+
+.pagina { padding: 20px 16px 32px; }
+.titolo {
+  font-family: var(--carattere-titolo), serif;
+  font-weight: 600;
+  font-size: 1.75rem;
+  margin: 0 0 12px;
+}
+.sezioni { display: flex; flex-direction: column; gap: 16px; }
+.sezione { background: var(--bianco); border-radius: 12px; padding: 12px; }
+.sottotitolo { font-size: 1.125rem; font-weight: 700; margin: 0 0 10px; padding: 0; }
+.categoria { font-size: 1rem; font-weight: 700; margin: 12px 0 6px; }
+.gruppo + .gruppo { border-top: 1px solid var(--rosa-cipria); }
+.elenco { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.voce { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-wrap: wrap; }
+.nome { font-weight: 600; flex: 1; min-width: 0; }
+.nota { font-size: 0.9375rem; margin: 0; }
+.servizio, .servizioSpento {
+  border: 1px solid var(--rosa-cipria);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.servizioSpento { opacity: 0.7; }
+.chi, .azioni, .riga { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.azioni { justify-content: flex-end; }
+.riga { border: 0; margin: 0; padding: 0; }
+.editor { border: 2px solid var(--inchiostro); border-radius: 12px; margin: 10px 0 0; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.campo, .campoLargo { display: flex; flex-direction: column; gap: 2px; font-size: 0.9375rem; }
+.campoLargo { flex: 1; min-width: 180px; }
+.campo select, .campoLargo select, .campoLargo input {
+  min-height: 44px;
+  font: inherit;
+  padding: 0 8px;
+  border: 2px solid var(--inchiostro);
+  border-radius: 10px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+}
+.primario, .secondario, .chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  border: 2px solid var(--inchiostro);
+  background: var(--bianco);
+  color: var(--inchiostro);
+}
+.primario { background: var(--rosa-profondo); border-color: var(--rosa-profondo); color: var(--bianco); }
+.chip { border-radius: 22px; }
+.chip[aria-pressed='true'] { background: var(--inchiostro); color: var(--bianco); }
+.errore { margin: 0; color: var(--rosa-profondo); font-weight: 700; }
