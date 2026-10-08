@@ -156,7 +156,11 @@ const VERSO_INDIRIZZO =
   /searchParams\.(set|append)|router\.(push|replace|prefetch)|URLSearchParams|href=|redirect\(|location\.|location\s*=/
 
 /** Una riga che porta un dato di una cliente verso l'indirizzo della pagina. */
-const nellIndirizzo = (riga: string) => VERSO_INDIRIZZO.test(riga) && PERSONALI.test(riga)
+// Eccezione: un link `tel:` apre il compositore del telefono per chiamare la
+// cliente (schermata Clienti, 08/10). Non cambia l'indirizzo della pagina, non
+// entra nella cronologia e non arriva a nessun server.
+const nellIndirizzo = (riga: string) =>
+  VERSO_INDIRIZZO.test(riga) && PERSONALI.test(riga) && !/href=\{`tel:\$\{[\w.]+\}`\}/.test(riga)
 
 /** I parametri di querystring che il testo scrive, in ogni forma: `?x=`, `&x=`, `set('x'`, `{ x: … }` di URLSearchParams. */
 function parametriNonAmmessi(testo: string): string[] {

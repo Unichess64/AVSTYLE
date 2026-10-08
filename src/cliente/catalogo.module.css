@@ -63,3 +63,17 @@
   font-weight: 600;
 }
 .chip svg { vertical-align: middle; }
+.voceCliente {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bianco);
+  color: var(--inchiostro);
+  font: inherit;
+  text-align: left;
+}

@@ -1,0 +1,172 @@
+'use client'
+// src/cliente/clienti.tsx — Clienti: ricerca, scheda, modifica. Le letture vanno in POST
+// a /api/scheda: il nome cercato viaggia nel corpo, mai nell'indirizzo (§4.8).
+import { useRouter } from 'next/navigation'
+import { useEffect, useState, useTransition } from 'react'
+import { dataBreve } from '../dominio/avvisi'
+import { oraDaCella } from '../dominio/tempo'
+import type { ClienteTrovata, SchedaCliente } from '../server/lettura-scheda'
+import type { EsitoScrittura } from '../server/scrittura-semplice'
+import stile from './catalogo.module.css'
+
+async function chiedi<T>(corpo: unknown): Promise<T | 'uscita'> {
+  const r = await fetch('/api/scheda', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(corpo),
+    cache: 'no-store',
+  })
+  if (r.status === 401) return 'uscita'
+  if (!r.ok) throw new Error(`lettura fallita: ${r.status}`)
+  return (await r.json()) as T
+}
+
+export function Clienti({
+  oggi,
+  aggiorna,
+}: {
+  oggi: string
+  aggiorna: (id: string, nome: string, telefono: string) => Promise<EsitoScrittura>
+}) {
+  const router = useRouter()
+  const [testo, setTesto] = useState('')
+  const [trovate, setTrovate] = useState<ClienteTrovata[]>([])
+  const [scheda, setScheda] = useState<SchedaCliente | null>(null)
+  const [modifica, setModifica] = useState<{ nome: string; telefono: string } | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [inviando, avvia] = useTransition()
+
+  // La ricerca parte 300 ms dopo l'ultima lettera.
+  useEffect(() => {
+    if (testo.trim().length < 2) {
+      setTrovate([])
+      return
+    }
+    let viva = true
+    const t = setTimeout(() => {
+      chiedi<ClienteTrovata[]>({ tipo: 'cerca', testo }).then(
+        (r) => {
+          if (!viva) return
+          if (r === 'uscita') router.replace('/accesso')
+          else setTrovate(r)
+        },
+        () => viva && setErrore('Non riesco a cercare: controlla la connessione.'),
+      )
+    }, 300)
+    return () => {
+      viva = false
+      clearTimeout(t)
+    }
+  }, [testo, router])
+
+  async function apri(id: string) {
+    setErrore(null)
+    setModifica(null)
+    try {
+      const r = await chiedi<SchedaCliente | null>({ tipo: 'cliente', id })
+      if (r === 'uscita') return router.replace('/accesso')
+      if (r === null) return setErrore('Questa cliente non esiste più.')
+      setScheda(r)
+    } catch {
+      setErrore('Non riesco a leggere la cliente: controlla la connessione.')
+    }
+  }
+
+  function salva() {
+    if (scheda === null || modifica === null) return
+    setErrore(null)
+    avvia(async () => {
+      const esito = await aggiorna(scheda.id, modifica.nome, modifica.telefono)
+      if (esito.ok) await apri(scheda.id)
+      else if (esito.uscita) router.replace('/accesso')
+      else setErrore(esito.testo)
+    })
+  }
+
+  if (scheda !== null) {
+    const prossimi = scheda.appuntamenti.filter((a) => a.data >= oggi).reverse()
+    const passati = scheda.appuntamenti.filter((a) => a.data < oggi)
+    const riga = (a: (typeof scheda.appuntamenti)[number], i: number) => (
+      <li key={i} className={stile.voce}>
+        <span className={stile.nome}>
+          {dataBreve(a.data)}, {oraDaCella(a.inizio)}
+        </span>
+        <span className={stile.nota}>
+          {a.servizio}
+          {a.operatrice !== '' && ` con ${a.operatrice}`}
+        </span>
+      </li>
+    )
+    return (
+      <div className={stile.sezioni}>
+        <button type="button" className={stile.secondario} onClick={() => setScheda(null)}>
+          ← Torna alla ricerca
+        </button>
+        {errore !== null && <p className={stile.errore} role="alert">{errore}</p>}
+        <section className={stile.sezione} aria-labelledby="nome-cliente">
+          {modifica === null ? (
+            <>
+              <h2 id="nome-cliente" className={stile.sottotitolo}>{scheda.nome}</h2>
+              <p className={stile.nota}>
+                {scheda.telefono === null ? 'Nessun telefono' : <a href={`tel:${scheda.telefono}`}>{scheda.telefono}</a>}
+              </p>
+              <div className={stile.azioni}>
+                <button type="button" className={stile.secondario}
+                  onClick={() => setModifica({ nome: scheda.nome, telefono: scheda.telefono ?? '' })}>
+                  Modifica
+                </button>
+              </div>
+            </>
+          ) : (
+            <fieldset className={stile.editor} disabled={inviando}>
+              <legend id="nome-cliente" className={stile.sottotitolo}>Modifica cliente</legend>
+              <label className={stile.campoLargo}>
+                nome e cognome
+                <input value={modifica.nome} maxLength={120} onChange={(e) => setModifica({ ...modifica, nome: e.target.value })} />
+              </label>
+              <label className={stile.campoLargo}>
+                telefono
+                <input type="tel" inputMode="tel" value={modifica.telefono}
+                  onChange={(e) => setModifica({ ...modifica, telefono: e.target.value })} />
+              </label>
+              <div className={stile.azioni}>
+                <button type="button" className={stile.secondario} onClick={() => setModifica(null)}>Annulla</button>
+                <button type="button" className={stile.primario} onClick={salva}>{inviando ? 'Salvo…' : 'Salva'}</button>
+              </div>
+            </fieldset>
+          )}
+        </section>
+        <section className={stile.sezione} aria-labelledby="prossimi">
+          <h2 id="prossimi" className={stile.sottotitolo}>Prossimi appuntamenti</h2>
+          {prossimi.length === 0 ? <p className={stile.nota}>Nessuno.</p> : <ul className={stile.elenco}>{prossimi.map(riga)}</ul>}
+        </section>
+        <section className={stile.sezione} aria-labelledby="storico">
+          <h2 id="storico" className={stile.sottotitolo}>Storico</h2>
+          {passati.length === 0 ? <p className={stile.nota}>Nessuno.</p> : <ul className={stile.elenco}>{passati.map(riga)}</ul>}
+        </section>
+      </div>
+    )
+  }
+
+  return (
+    <div className={stile.sezioni}>
+      <label className={stile.campoLargo}>
+        cerca per nome o telefono
+        <input type="search" value={testo} onChange={(e) => setTesto(e.target.value)} autoComplete="off" />
+      </label>
+      {errore !== null && <p className={stile.errore} role="alert">{errore}</p>}
+      {testo.trim().length >= 2 && trovate.length === 0 && <p className={stile.nota}>Nessuna cliente trovata.</p>}
+      <ul className={stile.elenco}>
+        {trovate.map((c) => (
+          <li key={c.id}>
+            <button type="button" className={stile.voceCliente} onClick={() => apri(c.id)}>
+              <span className={stile.nome}>{c.nome}</span>
+              <span className={stile.nota}>{c.telefono ?? 'nessun telefono'}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className={stile.nota}>Le clienti nuove si creano dalla scheda di un appuntamento, in agenda.</p>
+    </div>
+  )
+}

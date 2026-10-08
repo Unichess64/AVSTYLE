@@ -68,6 +68,7 @@ export type RichiestaScheda =
   | { readonly tipo: 'cerca'; readonly testo: string }
   | { readonly tipo: 'doppioni'; readonly nome: string; readonly telefono: string | null }
   | { readonly tipo: 'vicini'; readonly clienteId: string; readonly data: string }
+  | { readonly tipo: 'cliente'; readonly id: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Un nome o un testo cercato non sono più lunghi di così: oltre è un corpo storto. */
@@ -102,6 +103,8 @@ export function leggiRichiesta(corpo: unknown): RichiestaScheda | null {
       const d = data(c.data)
       return d === null || typeof c.clienteId !== 'string' || !UUID.test(c.clienteId) ? null : { tipo: 'vicini', clienteId: c.clienteId, data: d }
     }
+    case 'cliente':
+      return typeof c.id === 'string' && UUID.test(c.id) ? { tipo: 'cliente', id: c.id } : null
     case 'cerca':
       return corto(c.testo) ? { tipo: 'cerca', testo: c.testo } : null
     case 'doppioni':
@@ -225,6 +228,48 @@ export async function rispondi(client: SupabaseClient, r: RichiestaScheda, io: s
       return doppioniCliente(client, r.nome, r.telefono)
     case 'vicini':
       return leggiVicini(client, r.clienteId, r.data)
+    case 'cliente':
+      return leggiSchedaCliente(client, r.id)
+  }
+}
+
+export interface AppuntamentoDellaCliente {
+  readonly data: string
+  readonly inizio: number
+  readonly servizio: string
+  readonly operatrice: string
+}
+export interface SchedaCliente extends ClienteTrovata {
+  readonly appuntamenti: readonly AppuntamentoDellaCliente[]
+}
+
+/** La scheda di una cliente: i dati e tutti i suoi appuntamenti, dal più recente. `null` se non c'è più. */
+export async function leggiSchedaCliente(client: SupabaseClient, id: string): Promise<SchedaCliente | null> {
+  const [c, a] = await Promise.all([
+    client.from('client').select('id, full_name, phone').eq('id', id).maybeSingle(),
+    client
+      .from('appointment')
+      .select('appointment_date, start_cell, service:service_id ( name ), operator:operator_id ( name ), visit:visit!appointment_visit_date_fk!inner ( client_id )')
+      .eq('visit.client_id', id)
+      .order('appointment_date', { ascending: false })
+      .order('start_cell'),
+  ])
+  if (c.error !== null) throw new GuastoLettura(c.error.code, 'client')
+  if (a.error !== null) throw new GuastoLettura(a.error.code, 'appointment')
+  if (c.data === null) return null
+  const riga = c.data as { id: string; full_name: string; phone: string | null }
+  return {
+    id: riga.id,
+    nome: riga.full_name,
+    telefono: riga.phone,
+    appuntamenti: (
+      a.data as unknown as { appointment_date: string; start_cell: number; service: { name: string } | null; operator: { name: string } | null }[]
+    ).map((x) => ({
+      data: x.appointment_date,
+      inizio: x.start_cell,
+      servizio: x.service?.name ?? 'Servizio',
+      operatrice: x.operator?.name ?? '',
+    })),
   }
 }
 
